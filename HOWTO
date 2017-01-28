@@ -1,0 +1,6 @@
+
+sudo pacman -S arm-none-eabi-newlib arm-none-eabli-gcc
+cd ~/tock
+rustup override set nightly-2016-07-29
+make TOCK_BOARD=imix
+
