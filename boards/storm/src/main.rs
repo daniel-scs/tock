@@ -1,10 +1,10 @@
 #![no_std]
 #![no_main]
-#![feature(const_fn,lang_items)]
+#![feature(asm,const_fn,lang_items)]
 
 extern crate capsules;
 extern crate cortexm4;
-#[macro_use(static_init)]
+#[macro_use(debug, static_init)]
 extern crate kernel;
 extern crate sam4l;
 
@@ -39,8 +39,8 @@ pub mod io;
 //
 
 
-static mut spi_read_buf: [u8; 64] = [0; 64];
-static mut spi_write_buf: [u8; 64] = [0; 64];
+static mut SPI_READ_BUF: [u8; 64] = [0; 64];
+static mut SPI_WRITE_BUF: [u8; 64] = [0; 64];
 
 unsafe fn load_processes() -> &'static mut [Option<kernel::process::Process<'static>>] {
     extern "C" {
@@ -56,7 +56,7 @@ unsafe fn load_processes() -> &'static mut [Option<kernel::process::Process<'sta
     #[link_section = ".app_memory"]
     static mut APP_MEMORY: [u8; 16384] = [0; 16384];
 
-    static mut processes: [Option<kernel::process::Process<'static>>; NUM_PROCS] = [None, None];
+    static mut PROCESSES: [Option<kernel::process::Process<'static>>; NUM_PROCS] = [None, None];
 
     let mut apps_in_flash_ptr = &_sapps as *const u8;
     let mut app_memory_ptr = APP_MEMORY.as_mut_ptr();
@@ -72,13 +72,13 @@ unsafe fn load_processes() -> &'static mut [Option<kernel::process::Process<'sta
             break;
         }
 
-        processes[i] = process;
+        PROCESSES[i] = process;
         apps_in_flash_ptr = apps_in_flash_ptr.offset(flash_offset as isize);
         app_memory_ptr = app_memory_ptr.offset(memory_offset as isize);
         app_memory_size -= memory_offset;
     }
 
-    &mut processes
+    &mut PROCESSES
 }
 
 struct Firestorm {
@@ -268,7 +268,7 @@ pub unsafe fn reset_handler() {
         capsules::tmp006::TMP006::new(tmp006_i2c,
                                      &sam4l::gpio::PA[9],
                                      &mut capsules::tmp006::BUFFER),
-        52);
+        480/8);
     tmp006_i2c.set_client(tmp006);
     sam4l::gpio::PA[9].set_client(tmp006);
 
@@ -284,7 +284,7 @@ pub unsafe fn reset_handler() {
             isl29035_i2c,
             isl29035_virtual_alarm,
             &mut capsules::isl29035::BUF),
-        320/8);
+        384/8);
     isl29035_i2c.set_client(isl29035);
     isl29035_virtual_alarm.set_client(isl29035);
 
@@ -314,7 +314,7 @@ pub unsafe fn reset_handler() {
     let syscall_spi_device = static_init!(
         VirtualSpiMasterDevice<'static, sam4l::spi::Spi>,
         VirtualSpiMasterDevice::new(mux_spi, 3),
-        384/8);
+        352/8);
 
     // Create the SPI systemc call capsule, passing the client
     let spi_syscalls = static_init!(
@@ -322,7 +322,7 @@ pub unsafe fn reset_handler() {
         capsules::spi::Spi::new(syscall_spi_device),
         672/8);
 
-    spi_syscalls.config_buffers(&mut spi_read_buf, &mut spi_write_buf);
+    spi_syscalls.config_buffers(&mut SPI_READ_BUF, &mut SPI_WRITE_BUF);
     syscall_spi_device.set_client(spi_syscalls);
 
     // LEDs
@@ -339,7 +339,7 @@ pub unsafe fn reset_handler() {
     let adc = static_init!(
         capsules::adc::ADC<'static, sam4l::adc::Adc>,
         capsules::adc::ADC::new(&mut sam4l::adc::ADC),
-        160/8);
+        224/8);
     sam4l::adc::ADC.set_client(adc);
 
     // RNG
@@ -370,7 +370,7 @@ pub unsafe fn reset_handler() {
     let gpio = static_init!(
         capsules::gpio::GPIO<'static, sam4l::gpio::GPIOPin>,
         capsules::gpio::GPIO::new(gpio_pins),
-        20);
+        224/8);
     for pin in gpio_pins.iter() {
         pin.set_client(gpio);
     }
@@ -428,9 +428,17 @@ pub unsafe fn reset_handler() {
     firestorm.console.initialize();
     firestorm.nrf51822.initialize();
 
+    // Attach the kernel debug interface to this console
+    let kc = static_init!(
+        capsules::console::App,
+        capsules::console::App::default(),
+        480/8);
+    kernel::debug::assign_console_driver(Some(firestorm.console), kc);
+
     let mut chip = sam4l::chip::Sam4l::new();
     chip.mpu().enable_mpu();
 
 
+    debug!("Initialization complete. Entering main loop");
     kernel::main(&firestorm, &mut chip, load_processes(), &firestorm.ipc);
 }

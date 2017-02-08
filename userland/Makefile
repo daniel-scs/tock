@@ -24,6 +24,11 @@ READELF := $(TOOLCHAIN)-readelf
 # PACKAGE_NAME is used to identify the application for IPC and for error reporting
 PACKAGE_NAME ?= $(notdir $(shell pwd))
 
+# Set default region sizes
+STACK_SIZE       ?= 2048
+APP_HEAP_SIZE    ?= 1024
+KERNEL_HEAP_SIZE ?= 1024
+
 # This could be replaced with an installed version of `elf2tbf`
 ELF2TBF ?= cargo run --manifest-path $(abspath $(TOCK_USERLAND_BASE_DIR))/tools/elf2tbf/Cargo.toml --
 ELF2TBF_ARGS += -n $(PACKAGE_NAME)
@@ -31,8 +36,6 @@ ELF2TBF_ARGS += -n $(PACKAGE_NAME)
 # Collect all desired built output.
 OBJS += $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SRCS))
 OBJS += $(patsubst %.cc,$(BUILDDIR)/%.o,$(CXX_SRCS))
-
-CPPFLAGS += -DSTACK_SIZE=2048
 
 ASFLAGS += -mcpu=$(TOCK_ARCH) -mthumb
 
@@ -44,6 +47,7 @@ CPPFLAGS += \
 	    -frecord-gcc-switches\
 	    -Os\
 	    -fdata-sections -ffunction-sections\
+	    -fstack-usage -Wstack-usage=$(STACK_SIZE)\
 	    -Wall\
 	    -Wextra\
 	    -Wl,-gc-sections\
@@ -102,7 +106,18 @@ $(BUILDDIR):
 
 $(BUILDDIR)/app.elf: $(OBJS) $(TOCK_USERLAND_BASE_DIR)/newlib/libc.a $(LIBTOCK) | $(BUILDDIR)
 	$(TRACE_LD)
-	$(Q)$(CC) -Wl,--gc-sections -Wl,--emit-relocs --entry=_start $(CFLAGS) $(CPPFLAGS) -T $(LINKER) -nostdlib -Wl,--start-group $(OBJS) $(LIBS) -Wl,--end-group -Wl,-Map=$(BUILDDIR)/app.Map -o $@
+	$(Q)$(CC) $(CFLAGS) $(CPPFLAGS)\
+	    -Wl,--warn-common\
+	    -Wl,--gc-sections -Wl,--emit-relocs\
+	    --entry=_start\
+	    -Xlinker --defsym=STACK_SIZE=$(STACK_SIZE)\
+	    -Xlinker --defsym=APP_HEAP_SIZE=$(APP_HEAP_SIZE)\
+	    -Xlinker --defsym=KERNEL_HEAP_SIZE=$(KERNEL_HEAP_SIZE)\
+	    -T $(LINKER)\
+	    -nostdlib\
+	    -Wl,--start-group $(OBJS) $(LIBS) -Wl,--end-group\
+	    -Wl,-Map=$(BUILDDIR)/app.Map\
+	    -o $@
 
 $(BUILDDIR)/app.bin: $(BUILDDIR)/app.elf | $(BUILDDIR) validate_gcc_flags
 	$(TRACE_BIN)

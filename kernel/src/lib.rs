@@ -5,12 +5,14 @@ pub mod common;
 
 pub mod callback;
 pub mod container;
+#[macro_use]
+pub mod debug;
 pub mod driver;
 pub mod ipc;
 pub mod mem;
 pub mod process;
-pub mod hil;
 pub mod returncode;
+pub mod hil;
 
 pub mod support;
 
@@ -26,6 +28,7 @@ pub use mem::{AppSlice, AppPtr, Private, Shared};
 pub use platform::{Chip, mpu, Platform, systick};
 pub use platform::systick::SysTick;
 pub use process::{Process, State};
+pub use returncode::ReturnCode;
 
 pub fn main<P: Platform, C: Chip>(platform: &P,
                                   chip: &mut C,
