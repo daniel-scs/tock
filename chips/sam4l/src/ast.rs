@@ -229,6 +229,8 @@ impl<'a> Ast<'a> {
 }
 
 impl<'a> Time for Ast<'a> {
+    type Frequency = Freq16KHz;
+
     fn disable(&self) {
         self.disable_alarm_irq();
     }
@@ -239,8 +241,6 @@ impl<'a> Time for Ast<'a> {
 }
 
 impl<'a> Alarm for Ast<'a> {
-    type Frequency = Freq16KHz;
-
     fn now(&self) -> u32 {
         while self.busy() {}
         unsafe { (*self.regs).cv.get() }
