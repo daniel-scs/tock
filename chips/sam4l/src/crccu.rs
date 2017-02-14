@@ -3,7 +3,7 @@ const CRCCU_BASE: u32 = 0x400A4000;
 
     // XXX: see "10.7.4 Clock Mask" about enabling the CRCCU clock
     // XXX: see "15.6 Module Configuration"
-    // see "41. Cyclic Redundancy Check Calculation Unit (CRCCU)"
+    //      see "41. Cyclic Redundancy Check Calculation Unit (CRCCU)"
 
     // "The CRCCU interrupt request line is connected to the NVIC. Using the CRCCU interrupt
     // requires the NVIC to be configured first."
@@ -11,8 +11,6 @@ const CRCCU_BASE: u32 = 0x400A4000;
     // Write CR.RESET=1 to reset intermediate CRC value
     // Write MR.ENABLE=1 to perform checksum
     // Configure MR.PTYPE to choose algorithm
-
-static CRCCU_DSCR: u32 = CRCCU_BASE + 0;
 
 struct Reg(*mut u32);
 unsafe impl Sync for Reg { }
@@ -33,39 +31,29 @@ macro_rules! registers {
 
 // from Table 41.1 in Section 41.6:
 registers![
-    { 0x00, "Descriptor Base Register", DSCR, "RW" },
-    { 0x08, "DMA Enable Register", DMAEN, "W" },
-    { 0x0C, "DMA Disable Register", DMADIS, "W" },
-    { 0x10, "DMA Status Register", DMASR, "R" },
-    { 0x14, "DMA Interrupt Enable Register", DMAIER, "W" },
-    { 0x18, "DMA Interrupt Disable Register", DMAIDR, "W" },
-    { 0x1C, "DMA Interrupt Mask Register", DMAIMR, "R" },
-    { 0x20, "DMA Interrupt Status Register", DMAISR, "R" },
-    { 0x34, "Control Register", CR, "W" },
-    { 0x38, "Mode Register", MR, "RW" },
-    { 0x3C, "Status Register", SR, "R" },
-    { 0x40, "Interrupt Enable Register", IER, "W" },
-    { 0x44, "Interrupt Disable Register", IDR, "W" },
-    { 0x48, "Interrupt Mask Register", IMR, "R" },
-    { 0x4C, "Interrupt Status Register", ISR, "R" },
-    { 0xFC, "Version Register", VERSION, "R" }
+    { 0x00, "Descriptor Base Register", DSCR, "RW" },        // Address of descriptor (512-byte aligned)
+    { 0x08, "DMA Enable Register", DMAEN, "W" },             // Write a one to enable DMA channel
+    { 0x0C, "DMA Disable Register", DMADIS, "W" },           // Write a one to disable DMA channel
+    { 0x10, "DMA Status Register", DMASR, "R" },             // DMA channel enabled?
+    { 0x14, "DMA Interrupt Enable Register", DMAIER, "W" },  // Write a one to enable DMA interrupt
+    { 0x18, "DMA Interrupt Disable Register", DMAIDR, "W" }, // Write a one to disable DMA interrupt
+    { 0x1C, "DMA Interrupt Mask Register", DMAIMR, "R" },    // DMA interrupt enabled?
+    { 0x20, "DMA Interrupt Status Register", DMAISR, "R" },  // DMA transfer completed? (cleared when read)
+    { 0x34, "Control Register", CR, "W" },                   // Write a one to reset SR
+    { 0x38, "Mode Register", MR, "RW" },                     // Bandwidth divider, Polynomial type, Compare?, Enable?
+    { 0x3C, "Status Register", SR, "R" },                    // CRC result (unreadable if MR.COMPARE=1)
+    { 0x40, "Interrupt Enable Register", IER, "W" },         // Write ones to set bits in IMR (zeros no effect)
+    { 0x44, "Interrupt Disable Register", IDR, "W" },        // Write zeros to clear bits in IMR (ones no effect)
+    { 0x48, "Interrupt Mask Register", IMR, "R" },           // Bit set means interrupt enabled
+    { 0x4C, "Interrupt Status Register", ISR, "R" },         // CRC error? (cleared when read)
+    { 0xFC, "Version Register", VERSION, "R" }               // 12 low-order bits: version of this module
 ];
 
-/*
-0x00 Descriptor Base Register DSCR Read-Write
-0x08 DMA Enable Register DMAEN Write-only -
-0x0C DMA Disable Register DMADIS Write-only -
-0x10 DMA Status Register DMASR Read-only 0x00000000
-0x14 DMA Interrupt Enable Register DMAIER Write-only -
-0x18 DMA Interrupt Disable Register DMAIDR Write-only -
-0x1C DMA Interrupt Mask Register DMAIMR Read-only 0x00000000
-0x20 DMA Interrupt Status Register DMAISR Read-only 0x00000000
-0x34 Control Register CR Write-only -
-0x38 Mode Register MR Read/Write 0x00000000
-0x3C Status Register SR Read-only 0xFFFFFFFF
-0x40 Interrupt Enable Register IER Write-only -
-0x44 Interrupt Disable Register IDR Write-only -
-0x48 Interrupt Mask Register IMR Read-only 0x00000000
-0x4C Interrupt Status Register ISR Read-only 0x00000000
-0xFC Version Register VERSION Read-only -(1)
-*/
+// must be 512-byte aligned
+#[repr(C, packed)]
+struct Descriptor {
+    addr: u32,       // Transfer Address Register (RW): Address of memory block to compute
+    ctrl: u32,       // Transfer Control Register (RW): IEN, TRWIDTH, BTSIZE
+    _res: [u32; 2],
+    crc: u32         // Transfer Reference Register (RW): Reference CRC (for compare mode)
+}
