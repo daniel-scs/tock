@@ -1,3 +1,6 @@
+use core::cell::Cell;
+use kernel::hil::crc;
+
 // see ???
 const CRCCU_BASE: u32 = 0x400A4000;
 
@@ -57,3 +60,22 @@ struct Descriptor {
     _res: [u32; 2],
     crc: u32         // Transfer Reference Register (RW): Reference CRC (for compare mode)
 }
+
+pub struct Crccu<'a> {
+    client: Cell<Option<&'a crc::Client>>,
+}
+
+impl<'a> Crccu<'a> {
+    const fn new() -> Self {
+        Crccu { client: Cell::new(None) }
+    }
+
+    pub fn handle_interrupt(&self) {
+    }
+}
+
+pub static mut CRCCU: Crccu<'static> = Crccu::new();
+
+// make a default interrupt handler
+use nvic;
+interrupt_handler!(interrupt_handler, CRCCU);
