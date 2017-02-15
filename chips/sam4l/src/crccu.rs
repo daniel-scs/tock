@@ -4,21 +4,19 @@ use kernel::hil::crc;
 // see "7.1 Product Mapping"
 const CRCCU_BASE: u32 = 0x400A4000;
 
-    // XXX: see "10.7.4 Clock Mask"
-    // - enable the CRCCU clock by setting HSBMASK.4, PBBMASK.4
-    // XXX: see "15.6 Module Configuration"
-    //      see "41. Cyclic Redundancy Check Calculation Unit (CRCCU)"
+    // TODO:
+    // see "10.7.4 Clock Mask": enable the CRCCU clock by setting HSBMASK.4, PBBMASK.4
+    // see "15.6 Module Configuration"
+    // see "41. Cyclic Redundancy Check Calculation Unit (CRCCU)"
 
     // "The CRCCU interrupt request line is connected to the NVIC. Using the CRCCU interrupt
     // requires the NVIC to be configured first."
 
     // Write CR.RESET=1 to reset intermediate CRC value
-    // Write MR.ENABLE=1 to perform checksum
     // Configure MR.PTYPE to choose algorithm
+    // Write MR.ENABLE=1 to perform checksum
 
 struct Reg(*mut u32);
-
-// unsafe impl Sync for Reg { }
 
 impl Reg {
     fn read(self) -> u32 {
@@ -28,7 +26,6 @@ impl Reg {
         unsafe { ::core::ptr::write_volatile(self.0, n); }
     }
 }
-
 
 // The following macro expands a list of expressions like this:
 //
@@ -82,7 +79,17 @@ impl<'a> Crccu<'a> {
         Crccu { client: Cell::new(None) }
     }
 
+    pub fn set_client(&self, client: &'a crc::Client) {
+        self.client.set(Some(client));
+    }
+
     pub fn handle_interrupt(&self) {
+    }
+}
+
+impl<'a> crc::CRC for Crccu<'a> {
+    fn get_version() -> u32 {
+        VERSION.read()
     }
 }
 
