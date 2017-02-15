@@ -1,10 +1,11 @@
 use core::cell::Cell;
 use kernel::hil::crc;
 
-// see ???
+// see "7.1 Product Mapping"
 const CRCCU_BASE: u32 = 0x400A4000;
 
-    // XXX: see "10.7.4 Clock Mask" about enabling the CRCCU clock
+    // XXX: see "10.7.4 Clock Mask"
+    // - enable the CRCCU clock by setting HSBMASK.4, PBBMASK.4
     // XXX: see "15.6 Module Configuration"
     //      see "41. Cyclic Redundancy Check Calculation Unit (CRCCU)"
 
@@ -31,11 +32,11 @@ impl Reg {
 
 // The following macro expands a list of expressions like this:
 //
-//    { 0x00, "Descriptor Base Register", DSCR, "RW" }
-// 
+//    { 0x00, "Descriptor Base Register", DSCR, "RW" },
+//
 // into a series of items like this:
 //
-//    const DSCR: Reg = Reg((CRCCU_BASE + 0x00) as *mut u32 });
+//    const DSCR: Reg = Reg((CRCCU_BASE + 0x00) as *mut u32);
 
 macro_rules! registers {
     [ $( { $offset:expr, $description:expr, $name:ident, $access:expr } ),* ] => {
