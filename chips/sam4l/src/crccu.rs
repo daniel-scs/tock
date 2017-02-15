@@ -15,13 +15,18 @@ const CRCCU_BASE: u32 = 0x400A4000;
     // Write MR.ENABLE=1 to perform checksum
     // Configure MR.PTYPE to choose algorithm
 
-struct RegR(*mut u32);
+struct Reg(*mut u32);
 
-unsafe impl Sync for RegR { }
+// unsafe impl Sync for Reg { }
 
-impl RegR {
-    fn read(&self) -> u32 {
+impl Reg {
+    fn read(self) -> u32 {
+        unsafe { ::core::ptr::read_volatile(self.0) }
     }
+    fn write(self, n: u32) {
+        unsafe { ::core::ptr::write_volatile(self.0, n); }
+    }
+}
 
 
 // The following macro expands a list of expressions like this:
@@ -33,8 +38,8 @@ impl RegR {
 //    const DSCR: Reg = Reg((CRCCU_BASE + 0x00) as *mut u32 });
 
 macro_rules! registers {
-    [ $( { $offset:expr, $description:expr, $name:ident, "R" } ),* ] => {
-        $( const $name: RegR = RegR((CRCCU_BASE + $offset) as *mut u32); )*
+    [ $( { $offset:expr, $description:expr, $name:ident, $access:expr } ),* ] => {
+        $( const $name: Reg = Reg((CRCCU_BASE + $offset) as *mut u32); )*
     };
 }
 
