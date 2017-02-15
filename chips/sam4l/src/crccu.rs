@@ -15,8 +15,14 @@ const CRCCU_BASE: u32 = 0x400A4000;
     // Write MR.ENABLE=1 to perform checksum
     // Configure MR.PTYPE to choose algorithm
 
-struct Reg(*mut u32);
-unsafe impl Sync for Reg { }
+struct RegR(*mut u32);
+
+unsafe impl Sync for RegR { }
+
+impl RegR {
+    fn read(&self) -> u32 {
+    }
+
 
 // The following macro expands a list of expressions like this:
 //
@@ -24,11 +30,11 @@ unsafe impl Sync for Reg { }
 // 
 // into a series of items like this:
 //
-//    static DSCR: Reg = Reg((CRCCU_BASE + 0x00) as *mut u32);
+//    const DSCR: Reg = Reg((CRCCU_BASE + 0x00) as *mut u32 });
 
 macro_rules! registers {
-    [ $( { $offset:expr, $description:expr, $name:ident, $access:expr } ),* ] => {
-        $( static $name: Reg = Reg((CRCCU_BASE + $offset) as *mut u32); )*
+    [ $( { $offset:expr, $description:expr, $name:ident, "R" } ),* ] => {
+        $( const $name: RegR = RegR((CRCCU_BASE + $offset) as *mut u32); )*
     };
 }
 
