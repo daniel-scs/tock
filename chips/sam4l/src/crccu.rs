@@ -1,20 +1,17 @@
 // see "41. Cyclic Redundancy Check Calculation Unit (CRCCU)"
+// see "10.7.4 Clock Mask": enable the CRCCU clock by setting HSBMASK.4, PBBMASK.4
 
     // TODO:
-    // see "10.7.4 Clock Mask": enable the CRCCU clock by setting HSBMASK.4, PBBMASK.4
     // see "15.6 Module Configuration"
 
-    // Write CR.RESET=1 to reset intermediate CRC value
-    // Configure MR.PTYPE to choose algorithm
-    // Write MR.ENABLE=1 to perform checksum
-
+    // Notes
+    //
     // crc calculator: http://www.zorc.breitbandkatze.de/crc.html
     //
     // "Atmel is using the low bit instead of the high bit so reversing the values before
     // calculation did the trick. Here is a calculator that matches (click CCITT and check the
-    // 'reverse data bytes' to get the correct value)."
-    // "The SAM4L calculates 0x1541 for ABCDEFG"
-    //      http://www.at91.com/discussions/viewtopic.php/f,29/t,24859.html
+    // 'reverse data bytes' to get the correct value). [...] The SAM4L calculates 0x1541 for
+    // "ABCDEFG"http://www.at91.com/discussions/viewtopic.php/f,29/t,24859.html
 
 use core::cell::Cell;
 use kernel::hil::crc;
@@ -80,10 +77,9 @@ struct FiveTwelveBytes(
     u64, u64, u64, u64, u64, u64, u64, u64,
 );
 
-// must be 512-byte aligned
 #[repr(C, packed)]
 struct Descriptor {
-    _align: [FiveTwelveBytes; 0],
+    _align: [FiveTwelveBytes; 0],  // Descriptor must be 512-byte aligned
     addr: u32,       // Transfer Address Register (RW): Address of memory block to compute
     ctrl: TCR,       // Transfer Control Register (RW): IEN, TRWIDTH, BTSIZE
     _res: [u32; 2],
@@ -97,20 +93,38 @@ impl Descriptor {
 }
 
 #[repr(C, packed)]
-struct TCR(u32);
+struct TCR(u32);  // see "41.6.18 Transfer Control Register"
 
 impl TCR {
     const fn new(ien: bool, trwidth: TrWidth, btsize: u16) -> Self {
         TCR((ien as u32) << 27
             | (trwidth as u32) << 24
-            | btsize as u32)
+            | (btsize as u32))
     }
     const fn default() -> Self {
         Self::new(false, TrWidth::Byte, 0)
     }
 }
 
-enum TrWidth { Byte, HalfWord, Word }
+pub enum TrWidth { Byte, HalfWord, Word }
+
+// see "41.6.10 Mode Register"
+struct Mode(u32);
+
+impl Mode {
+	fn new(divider: u8, ptype: PolynomialType, compare: bool, enable: bool) -> Self {
+        Mode((divider & 0xf0)
+             | (ptype as u8) << 2
+             | (compare as u8) << 1
+             | (enable as u8))
+    }
+}
+
+pub enum PolynomialType { 
+	CCIT8023,   // Polynomial 0x04C11DB7
+	CASTAGNOLI, // Polynomial 0x1EDC6F41
+	CCIT16,		// Polynomial 0x1021
+}
 
 pub struct Crccu<'a> {
     descriptor: Descriptor,
@@ -129,21 +143,36 @@ impl<'a> Crccu<'a> {
 
     pub fn handle_interrupt(&self) {
     }
-
-    /*
-    enable_clock(Clock::HSB(HSBClock::CRCCU));
-    enable_clock(Clock::PBB(PBBClock::CRCCU));
-    */
 }
 
 impl<'a> crc::CRC for Crccu<'a> {
     fn get_version() -> u32 {
         VERSION.read()
     }
+
+    fn compute(data: &[u8]) -> bool {
+        if data.len() > (2^16 - 1) {
+            return false; // Buffer to long
+        }
+
+        enable_clock(Clock::HSB(HSBClock::CRCCU));
+        enable_clock(Clock::PBB(PBBClock::CRCCU));
+
+        self.descriptor.addr = data.as_ptr() as u32;
+        self.descriptor.ctrl = TCR::new(true, TrWidth::Byte, data.len() as u16);
+        DSCR.write(&self.descriptor as u32);
+
+        CR.write(1);  // Reset intermediate CRC value
+
+        let mode = Mode::new{ divider: 0, ptype: CCIT8023, compare: false, enable: true };
+        MR.write(mode.0);
+
+        return true;
+    }
 }
 
 pub static mut CRCCU: Crccu<'static> = Crccu::new();
 
-// make a default interrupt handler
+// Provide a default interrupt handler
 use nvic;
 interrupt_handler!(interrupt_handler, CRCCU);
