@@ -14,7 +14,7 @@
     // "ABCDEFG"http://www.at91.com/discussions/viewtopic.php/f,29/t,24859.html
 
 use core::cell::Cell;
-use kernel::hil::crc;
+use kernel::hil::crc::{CRC, Client};
 use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
 
 // see "7.1 Product Mapping"
@@ -104,6 +104,9 @@ impl TCR {
     const fn default() -> Self {
         Self::new(false, TrWidth::Byte, 0)
     }
+    fn get_ien(&self) -> bool {
+        (self.0 & (1 << 27)) != 0
+    }
 }
 
 pub enum TrWidth { Byte, HalfWord, Word }
@@ -128,7 +131,7 @@ pub enum Polynomial {
 
 pub struct Crccu<'a> {
     descriptor: Descriptor,
-    client: Cell<Option<&'a crc::Client>>,
+    client: Cell<Option<&'a Client>>,
 }
 
 impl<'a> Crccu<'a> {
@@ -137,15 +140,22 @@ impl<'a> Crccu<'a> {
                 client: Cell::new(None) }
     }
 
-    pub fn set_client(&self, client: &'a crc::Client) {
+    pub fn set_client(&self, client: &'a Client) {
         self.client.set(Some(client));
     }
 
     pub fn handle_interrupt(&self) {
+        if self.descriptor.ctrl.get_ien() {
+            unsafe {
+                disable_clock(Clock::PBB(PBBClock::CRCCU));
+                disable_clock(Clock::HSB(HSBClock::CRCCU));
+            }
+            // XXX
+        }
     }
 }
 
-impl<'a> crc::CRC for Crccu<'a> {
+impl<'a> CRC for Crccu<'a> {
     fn get_version() -> u32 {
         VERSION.read()
     }
