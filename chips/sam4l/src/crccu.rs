@@ -15,7 +15,7 @@
 
 use core::cell::Cell;
 use kernel::hil::crc::{CRC, Client};
-use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
+use pm::{Clock, HSBClock, PBBClock, enable_clock};
 
 // see "7.1 Product Mapping"
 const CRCCU_BASE: u32 = 0x400A4000;
@@ -58,11 +58,11 @@ registers![
     { 0x34, "Control Register", CR, "W" },                   // Write a one to reset SR
     { 0x38, "Mode Register", MR, "RW" },                     // Bandwidth divider, Polynomial type, Compare?, Enable?
     { 0x3C, "Status Register", SR, "R" },                    // CRC result (unreadable if MR.COMPARE=1)
-    { 0x40, "Interrupt Enable Register", IER, "W" },         // Write ones to set bits in IMR (zeros no effect)
-    { 0x44, "Interrupt Disable Register", IDR, "W" },        // Write zeros to clear bits in IMR (ones no effect)
-    { 0x48, "Interrupt Mask Register", IMR, "R" },           // Bit set means interrupt enabled
-    { 0x4C, "Interrupt Status Register", ISR, "R" },         // CRC error? (cleared when read)
-    { 0xFC, "Version Register", VERSION, "R" }               // 12 low-order bits: version of this module
+    { 0x40, "Interrupt Enable Register", IER, "W" },         // Write one to set ERR bit in IMR (zero no effect)
+    { 0x44, "Interrupt Disable Register", IDR, "W" },        // Write zero to clear ERR bit in IMR (one no effect)
+    { 0x48, "Interrupt Mask Register", IMR, "R" },           // If ERR bit is set, error-interrupt (for compare) is enabled
+    { 0x4C, "Interrupt Status Register", ISR, "R" },         // CRC error (for compare)? (cleared when read)
+    { 0xFC, "Version Register", VERSION, "R" }               // 12 low-order bits: version of this module.  = 0x00000202
 ];
 
 #[repr(simd)]
@@ -144,13 +144,39 @@ impl<'a> Crccu<'a> {
         self.client.set(Some(client));
     }
 
-    pub fn handle_interrupt(&self) {
-        if self.descriptor.ctrl.get_ien() {
+    pub fn handle_interrupt(&mut self) {
+        if DMAISR.read() != 0 {
+            // A DMA transfer has completed
+
+            if self.descriptor.ctrl.get_ien() {
+                if let Some(client) = self.client.get() {
+                    let result = SR.read();
+                    client.receive_result(result);
+                }
+
+                // Disable the unit
+                let enable = false;
+                let mode = Mode::new(0, Polynomial::CCIT8023, false, enable);
+                MR.write(mode.0);
+
+                // Clear IEN (for our own statekeeping)
+                self.descriptor.ctrl = TCR::default();
+                
+                // Disable DMA interrupt and DMA channel
+                DMAIDR.write(1);
+                DMADIS.write(1);
+            }
+
+            /*
             unsafe {
                 disable_clock(Clock::PBB(PBBClock::CRCCU));
                 disable_clock(Clock::HSB(HSBClock::CRCCU));
             }
-            // XXX
+            */
+        }
+
+        if ISR.read() != 0 {
+            // A CRC error has occurred
         }
     }
 }
@@ -161,8 +187,12 @@ impl<'a> CRC for Crccu<'a> {
     }
 
     fn compute(&mut self, data: &[u8]) -> bool {
+        if self.descriptor.ctrl.get_ien() {
+            return false;   // A computation is already in progress
+        }
+
         if data.len() > (2^16 - 1) {
-            return false; // Buffer to long
+            return false; // Buffer to long (TODO: chain CRCCU computations for large buffers)
         }
 
         unsafe {
@@ -176,6 +206,11 @@ impl<'a> CRC for Crccu<'a> {
 
         CR.write(1);  // Reset intermediate CRC value
 
+        // Enable DMA interrupt and DMA channel
+        DMAIER.write(1);
+        DMAEN.write(1);
+
+        // Configure the unit to compute a checksum
         let divider = 0;
         let compare = false;
         let enable = true;

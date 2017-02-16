@@ -4,4 +4,5 @@ pub trait CRC {
 }
 
 pub trait Client {
+    fn receive_result(&self, u32);
 }
