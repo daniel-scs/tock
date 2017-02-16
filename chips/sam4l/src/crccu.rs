@@ -112,15 +112,15 @@ pub enum TrWidth { Byte, HalfWord, Word }
 struct Mode(u32);
 
 impl Mode {
-	fn new(divider: u8, ptype: PolynomialType, compare: bool, enable: bool) -> Self {
-        Mode((divider & 0xf0)
-             | (ptype as u8) << 2
-             | (compare as u8) << 1
-             | (enable as u8))
+	fn new(divider: u8, ptype: Polynomial, compare: bool, enable: bool) -> Self {
+        Mode(((divider as u32) & 0xf0)
+             | (ptype as u32) << 2
+             | (compare as u32) << 1
+             | (enable as u32))
     }
 }
 
-pub enum PolynomialType { 
+pub enum Polynomial {
 	CCIT8023,   // Polynomial 0x04C11DB7
 	CASTAGNOLI, // Polynomial 0x1EDC6F41
 	CCIT16,		// Polynomial 0x1021
@@ -150,21 +150,26 @@ impl<'a> crc::CRC for Crccu<'a> {
         VERSION.read()
     }
 
-    fn compute(data: &[u8]) -> bool {
+    fn compute(&mut self, data: &[u8]) -> bool {
         if data.len() > (2^16 - 1) {
             return false; // Buffer to long
         }
 
-        enable_clock(Clock::HSB(HSBClock::CRCCU));
-        enable_clock(Clock::PBB(PBBClock::CRCCU));
+        unsafe {
+            enable_clock(Clock::HSB(HSBClock::CRCCU));
+            enable_clock(Clock::PBB(PBBClock::CRCCU));
+        }
 
         self.descriptor.addr = data.as_ptr() as u32;
         self.descriptor.ctrl = TCR::new(true, TrWidth::Byte, data.len() as u16);
-        DSCR.write(&self.descriptor as u32);
+        DSCR.write(&self.descriptor as *const Descriptor as u32);
 
         CR.write(1);  // Reset intermediate CRC value
 
-        let mode = Mode::new{ divider: 0, ptype: CCIT8023, compare: false, enable: true };
+        let divider = 0;
+        let compare = false;
+        let enable = true;
+        let mode = Mode::new(divider, Polynomial::CCIT8023, compare, enable);
         MR.write(mode.0);
 
         return true;
