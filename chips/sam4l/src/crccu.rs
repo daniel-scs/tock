@@ -16,6 +16,7 @@ use core::cell::Cell;
 use kernel::returncode::ReturnCode;
 use kernel::hil::crc::{CRC, Client};
 use pm::{Clock, HSBClock, PBBClock, enable_clock};
+use nvic;
 
 // see "7.1 Product Mapping"
 const CRCCU_BASE: u32 = 0x400A4000;
@@ -176,6 +177,7 @@ impl<'a> Crccu<'a> {
 
             /*
             unsafe {
+                nvic::disable(nvic::NvicIdx::CRCCU);
                 disable_clock(Clock::PBB(PBBClock::CRCCU));
                 disable_clock(Clock::HSB(HSBClock::CRCCU));
             }
@@ -201,7 +203,7 @@ impl<'a> CRC for Crccu<'a> {
         }
 
         if data.len() > (2^16 - 1) {
-            // Buffer to long (TODO: chain CRCCU computations for large buffers)
+            // Buffer too long (TODO: chain CRCCU computations for large buffers)
             return ReturnCode::ESIZE;
         }
 
@@ -209,6 +211,7 @@ impl<'a> CRC for Crccu<'a> {
             // see "10.7.4 Clock Mask"
             enable_clock(Clock::HSB(HSBClock::CRCCU));
             enable_clock(Clock::PBB(PBBClock::CRCCU));
+            nvic::enable(nvic::NvicIdx::CRCCU);
         }
 
         self.descriptor.addr = data.as_ptr() as u32;
@@ -234,6 +237,4 @@ impl<'a> CRC for Crccu<'a> {
 
 pub static mut CRCCU: Crccu<'static> = Crccu::new();
 
-// Provide a default interrupt handler
-use nvic;
 interrupt_handler!(interrupt_handler, CRCCU);
