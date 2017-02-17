@@ -18,7 +18,6 @@ use kernel::hil::Controller;
 use kernel::hil::radio;
 use kernel::hil::radio::Radio;
 use kernel::hil::spi::SpiMaster;
-use kernel::hil::crc;
 use kernel::mpu::MPU;
 
 #[macro_use]

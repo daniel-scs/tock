@@ -25,7 +25,6 @@ pub mod adc;
 pub mod flashcalw;
 pub mod wdt;
 pub mod trng;
-#[allow(dead_code)]
 pub mod crccu;
 
 unsafe extern "C" fn unhandled_interrupt() {

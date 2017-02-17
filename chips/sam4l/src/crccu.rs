@@ -10,13 +10,17 @@
 //
 //      The SAM4L calculates 0x1541 for "ABCDEFG".
 
+#![allow(dead_code)]
+
 use core::cell::Cell;
+use kernel::returncode::ReturnCode;
 use kernel::hil::crc::{CRC, Client};
 use pm::{Clock, HSBClock, PBBClock, enable_clock};
 
 // see "7.1 Product Mapping"
 const CRCCU_BASE: u32 = 0x400A4000;
 
+// A memory-mapped register
 struct Reg(*mut u32);
 
 impl Reg {
@@ -43,7 +47,7 @@ macro_rules! registers {
     };
 }
 
-// from Table 41.1 in Section 41.6:
+// CRCCU Registers (from Table 41.1 in Section 41.6):
 registers![
     { 0x00, "Descriptor Base Register", DSCR, "RW" },        // Address of descriptor (512-byte aligned)
     { 0x08, "DMA Enable Register", DMAEN, "W" },             // Write a one to enable DMA channel
@@ -63,19 +67,7 @@ registers![
     { 0xFC, "Version Register", VERSION, "R" }               // 12 low-order bits: version of this module.  = 0x00000202
 ];
 
-// A datatype for forcing alignment
-#[repr(simd)]
-struct FiveTwelveBytes(
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-);
-
+// CRCCU Descriptor (from Table 41.2 in Section 41.6):
 #[repr(C, packed)]
 struct Descriptor {
     // Ensure that Descriptor is 512-byte aligned, as required by hardware
@@ -92,8 +84,22 @@ impl Descriptor {
     }
 }
 
+// A datatype for forcing alignment
+#[repr(simd)]
+struct FiveTwelveBytes(
+    u64, u64, u64, u64, u64, u64, u64, u64,
+    u64, u64, u64, u64, u64, u64, u64, u64,
+    u64, u64, u64, u64, u64, u64, u64, u64,
+    u64, u64, u64, u64, u64, u64, u64, u64,
+    u64, u64, u64, u64, u64, u64, u64, u64,
+    u64, u64, u64, u64, u64, u64, u64, u64,
+    u64, u64, u64, u64, u64, u64, u64, u64,
+    u64, u64, u64, u64, u64, u64, u64, u64,
+);
+
+// Transfer Control Register (see Section 41.6.18)
 #[repr(C, packed)]
-struct TCR(u32);  // see "41.6.18 Transfer Control Register"
+struct TCR(u32);
 
 impl TCR {
     const fn new(ien: bool, trwidth: TrWidth, btsize: u16) -> Self {
@@ -111,7 +117,7 @@ impl TCR {
 
 pub enum TrWidth { Byte, HalfWord, Word }
 
-// see "41.6.10 Mode Register"
+// Mode Register (see Section 41.6.10)
 struct Mode(u32);
 
 impl Mode {
@@ -129,6 +135,7 @@ pub enum Polynomial {
 	CCIT16,		// Polynomial 0x1021
 }
 
+// State for managing the CRCCU
 pub struct Crccu<'a> {
     descriptor: Descriptor,
     client: Cell<Option<&'a Client>>,
@@ -181,18 +188,21 @@ impl<'a> Crccu<'a> {
     }
 }
 
+// Implement the generic CRC interface with the CRCCU
 impl<'a> CRC for Crccu<'a> {
     fn get_version() -> u32 {
         VERSION.read()
     }
 
-    fn compute(&mut self, data: &[u8]) -> bool {
+    fn compute(&mut self, data: &[u8]) -> ReturnCode {
         if self.descriptor.ctrl.get_ien() {
-            return false;   // A computation is already in progress
+            // A computation is already in progress
+            return ReturnCode::EBUSY;
         }
 
         if data.len() > (2^16 - 1) {
-            return false; // Buffer to long (TODO: chain CRCCU computations for large buffers)
+            // Buffer to long (TODO: chain CRCCU computations for large buffers)
+            return ReturnCode::ESIZE;
         }
 
         unsafe {
@@ -218,7 +228,7 @@ impl<'a> CRC for Crccu<'a> {
         let mode = Mode::new(divider, Polynomial::CCIT8023, compare, enable);
         MR.write(mode.0);
 
-        return true;
+        return ReturnCode::SUCCESS;
     }
 }
 
