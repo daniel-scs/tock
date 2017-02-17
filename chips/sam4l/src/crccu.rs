@@ -26,6 +26,7 @@ impl Reg {
     fn read(self) -> u32 {
         unsafe { ::core::ptr::read_volatile(self.0) }
     }
+
     fn write(self, n: u32) {
         unsafe { ::core::ptr::write_volatile(self.0, n); }
     }
@@ -145,7 +146,7 @@ impl<'a> Crccu<'a> {
     }
 
     pub fn handle_interrupt(&mut self) {
-        if DMAISR.read() != 0 {
+        if DMAISR.read() & 1 == 1 {
             // A DMA transfer has completed
 
             if self.descriptor.ctrl.get_ien() {
@@ -159,7 +160,7 @@ impl<'a> Crccu<'a> {
                 let mode = Mode::new(0, Polynomial::CCIT8023, false, enable);
                 MR.write(mode.0);
 
-                // Clear IEN (for our own statekeeping)
+                // Clear CTRL.IEN (for our own statekeeping)
                 self.descriptor.ctrl = TCR::default();
                 
                 // Disable DMA interrupt and DMA channel
@@ -175,7 +176,7 @@ impl<'a> Crccu<'a> {
             */
         }
 
-        if ISR.read() != 0 {
+        if ISR.read() & 1 == 1 {
             // A CRC error has occurred
         }
     }
