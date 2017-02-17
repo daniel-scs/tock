@@ -12,7 +12,7 @@
 
 #![allow(dead_code)]
 
-use core::cell::{Cell, UnsafeCell};
+use core::cell::Cell;
 use kernel::returncode::ReturnCode;
 use kernel::hil::crc::{CRC, Client};
 use pm::{Clock, HSBClock, PBBClock, enable_clock};
@@ -73,15 +73,18 @@ registers![
 struct Descriptor {
     // Ensure that Descriptor is 512-byte aligned, as required by hardware
     _align: [FiveTwelveBytes; 0],
-    addr: u32,       // Transfer Address Register (RW): Address of memory block to compute
-    ctrl: TCR,       // Transfer Control Register (RW): IEN, TRWIDTH, BTSIZE
+    addr: Cell<u32>,       // Transfer Address Register (RW): Address of memory block to compute
+    ctrl: Cell<TCR>,       // Transfer Control Register (RW): IEN, TRWIDTH, BTSIZE
     _res: [u32; 2],
-    crc: u32         // Transfer Reference Register (RW): Reference CRC (for compare mode)
+    crc: Cell<u32>         // Transfer Reference Register (RW): Reference CRC (for compare mode)
 }
 
 impl Descriptor {
     const fn new(addr: u32, ctrl: TCR, crc: u32) -> Self {
-        Descriptor { addr: addr, ctrl: ctrl, crc: crc, _res: [0, 0], _align: [] }
+        Descriptor { addr: Cell::new(addr),
+                     ctrl: Cell::new(ctrl),
+                     crc:  Cell::new(crc),
+                     _res: [0, 0], _align: [] }
     }
 
     const fn default() -> Self {
@@ -145,13 +148,13 @@ pub enum Polynomial {
 
 // State for managing the CRCCU
 pub struct Crccu<'a> {
-    descriptor: UnsafeCell<Descriptor>,
+    descriptor: Descriptor,
     client: Cell<Option<&'a Client>>,
 }
 
 impl<'a> Crccu<'a> {
     const fn new() -> Self {
-        Crccu { descriptor: UnsafeCell::new(Descriptor::default()),
+        Crccu { descriptor: Descriptor::default(),
                 client: Cell::new(None) }
     }
 
@@ -197,15 +200,13 @@ impl<'a> Crccu<'a> {
     }
 
     fn set_descriptor(&self, addr: u32, ctrl: TCR, crc: u32) {
-        let r = unsafe { &mut *self.descriptor.get() };
-        r.addr = addr;
-        r.ctrl = ctrl;
-        r.crc = crc;
+        self.descriptor.addr.set(addr);
+        self.descriptor.ctrl.set(ctrl);
+        self.descriptor.crc.set(crc);
     }
 
     fn get_tcr(&self) -> TCR {
-        let r = unsafe { &*self.descriptor.get() };
-        r.ctrl
+        self.descriptor.ctrl.get()
     }
 }
 
@@ -237,7 +238,7 @@ impl<'a> CRC for Crccu<'a> {
         let ctrl = TCR::new(true, TrWidth::Byte, data.len() as u16);
         let crc = 0;
         self.set_descriptor(addr, ctrl, crc);
-        DSCR.write(self.descriptor.get() as u32);
+        DSCR.write(&self.descriptor as *const Descriptor as u32);
 
         CR.write(1);  // Reset intermediate CRC value
 
