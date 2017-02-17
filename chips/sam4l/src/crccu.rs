@@ -1,17 +1,14 @@
 // see "41. Cyclic Redundancy Check Calculation Unit (CRCCU)"
-// see "10.7.4 Clock Mask": enable the CRCCU clock by setting HSBMASK.4, PBBMASK.4
 
-    // TODO:
-    // see "15.6 Module Configuration"
-
-    // Notes
-    //
-    // crc calculator: http://www.zorc.breitbandkatze.de/crc.html
-    //
-    // "Atmel is using the low bit instead of the high bit so reversing the values before
-    // calculation did the trick. Here is a calculator that matches (click CCITT and check the
-    // 'reverse data bytes' to get the correct value). [...] The SAM4L calculates 0x1541 for
-    // "ABCDEFG"http://www.at91.com/discussions/viewtopic.php/f,29/t,24859.html
+// Notes
+//
+// http://www.at91.com/discussions/viewtopic.php/f,29/t,24859.html
+//      Atmel is using the low bit instead of the high bit so reversing
+//      the values before calculation did the trick. Here is a calculator
+//      that matches (click CCITT and check the 'reverse data bytes' to
+//      get the correct value).  http://www.zorc.breitbandkatze.de/crc.html
+//
+//      The SAM4L calculates 0x1541 for "ABCDEFG".
 
 use core::cell::Cell;
 use kernel::hil::crc::{CRC, Client};
@@ -66,6 +63,7 @@ registers![
     { 0xFC, "Version Register", VERSION, "R" }               // 12 low-order bits: version of this module.  = 0x00000202
 ];
 
+// A datatype for forcing alignment
 #[repr(simd)]
 struct FiveTwelveBytes(
     u64, u64, u64, u64, u64, u64, u64, u64,
@@ -80,7 +78,8 @@ struct FiveTwelveBytes(
 
 #[repr(C, packed)]
 struct Descriptor {
-    _align: [FiveTwelveBytes; 0],  // Descriptor must be 512-byte aligned
+    // Ensure that Descriptor is 512-byte aligned, as required by hardware
+    _align: [FiveTwelveBytes; 0],
     addr: u32,       // Transfer Address Register (RW): Address of memory block to compute
     ctrl: TCR,       // Transfer Control Register (RW): IEN, TRWIDTH, BTSIZE
     _res: [u32; 2],
@@ -197,6 +196,7 @@ impl<'a> CRC for Crccu<'a> {
         }
 
         unsafe {
+            // see "10.7.4 Clock Mask"
             enable_clock(Clock::HSB(HSBClock::CRCCU));
             enable_clock(Clock::PBB(PBBClock::CRCCU));
         }
