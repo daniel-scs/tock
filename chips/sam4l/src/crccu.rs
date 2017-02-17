@@ -12,7 +12,7 @@
 
 #![allow(dead_code)]
 
-use core::cell::Cell;
+use core::cell::{Cell, UnsafeCell};
 use kernel::returncode::ReturnCode;
 use kernel::hil::crc::{CRC, Client};
 use pm::{Clock, HSBClock, PBBClock, enable_clock};
@@ -80,8 +80,12 @@ struct Descriptor {
 }
 
 impl Descriptor {
-    const fn new() -> Self {
-        Descriptor { addr: 0, ctrl: TCR::default(), crc: 0, _res: [0, 0], _align: [] }
+    const fn new(addr: u32, ctrl: TCR, crc: u32) -> Self {
+        Descriptor { addr: addr, ctrl: ctrl, crc: crc, _res: [0, 0], _align: [] }
+    }
+
+    const fn default() -> Self {
+        Self::new(0, TCR::default(), 0)
     }
 }
 
@@ -99,6 +103,7 @@ struct FiveTwelveBytes(
 );
 
 // Transfer Control Register (see Section 41.6.18)
+#[derive(Copy, Clone)]
 #[repr(C, packed)]
 struct TCR(u32);
 
@@ -108,10 +113,12 @@ impl TCR {
             | (trwidth as u32) << 24
             | (btsize as u32))
     }
+
     const fn default() -> Self {
         Self::new(false, TrWidth::Byte, 0)
     }
-    fn get_ien(&self) -> bool {
+
+    fn get_ien(self) -> bool {
         (self.0 & (1 << 27)) != 0
     }
 }
@@ -138,13 +145,13 @@ pub enum Polynomial {
 
 // State for managing the CRCCU
 pub struct Crccu<'a> {
-    descriptor: Descriptor,
+    descriptor: UnsafeCell<Descriptor>,
     client: Cell<Option<&'a Client>>,
 }
 
 impl<'a> Crccu<'a> {
     const fn new() -> Self {
-        Crccu { descriptor: Descriptor::new(),
+        Crccu { descriptor: UnsafeCell::new(Descriptor::default()),
                 client: Cell::new(None) }
     }
 
@@ -152,11 +159,11 @@ impl<'a> Crccu<'a> {
         self.client.set(Some(client));
     }
 
-    pub fn handle_interrupt(&mut self) {
+    pub fn handle_interrupt(&self) {
         if DMAISR.read() & 1 == 1 {
             // A DMA transfer has completed
 
-            if self.descriptor.ctrl.get_ien() {
+            if self.get_tcr().get_ien() {
                 if let Some(client) = self.client.get() {
                     let result = SR.read();
                     client.receive_result(result);
@@ -168,7 +175,7 @@ impl<'a> Crccu<'a> {
                 MR.write(mode.0);
 
                 // Clear CTRL.IEN (for our own statekeeping)
-                self.descriptor.ctrl = TCR::default();
+                self.set_descriptor(0, TCR::default(), 0);
                 
                 // Disable DMA interrupt and DMA channel
                 DMAIDR.write(1);
@@ -188,6 +195,18 @@ impl<'a> Crccu<'a> {
             // A CRC error has occurred
         }
     }
+
+    fn set_descriptor(&self, addr: u32, ctrl: TCR, crc: u32) {
+        let r = unsafe { &mut *self.descriptor.get() };
+        r.addr = addr;
+        r.ctrl = ctrl;
+        r.crc = crc;
+    }
+
+    fn get_tcr(&self) -> TCR {
+        let r = unsafe { &*self.descriptor.get() };
+        r.ctrl
+    }
 }
 
 // Implement the generic CRC interface with the CRCCU
@@ -197,7 +216,7 @@ impl<'a> CRC for Crccu<'a> {
     }
 
     fn compute(&mut self, data: &[u8]) -> ReturnCode {
-        if self.descriptor.ctrl.get_ien() {
+        if self.get_tcr().get_ien() {
             // A computation is already in progress
             return ReturnCode::EBUSY;
         }
@@ -214,9 +233,11 @@ impl<'a> CRC for Crccu<'a> {
             nvic::enable(nvic::NvicIdx::CRCCU);
         }
 
-        self.descriptor.addr = data.as_ptr() as u32;
-        self.descriptor.ctrl = TCR::new(true, TrWidth::Byte, data.len() as u16);
-        DSCR.write(&self.descriptor as *const Descriptor as u32);
+        let addr = data.as_ptr() as u32;
+        let ctrl = TCR::new(true, TrWidth::Byte, data.len() as u16);
+        let crc = 0;
+        self.set_descriptor(addr, ctrl, crc);
+        DSCR.write(self.descriptor.get() as u32);
 
         CR.write(1);  // Reset intermediate CRC value
 
@@ -235,6 +256,6 @@ impl<'a> CRC for Crccu<'a> {
     }
 }
 
-pub static mut CRCCU: Crccu<'static> = Crccu::new();
+pub static CRCCU: Crccu<'static> = Crccu::new();
 
 interrupt_handler!(interrupt_handler, CRCCU);
