@@ -28,6 +28,8 @@ pub mod io;
 mod i2c_dummy;
 #[allow(dead_code)]
 mod spi_dummy;
+#[allow(dead_code)]
+mod crc_dummy;
 
 struct Imix {
     console: &'static capsules::console::Console<'static, sam4l::usart::USART>,
@@ -391,6 +393,8 @@ pub unsafe fn reset_handler() {
     rf233.set_pan(0xABCD);
     rf233.set_address(0x1008);
     rf233.start();
+
+    crc_dummy::crc_test_begin();
 
     debug!("Initialization complete. Entering main loop");
     kernel::main(&imix, &mut chip, load_processes(), &imix.ipc);

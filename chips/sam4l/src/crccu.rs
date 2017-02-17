@@ -164,7 +164,7 @@ impl<'a> Crccu<'a> {
 
                 // Disable the unit
                 let enable = false;
-                let mode = Mode::new(0, Polynomial::CCIT8023, false, enable);
+                let mode = Mode::new(0, Polynomial::CCIT16, false, enable);
                 MR.write(mode.0);
 
                 // Clear CTRL.IEN (for our own statekeeping)
@@ -192,7 +192,7 @@ impl<'a> Crccu<'a> {
 
 // Implement the generic CRC interface with the CRCCU
 impl<'a> CRC for Crccu<'a> {
-    fn get_version() -> u32 {
+    fn get_version(&self) -> u32 {
         VERSION.read()
     }
 
