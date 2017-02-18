@@ -23,7 +23,9 @@ static CLIENT: CrcClient = CrcClient;
 static DATA: &'static [u8] = b"ABCDEFG";
 
 pub fn crc_test_begin() {
-    CRCCU.enable_unit();
+    if CRCCU.init() != ReturnCode::SUCCESS {
+        blink_loop_n(4);
+    }
     blink_n(4, 1);
 
     if CRCCU.get_version() != 0x00000202 {

@@ -153,7 +153,7 @@ struct Mode(u32);
 
 impl Mode {
 	fn new(divider: u8, ptype: Polynomial, compare: bool, enable: bool) -> Self {
-        Mode(((divider as u32) & 0xf0)
+        Mode((((divider & 0x0f) as u32) << 4)
              | (ptype as u32) << 2
              | (compare as u32) << 1
              | (enable as u32))
@@ -247,8 +247,14 @@ impl<'a> Crccu<'a> {
 
 // Implement the generic CRC interface with the CRCCU
 impl<'a> CRC for Crccu<'a> {
-    fn init(&self) {
+    fn init(&self) -> ReturnCode {
+        let daddr = &self.descriptor as *const Descriptor as u32;
+        if daddr & 0x1ff != 0 {
+            // Alignment failure
+            return ReturnCode::FAIL;
+        }
         self.enable_unit();
+        return ReturnCode::SUCCESS;
     }
 
     fn get_version(&self) -> u32 {
@@ -279,8 +285,14 @@ impl<'a> CRC for Crccu<'a> {
         // Enable DMA interrupt and DMA channel
         DMAIER.write(1);
         DMAEN.write(1);
+        if DMAIMR.read() & 1 != 1
+           || DMASR.read() & 1 != 1 {
+            return ReturnCode::EOFF;
+        }
 
-        if DMAIMR.read() & 1 != 1 || DMASR.read() & 1 != 1 {
+        // Enable error interrupt
+        IER.write(1);
+        if IMR.read() & 1 != 1 {
             return ReturnCode::EOFF;
         }
 
