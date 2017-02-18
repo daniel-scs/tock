@@ -168,7 +168,6 @@ pub unsafe fn reset_handler() {
 
     set_pin_primary_functions();
 
-
     // # CONSOLE
 
     let console = static_init!(

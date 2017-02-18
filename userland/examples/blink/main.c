@@ -13,6 +13,6 @@ int main(void) {
         led_off(i);
       }
     }
-    delay_ms(250);
+    delay_ms(1000);
   }
 }
