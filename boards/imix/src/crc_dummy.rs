@@ -12,6 +12,10 @@ impl crc::Client for CrcClient {
         }
         blink_loop_n(5);
     }
+
+    fn interrupt(&self) {
+        blink_loop_n(6);
+    }
 }
 
 static CLIENT: CrcClient = CrcClient;
@@ -50,15 +54,15 @@ fn blink_n(n: u8, times: u32) {
             }
 
             for _ in 0..n {
-                for _ in 0..2000000 {
+                for _ in 0..1000000 {
                     led.set();
                 }
-                for _ in 0..2000000 {
+                for _ in 0..1000000 {
                     led.clear();
                 }
             }
 
-            for _ in 0..5000000 {
+            for _ in 0..2000000 {
                 led.clear();
             }
         }

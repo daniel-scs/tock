@@ -192,6 +192,10 @@ impl<'a> Crccu<'a> {
     }
 
     pub fn handle_interrupt(&self) {
+        if let Some(client) = self.client.get() {
+            client.interrupt();
+        }
+
         if DMAISR.read() & 1 == 1 {
             // A DMA transfer has completed
 
@@ -225,6 +229,7 @@ impl<'a> Crccu<'a> {
 
         if ISR.read() & 1 == 1 {
             // A CRC error has occurred
+
         }
     }
 
