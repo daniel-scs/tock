@@ -192,6 +192,7 @@ impl<'a> Crccu<'a> {
     }
 
     pub fn handle_interrupt(&self) {
+        // DEBUG
         if let Some(client) = self.client.get() {
             client.interrupt();
         }
@@ -278,6 +279,10 @@ impl<'a> CRC for Crccu<'a> {
         // Enable DMA interrupt and DMA channel
         DMAIER.write(1);
         DMAEN.write(1);
+
+        if DMAIMR.read() & 1 != 1 || DMASR.read() & 1 != 1 {
+            return ReturnCode::EOFF;
+        }
 
         // Configure the unit to compute a checksum
         let divider = 0;
