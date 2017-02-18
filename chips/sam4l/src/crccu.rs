@@ -12,11 +12,31 @@
 
 #![allow(dead_code)]
 
-use core::cell::Cell;
+use core::marker::Sync;
+use core::cell::UnsafeCell;
 use kernel::returncode::ReturnCode;
 use kernel::hil::crc::{CRC, Client};
 use pm::{Clock, HSBClock, PBBClock, enable_clock};
 use nvic;
+
+struct Cell<T>(UnsafeCell<T>);
+
+impl<T: Copy> Cell<T> {
+    const fn new(value: T) -> Self {
+        Cell(UnsafeCell::new(value))
+    }
+
+    fn get(&self) -> T {
+        unsafe { *self.0.get() }
+    }
+
+    fn set(&self, value: T) {
+        unsafe { *self.0.get() = value }
+    }
+}
+
+unsafe impl<T> Sync for Cell<T> {}
+
 
 // see "7.1 Product Mapping"
 const CRCCU_BASE: u32 = 0x400A4000;
@@ -216,7 +236,7 @@ impl<'a> CRC for Crccu<'a> {
         VERSION.read()
     }
 
-    fn compute(&mut self, data: &[u8]) -> ReturnCode {
+    fn compute(&self, data: &[u8]) -> ReturnCode {
         if self.get_tcr().get_ien() {
             // A computation is already in progress
             return ReturnCode::EBUSY;
