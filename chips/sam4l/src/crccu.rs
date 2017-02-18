@@ -182,6 +182,15 @@ impl<'a> Crccu<'a> {
         self.client.set(Some(client));
     }
 
+    pub fn enable_unit(&self) {
+        unsafe {
+            // see "10.7.4 Clock Mask"
+            enable_clock(Clock::HSB(HSBClock::CRCCU));
+            enable_clock(Clock::PBB(PBBClock::CRCCU));
+            nvic::enable(nvic::NvicIdx::CRCCU);
+        }
+    }
+
     pub fn handle_interrupt(&self) {
         if DMAISR.read() & 1 == 1 {
             // A DMA transfer has completed
@@ -232,6 +241,10 @@ impl<'a> Crccu<'a> {
 
 // Implement the generic CRC interface with the CRCCU
 impl<'a> CRC for Crccu<'a> {
+    fn init(&self) {
+        self.enable_unit();
+    }
+
     fn get_version(&self) -> u32 {
         VERSION.read()
     }
@@ -247,12 +260,7 @@ impl<'a> CRC for Crccu<'a> {
             return ReturnCode::ESIZE;
         }
 
-        unsafe {
-            // see "10.7.4 Clock Mask"
-            enable_clock(Clock::HSB(HSBClock::CRCCU));
-            enable_clock(Clock::PBB(PBBClock::CRCCU));
-            nvic::enable(nvic::NvicIdx::CRCCU);
-        }
+        // enable_unit();
 
         let addr = data.as_ptr() as u32;
         let ctrl = TCR::new(true, TrWidth::Byte, data.len() as u16);
