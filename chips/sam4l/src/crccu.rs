@@ -283,13 +283,12 @@ impl<'a> CRC for Crccu<'a> {
 
         CR.write(1);  // Reset intermediate CRC value
 
-        // Enable DMA interrupt and DMA channel
-        DMAIER.write(1);
-        DMAEN.write(1);
-        if DMAIMR.read() & 1 != 1
-           || DMASR.read() & 1 != 1 {
-            return ReturnCode::EOFF;
-        }
+        // Configure the unit to compute a checksum
+        let divider = 0;
+        let compare = false;
+        let enable = true;
+        let mode = Mode::new(divider, Polynomial::CCIT8023, compare, enable);
+        MR.write(mode.0);
 
         // Enable error interrupt
         IER.write(1);
@@ -297,12 +296,17 @@ impl<'a> CRC for Crccu<'a> {
             return ReturnCode::EOFF;
         }
 
-        // Configure the unit to compute a checksum
-        let divider = 0;
-        let compare = false;
-        let enable = true;
-        let mode = Mode::new(divider, Polynomial::CCIT8023, compare, enable);
-        MR.write(mode.0);
+        // Enable DMA interrupt
+        DMAIER.write(1);
+        if DMAIMR.read() & 1 != 1 {
+            return ReturnCode::EOFF;
+        }
+
+        // Enable DMA channel
+        DMAEN.write(1);
+        if DMASR.read() & 1 != 1 {
+            return ReturnCode::EOFF;
+        }
 
         return ReturnCode::SUCCESS;
     }
