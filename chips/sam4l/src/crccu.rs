@@ -276,7 +276,7 @@ impl<'a> CRC for Crccu<'a> {
             return ReturnCode::ESIZE;
         }
 
-        enable_unit();
+        self.enable_unit();
 
         let addr = data.as_ptr() as u32;
         let ctrl = TCR::new(true, TrWidth::Byte, data.len() as u16);
@@ -293,6 +293,7 @@ impl<'a> CRC for Crccu<'a> {
         let mode = Mode::new(divider, Polynomial::CCIT8023, compare, enable);
         MR.write(mode.0);
 
+        /*
         // Enable error interrupt
         IER.write(1);
         if IMR.read() & 1 != 1 {
@@ -304,11 +305,23 @@ impl<'a> CRC for Crccu<'a> {
         if DMAIMR.read() & 1 != 1 {
             return ReturnCode::EOFF;
         }
+        */
 
         // Enable DMA channel
         DMAEN.write(1);
         if DMASR.read() & 1 != 1 {
             return ReturnCode::EOFF;
+        }
+
+        loop {
+            if DMAISR.read() & 1 == 1 {
+                // A DMA transfer has completed
+                if let Some(client) = self.client.get() {
+                    let result = SR.read();
+                    client.receive_result(result);
+                }
+                break;
+            }
         }
 
         return ReturnCode::SUCCESS;
