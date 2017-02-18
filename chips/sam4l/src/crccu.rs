@@ -296,6 +296,9 @@ impl<'a> CRC for Crccu<'a> {
         let enable = true;
         let mode = Mode::new(divider, Polynomial::CCIT8023, compare, enable);
         MR.write(mode.0);
+        if MR.read() & 1 != 1 {
+            return ReturnCode::FAIL;
+        }
 
         /*
         // Enable error interrupt
