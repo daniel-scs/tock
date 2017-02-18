@@ -300,6 +300,7 @@ impl<'a> CRC for Crccu<'a> {
             return ReturnCode::FAIL;
         }
 
+        // DEBUG: don't use interrupts, just poll
         /*
         // Enable error interrupt
         IER.write(1);
@@ -320,6 +321,7 @@ impl<'a> CRC for Crccu<'a> {
             return ReturnCode::EOFF;
         }
 
+        // DEBUG: Try polling until DMA has completed
         loop {
             if self.get_tcr().get_btsize() < data.len() as u16 || DMAISR.read() & 1 == 1 {
                 // A DMA transfer has completed
