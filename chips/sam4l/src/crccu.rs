@@ -91,8 +91,6 @@ registers![
 // CRCCU Descriptor (from Table 41.2 in Section 41.6):
 #[repr(C, packed)]
 struct Descriptor {
-    // Ensure that Descriptor is 512-byte aligned, as required by hardware
-    _align: [FiveTwelveBytes; 0],
     addr: Cell<u32>,       // Transfer Address Register (RW): Address of memory block to compute
     ctrl: Cell<TCR>,       // Transfer Control Register (RW): IEN, TRWIDTH, BTSIZE
     _res: [u32; 2],
@@ -104,26 +102,13 @@ impl Descriptor {
         Descriptor { addr: Cell::new(addr),
                      ctrl: Cell::new(ctrl),
                      crc:  Cell::new(crc),
-                     _res: [0, 0], _align: [] }
+                     _res: [0, 0], }
     }
 
     const fn default() -> Self {
         Self::new(0, TCR::default(), 0)
     }
 }
-
-// A datatype for forcing alignment
-#[repr(simd)]
-struct FiveTwelveBytes(
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-    u64, u64, u64, u64, u64, u64, u64, u64,
-);
 
 // Transfer Control Register (see Section 41.6.18)
 #[derive(Copy, Clone)]
@@ -168,18 +153,37 @@ pub enum Polynomial {
 
 // State for managing the CRCCU
 pub struct Crccu<'a> {
-    descriptor: Descriptor,
     client: Cell<Option<&'a Client>>,
+
+    // Guaranteed room for a Descriptor with 512-byte alignment
+    descriptor_space: [u8; DSCR_RESERVE],
 }
+
+const DSCR_RESERVE: usize = 512 + 5*4;
 
 impl<'a> Crccu<'a> {
     const fn new() -> Self {
-        Crccu { descriptor: Descriptor::default(),
-                client: Cell::new(None) }
+        Crccu { client: Cell::new(None),
+                descriptor_space: [0; DSCR_RESERVE] }
     }
 
     pub fn set_client(&self, client: &'a Client) {
         self.client.set(Some(client));
+    }
+
+    fn descriptor(&self) -> *mut Descriptor {
+        let s = &self.descriptor_space as *const [u8; DSCR_RESERVE] as u32;
+        let t = s % 512;
+        let u = 512 - t;
+        let d = s + u;
+        return d as *mut Descriptor;
+    }
+
+    fn set_descriptor(&self, addr: u32, ctrl: TCR, crc: u32) {
+        let d = unsafe { &mut *self.descriptor() };
+        d.addr.set(addr);
+        d.ctrl.set(ctrl);
+        d.crc.set(crc);
     }
 
     pub fn enable_unit(&self) {
@@ -234,25 +238,22 @@ impl<'a> Crccu<'a> {
         }
     }
 
-    fn set_descriptor(&self, addr: u32, ctrl: TCR, crc: u32) {
-        self.descriptor.addr.set(addr);
-        self.descriptor.ctrl.set(ctrl);
-        self.descriptor.crc.set(crc);
-    }
-
     fn get_tcr(&self) -> TCR {
-        self.descriptor.ctrl.get()
+        let d = unsafe { &*self.descriptor() };
+        d.ctrl.get()
     }
 }
 
 // Implement the generic CRC interface with the CRCCU
 impl<'a> CRC for Crccu<'a> {
     fn init(&self) -> ReturnCode {
-        let daddr = &self.descriptor as *const Descriptor as u32;
+        let daddr = self.descriptor() as u32;
         if daddr & 0x1ff != 0 {
             // Alignment failure
             return ReturnCode::FAIL;
         }
+
+        self.set_descriptor(0, TCR::default(), 0);
         self.enable_unit();
         return ReturnCode::SUCCESS;
     }
@@ -278,7 +279,7 @@ impl<'a> CRC for Crccu<'a> {
         let ctrl = TCR::new(true, TrWidth::Byte, data.len() as u16);
         let crc = 0;
         self.set_descriptor(addr, ctrl, crc);
-        DSCR.write(&self.descriptor as *const Descriptor as u32);
+        DSCR.write(self.descriptor() as u32);
 
         CR.write(1);  // Reset intermediate CRC value
 
