@@ -191,6 +191,9 @@ impl<'a> Crccu<'a> {
             // see "10.7.4 Clock Mask"
             enable_clock(Clock::HSB(HSBClock::CRCCU));
             enable_clock(Clock::PBB(PBBClock::CRCCU));
+
+            nvic::disable(nvic::NvicIdx::CRCCU);
+            nvic::clear_pending(nvic::NvicIdx::CRCCU);
             nvic::enable(nvic::NvicIdx::CRCCU);
         }
     }
@@ -273,7 +276,7 @@ impl<'a> CRC for Crccu<'a> {
             return ReturnCode::ESIZE;
         }
 
-        // enable_unit();
+        enable_unit();
 
         let addr = data.as_ptr() as u32;
         let ctrl = TCR::new(true, TrWidth::Byte, data.len() as u16);
