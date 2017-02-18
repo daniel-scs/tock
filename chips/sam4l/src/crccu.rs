@@ -129,6 +129,10 @@ impl TCR {
     fn get_ien(self) -> bool {
         (self.0 & (1 << 27)) != 0
     }
+
+    fn get_btsize(self) -> u16 {
+        (self.0 & 0xffff) as u16
+    }
 }
 
 pub enum TrWidth { Byte, HalfWord, Word }
@@ -314,7 +318,7 @@ impl<'a> CRC for Crccu<'a> {
         }
 
         loop {
-            if DMAISR.read() & 1 == 1 {
+            if self.get_tcr().get_btsize() < data.len() as u16 || DMAISR.read() & 1 == 1 {
                 // A DMA transfer has completed
                 if let Some(client) = self.client.get() {
                     let result = SR.read();
