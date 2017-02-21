@@ -21,7 +21,6 @@
 //
 //      The SAM4L calculates 0x1541 for "ABCDEFG".
 
-use core::cell::Cell;
 use kernel::returncode::ReturnCode;
 use kernel::hil::crc;
 use nvic;
@@ -82,10 +81,10 @@ registers![
 // CRCCU Descriptor (from Table 41.2 in Section 41.6):
 #[repr(C, packed)]
 struct Descriptor {
-    addr: Cell<u32>,       // Transfer Address Register (RW): Address of memory block to compute
-    ctrl: Cell<TCR>,       // Transfer Control Register (RW): IEN, TRWIDTH, BTSIZE
+    addr: u32,       // Transfer Address Register (RW): Address of memory block to compute
+    ctrl: TCR,       // Transfer Control Register (RW): IEN, TRWIDTH, BTSIZE
     _res: [u32; 2],
-    crc: Cell<u32>         // Transfer Reference Register (RW): Reference CRC (for compare mode)
+    crc: u32         // Transfer Reference Register (RW): Reference CRC (for compare mode)
 }
 
 // Transfer Control Register (see Section 41.6.18)
@@ -135,7 +134,7 @@ pub enum Polynomial {
 
 // State for managing the CRCCU
 pub struct Crccu<'a> {
-    client: Cell<Option<&'a crc::Client>>,
+    client: Option<&'a crc::Client>,
 
     // Guaranteed room for a Descriptor with 512-byte alignment.
     // (Can we do this statically instead?)
@@ -146,12 +145,23 @@ const DSCR_RESERVE: usize = 512 + 5*4;
 
 impl<'a> Crccu<'a> {
     const fn new() -> Self {
-        Crccu { client: Cell::new(None),
+        Crccu { client: None,
                 descriptor_space: [0; DSCR_RESERVE] }
     }
 
-    pub fn set_client(&self, client: &'a crc::Client) {
-        self.client.set(Some(client));
+    pub fn set_client(&mut self, client: &'a crc::Client) {
+        self.client = Some(client);
+    }
+
+    pub fn get_client(&self) -> Option<&'a crc::Client> {
+        self.client
+    }
+
+    fn set_descriptor(&mut self, addr: u32, ctrl: TCR, crc: u32) {
+        let d = unsafe { &mut *self.descriptor() };
+        d.addr = addr;
+        d.ctrl = ctrl;
+        d.crc = crc;
     }
 
     // Dynamically calculate the 512-byte-aligned location for Descriptor
@@ -163,11 +173,9 @@ impl<'a> Crccu<'a> {
         return d as *mut Descriptor;
     }
 
-    fn set_descriptor(&self, addr: u32, ctrl: TCR, crc: u32) {
-        let d = unsafe { &mut *self.descriptor() };
-        d.addr.set(addr);
-        d.ctrl.set(ctrl);
-        d.crc.set(crc);
+    fn get_tcr(&self) -> TCR {
+        let d = unsafe { &*self.descriptor() };
+        d.ctrl
     }
 
     pub fn enable_unit(&self) {
@@ -182,9 +190,9 @@ impl<'a> Crccu<'a> {
         }
     }
 
-    pub fn handle_interrupt(&self) {
+    pub fn handle_interrupt(&mut self) {
         // DEBUG: We got some interrupt!
-        if let Some(client) = self.client.get() {
+        if let Some(client) = self.get_client() {
             client.interrupt();
         }
 
@@ -192,7 +200,7 @@ impl<'a> Crccu<'a> {
             // A DMA transfer has completed
 
             if self.get_tcr().get_ien() {
-                if let Some(client) = self.client.get() {
+                if let Some(client) = self.get_client() {
                     let result = SR.read();
                     client.receive_result(result);
                 }
@@ -222,21 +230,16 @@ impl<'a> Crccu<'a> {
 
         if ISR.read() & 1 == 1 {
             // A CRC error has occurred
-            if let Some(client) = self.client.get() {
+            if let Some(client) = self.get_client() {
                 client.receive_err();
             }
         }
-    }
-
-    fn get_tcr(&self) -> TCR {
-        let d = unsafe { &*self.descriptor() };
-        d.ctrl.get()
     }
 }
 
 // Implement the generic CRC interface with the CRCCU
 impl<'a> crc::CRC for Crccu<'a> {
-    fn init(&self) -> ReturnCode {
+    fn init(&mut self) -> ReturnCode {
         let daddr = self.descriptor() as u32;
         if daddr & 0x1ff != 0 {
             // Alignment failure
@@ -252,7 +255,7 @@ impl<'a> crc::CRC for Crccu<'a> {
         VERSION.read()
     }
 
-    fn compute(&self, data: &[u8]) -> ReturnCode {
+    fn compute(&mut self, data: &[u8]) -> ReturnCode {
         if self.get_tcr().get_ien() {
             // A computation is already in progress
             return ReturnCode::EBUSY;
@@ -307,7 +310,7 @@ impl<'a> crc::CRC for Crccu<'a> {
         loop {
             if DMAISR.read() & 1 == 1 {
                 // A DMA transfer has completed
-                if let Some(client) = self.client.get() {
+                if let Some(client) = self.get_client() {
                     let result = SR.read();
                     client.receive_result(result);
                 }
@@ -316,7 +319,7 @@ impl<'a> crc::CRC for Crccu<'a> {
 
             // Or perhaps at least BTSIZE has been been decremented?
             if self.get_tcr().get_btsize() < data.len() as u16 {
-                if let Some(client) = self.client.get() {
+                if let Some(client) = self.get_client() {
                     client.receive_err();
                 }
                 break;
@@ -327,6 +330,8 @@ impl<'a> crc::CRC for Crccu<'a> {
     }
 }
 
+// If this static is mutable, only unsafe code may use it.
+// If it is not (and instead uses internal mutability), it must implement Sync.
 pub static mut CRCCU: Crccu<'static> = Crccu::new();
 
 interrupt_handler!(interrupt_handler, CRCCU);
