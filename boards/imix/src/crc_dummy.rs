@@ -15,6 +15,10 @@ impl crc::Client for CrcClient {
         blink_loop(5);
     }
 
+    fn receive_err(&self) {
+        blink_loop(9);
+    }
+
     fn interrupt(&self) {
         blink_loop(6);
     }

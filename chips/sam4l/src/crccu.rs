@@ -1,4 +1,6 @@
-// see "41. Cyclic Redundancy Check Calculation Unit (CRCCU)"
+// CRCCU implementation for the SAM4L
+//
+//     see datasheet section "41. Cyclic Redundancy Check Calculation Unit (CRCCU)"
 
 // Notes
 //
@@ -10,36 +12,34 @@
 //
 //      The SAM4L calculates 0x1541 for "ABCDEFG".
 
-#![allow(dead_code)]
-
-use core::marker::Sync;
-use core::cell::UnsafeCell;
 use kernel::returncode::ReturnCode;
 use kernel::hil::crc::{CRC, Client};
 use pm::{Clock, HSBClock, PBBClock, enable_clock};
 use nvic;
 
-struct Cell<T>(UnsafeCell<T>);
+// A mutable cell that is nevertheless Sync,
+// for use in single-threaded applications only.
+
+use core::marker::Sync;
+use core::cell::UnsafeCell;
+
+pub struct Cell<T>(UnsafeCell<T>);
 
 impl<T: Copy> Cell<T> {
-    const fn new(value: T) -> Self {
+    pub const fn new(value: T) -> Self {
         Cell(UnsafeCell::new(value))
     }
 
-    fn get(&self) -> T {
+    pub fn get(&self) -> T {
         unsafe { *self.0.get() }
     }
 
-    fn set(&self, value: T) {
+    pub fn set(&self, value: T) {
         unsafe { *self.0.get() = value }
     }
 }
 
 unsafe impl<T> Sync for Cell<T> {}
-
-
-// see "7.1 Product Mapping"
-const CRCCU_BASE: u32 = 0x400A4000;
 
 // A memory-mapped register
 struct Reg(*mut u32);
@@ -54,17 +54,22 @@ impl Reg {
     }
 }
 
+// Base address of CRCCU registers.  See "7.1 Product Mapping"
+const CRCCU_BASE: u32 = 0x400A4000;
+
 // The following macro expands a list of expressions like this:
 //
 //    { 0x00, "Descriptor Base Register", DSCR, "RW" },
 //
 // into a series of items like this:
 //
+//    #[allow(dead_code)]
 //    const DSCR: Reg = Reg((CRCCU_BASE + 0x00) as *mut u32);
 
 macro_rules! registers {
     [ $( { $offset:expr, $description:expr, $name:ident, $access:expr } ),* ] => {
-        $( const $name: Reg = Reg((CRCCU_BASE + $offset) as *mut u32); )*
+        $( #[allow(dead_code)]
+           const $name: Reg = Reg((CRCCU_BASE + $offset) as *mut u32); )*
     };
 }
 
@@ -81,9 +86,9 @@ registers![
     { 0x34, "Control Register", CR, "W" },                   // Write a one to reset SR
     { 0x38, "Mode Register", MR, "RW" },                     // Bandwidth divider, Polynomial type, Compare?, Enable?
     { 0x3C, "Status Register", SR, "R" },                    // CRC result (unreadable if MR.COMPARE=1)
-    { 0x40, "Interrupt Enable Register", IER, "W" },         // Write one to set ERR bit in IMR (zero no effect)
-    { 0x44, "Interrupt Disable Register", IDR, "W" },        // Write zero to clear ERR bit in IMR (one no effect)
-    { 0x48, "Interrupt Mask Register", IMR, "R" },           // If ERR bit is set, error-interrupt (for compare) is enabled
+    { 0x40, "Interrupt Enable Register", IER, "W" },         // Write one to set IMR.ERR bit (zero no effect)
+    { 0x44, "Interrupt Disable Register", IDR, "W" },        // Write zero to clear IMR.ERR bit (one no effect)
+    { 0x48, "Interrupt Mask Register", IMR, "R" },           // If IMR.ERR bit is set, error-interrupt (for compare) is enabled
     { 0x4C, "Interrupt Status Register", ISR, "R" },         // CRC error (for compare)? (cleared when read)
     { 0xFC, "Version Register", VERSION, "R" }               // 12 low-order bits: version of this module.  = 0x00000202
 ];
@@ -97,6 +102,7 @@ struct Descriptor {
     crc: Cell<u32>         // Transfer Reference Register (RW): Reference CRC (for compare mode)
 }
 
+/*
 impl Descriptor {
     const fn new(addr: u32, ctrl: TCR, crc: u32) -> Self {
         Descriptor { addr: Cell::new(addr),
@@ -109,6 +115,7 @@ impl Descriptor {
         Self::new(0, TCR::default(), 0)
     }
 }
+*/
 
 // Transfer Control Register (see Section 41.6.18)
 #[derive(Copy, Clone)]
@@ -159,7 +166,8 @@ pub enum Polynomial {
 pub struct Crccu<'a> {
     client: Cell<Option<&'a Client>>,
 
-    // Guaranteed room for a Descriptor with 512-byte alignment
+    // Guaranteed room for a Descriptor with 512-byte alignment.
+    // (Can we do this statically instead?)
     descriptor_space: [u8; DSCR_RESERVE],
 }
 
@@ -175,6 +183,7 @@ impl<'a> Crccu<'a> {
         self.client.set(Some(client));
     }
 
+    // Dynamically calculate the 512-byte-aligned location for Descriptor
     fn descriptor(&self) -> *mut Descriptor {
         let s = &self.descriptor_space as *const [u8; DSCR_RESERVE] as u32;
         let t = s % 512;
@@ -203,7 +212,7 @@ impl<'a> Crccu<'a> {
     }
 
     pub fn handle_interrupt(&self) {
-        // DEBUG
+        // DEBUG: We got some interrupt!
         if let Some(client) = self.client.get() {
             client.interrupt();
         }
@@ -231,6 +240,7 @@ impl<'a> Crccu<'a> {
             }
 
             /*
+            // When is it appropriate to unclock the unit?
             unsafe {
                 nvic::disable(nvic::NvicIdx::CRCCU);
                 disable_clock(Clock::PBB(PBBClock::CRCCU));
@@ -241,7 +251,9 @@ impl<'a> Crccu<'a> {
 
         if ISR.read() & 1 == 1 {
             // A CRC error has occurred
-
+            if let Some(client) = self.client.get() {
+                client.receive_err();
+            }
         }
     }
 
@@ -282,13 +294,15 @@ impl<'a> CRC for Crccu<'a> {
 
         self.enable_unit();
 
+        // Configure the data transfer
         let addr = data.as_ptr() as u32;
         let ctrl = TCR::new(true, TrWidth::Byte, data.len() as u16);
         let crc = 0;
         self.set_descriptor(addr, ctrl, crc);
         DSCR.write(self.descriptor() as u32);
 
-        CR.write(1);  // Reset intermediate CRC value
+        // Reset intermediate CRC value
+        CR.write(1);
 
         // Configure the unit to compute a checksum
         let divider = 0;
@@ -300,8 +314,6 @@ impl<'a> CRC for Crccu<'a> {
             return ReturnCode::FAIL;
         }
 
-        // DEBUG: don't use interrupts, just poll
-        /*
         // Enable error interrupt
         IER.write(1);
         if IMR.read() & 1 != 1 {
@@ -313,7 +325,6 @@ impl<'a> CRC for Crccu<'a> {
         if DMAIMR.read() & 1 != 1 {
             return ReturnCode::EOFF;
         }
-        */
 
         // Enable DMA channel
         DMAEN.write(1);
@@ -321,13 +332,21 @@ impl<'a> CRC for Crccu<'a> {
             return ReturnCode::EOFF;
         }
 
-        // DEBUG: Try polling until DMA has completed
+        // DEBUG: Don't wait for an interrupt, just busywait until DMA has completed
         loop {
-            if self.get_tcr().get_btsize() < data.len() as u16 || DMAISR.read() & 1 == 1 {
+            if DMAISR.read() & 1 == 1 {
                 // A DMA transfer has completed
                 if let Some(client) = self.client.get() {
                     let result = SR.read();
                     client.receive_result(result);
+                }
+                break;
+            }
+
+            // Or perhaps at least BTSIZE has been been decremented?
+            if self.get_tcr().get_btsize() < data.len() as u16 {
+                if let Some(client) = self.client.get() {
+                    client.receive_err();
                 }
                 break;
             }

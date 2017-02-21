@@ -393,6 +393,7 @@ pub unsafe fn reset_handler() {
     rf233.set_address(0x1008);
     rf233.start();
 
+    // Perform a CRC computation
     crc_dummy::crc_test_begin();
 
     debug!("Initialization complete. Entering main loop");
