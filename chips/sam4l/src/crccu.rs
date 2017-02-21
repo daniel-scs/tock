@@ -2,7 +2,17 @@
 //
 //     see datasheet section "41. Cyclic Redundancy Check Calculation Unit (CRCCU)"
 
-// Notes
+// Infelicities:
+//
+// - A custom `Cell' type is defined to work around mutable aliasing restrictions
+//
+// - Some RAM is wasted to allow runtime alignment of the CRCCU Descriptor.
+//   Reliable knowledge of kernel alignment might allow this to be done statically.
+//
+// - It doesn't work: Neither does a DMA transfer appear to be stimulated, nor does
+//   the CRCCU ever issue an interrupt.
+
+// Notes:
 //
 // http://www.at91.com/discussions/viewtopic.php/f,29/t,24859.html
 //      Atmel is using the low bit instead of the high bit so reversing
