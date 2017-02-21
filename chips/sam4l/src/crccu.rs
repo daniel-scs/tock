@@ -107,6 +107,7 @@ impl TCR {
         (self.0 & (1 << 27)) != 0
     }
 
+    #[allow(dead_code)]
     fn get_btsize(self) -> u16 {
         (self.0 & 0xffff) as u16
     }
@@ -306,7 +307,8 @@ impl<'a> crc::CRC for Crccu<'a> {
             return ReturnCode::EOFF;
         }
 
-        // DEBUG: Don't wait for an interrupt, just busywait until DMA has completed
+        // DEBUG: Don't wait for the interrupt that isn't coming for some reason.
+        // Instead, just busy-wait until DMA has completed
         loop {
             if DMAISR.read() & 1 == 1 {
                 // A DMA transfer has completed
@@ -317,10 +319,14 @@ impl<'a> crc::CRC for Crccu<'a> {
                 break;
             }
 
-            // Or perhaps at least BTSIZE has been been decremented?
-            if self.get_tcr().get_btsize() < data.len() as u16 {
+            // Or perhaps at least BTSIZE has been been decremented to zero,
+            // indicating the transfer has completed?
+            if self.get_tcr().get_btsize() == 0 {
+                // Yes, in fact we do get here ...
                 if let Some(client) = self.get_client() {
-                    client.receive_err();
+                    // Although this value is not what we expect.
+                    let result = SR.read();
+                    client.receive_result(result);
                 }
                 break;
             }
