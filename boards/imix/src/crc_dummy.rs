@@ -29,19 +29,22 @@ static CLIENT: CrcClient = CrcClient;
 static DATA: &'static [u8] = b"ABCDEFG";
 
 pub fn crc_test_begin() {
-    if CRCCU.init() != ReturnCode::SUCCESS {
-        blink_loop(4);
-    }
-    blink_n(4, 1);  // Wait a bit for unit to warm up?
+    // Unsafe required to allow use of the mutable static `CRCCU'
+    unsafe {
+        if CRCCU.init() != ReturnCode::SUCCESS {
+            blink_loop(4);
+        }
+        blink_n(4, 1);  // Wait a bit for unit to warm up?
 
-    if CRCCU.get_version() != 0x00000202 {
-        blink_loop(2);
-    }
+        if CRCCU.get_version() != 0x00000202 {
+            blink_loop(2);
+        }
 
-    CRCCU.set_client(&CLIENT);
+        CRCCU.set_client(&CLIENT);
 
-    if CRCCU.compute(&DATA[..]) != ReturnCode::SUCCESS {
-        blink_loop(3);
+        if CRCCU.compute(&DATA[..]) != ReturnCode::SUCCESS {
+            blink_loop(3);
+        }
     }
 }
 

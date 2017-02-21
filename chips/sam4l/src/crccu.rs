@@ -1,13 +1,12 @@
-// CRCCU implementation for the SAM4L
+//! CRCCU implementation for the SAM4L
 //
-//     see datasheet section "41. Cyclic Redundancy Check Calculation Unit (CRCCU)"
+//  see datasheet section "41. Cyclic Redundancy Check Calculation Unit (CRCCU)"
 
 // Infelicities:
 //
-// - A custom `Cell' type is defined to work around mutable aliasing restrictions
-//
-// - Some RAM is wasted to allow runtime alignment of the CRCCU Descriptor.
-//   Reliable knowledge of kernel alignment might allow this to be done statically.
+// - As much as 512 bytes of RAM is wasted to allow runtime alignment of the
+//   CRCCU Descriptor.  Reliable knowledge of kernel alignment might allow this
+//   to be done statically.
 //
 // - It doesn't work: Neither does a DMA transfer appear to be stimulated, nor does
 //   the CRCCU ever issue an interrupt.
@@ -22,34 +21,11 @@
 //
 //      The SAM4L calculates 0x1541 for "ABCDEFG".
 
+use core::cell::Cell;
 use kernel::returncode::ReturnCode;
-use kernel::hil::crc::{CRC, Client};
-use pm::{Clock, HSBClock, PBBClock, enable_clock};
+use kernel::hil::crc;
 use nvic;
-
-// A mutable cell that is nevertheless Sync,
-// for use in single-threaded applications only.
-
-use core::marker::Sync;
-use core::cell::UnsafeCell;
-
-pub struct Cell<T>(UnsafeCell<T>);
-
-impl<T: Copy> Cell<T> {
-    pub const fn new(value: T) -> Self {
-        Cell(UnsafeCell::new(value))
-    }
-
-    pub fn get(&self) -> T {
-        unsafe { *self.0.get() }
-    }
-
-    pub fn set(&self, value: T) {
-        unsafe { *self.0.get() = value }
-    }
-}
-
-unsafe impl<T> Sync for Cell<T> {}
+use pm::{Clock, HSBClock, PBBClock, enable_clock};
 
 // A memory-mapped register
 struct Reg(*mut u32);
@@ -159,7 +135,7 @@ pub enum Polynomial {
 
 // State for managing the CRCCU
 pub struct Crccu<'a> {
-    client: Cell<Option<&'a Client>>,
+    client: Cell<Option<&'a crc::Client>>,
 
     // Guaranteed room for a Descriptor with 512-byte alignment.
     // (Can we do this statically instead?)
@@ -174,7 +150,7 @@ impl<'a> Crccu<'a> {
                 descriptor_space: [0; DSCR_RESERVE] }
     }
 
-    pub fn set_client(&self, client: &'a Client) {
+    pub fn set_client(&self, client: &'a crc::Client) {
         self.client.set(Some(client));
     }
 
@@ -259,7 +235,7 @@ impl<'a> Crccu<'a> {
 }
 
 // Implement the generic CRC interface with the CRCCU
-impl<'a> CRC for Crccu<'a> {
+impl<'a> crc::CRC for Crccu<'a> {
     fn init(&self) -> ReturnCode {
         let daddr = self.descriptor() as u32;
         if daddr & 0x1ff != 0 {
@@ -351,6 +327,6 @@ impl<'a> CRC for Crccu<'a> {
     }
 }
 
-pub static CRCCU: Crccu<'static> = Crccu::new();
+pub static mut CRCCU: Crccu<'static> = Crccu::new();
 
 interrupt_handler!(interrupt_handler, CRCCU);
