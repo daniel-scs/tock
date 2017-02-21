@@ -125,6 +125,9 @@ impl Mode {
              | (compare as u32) << 1
              | (enable as u32))
     }
+    fn disabled() -> Self {
+        Mode::new(0, Polynomial::CCIT8023, false, false)
+    }
 }
 
 pub enum Polynomial {
@@ -207,9 +210,7 @@ impl<'a> Crccu<'a> {
                 }
 
                 // Disable the unit
-                let enable = false;
-                let mode = Mode::new(0, Polynomial::CCIT16, false, enable);
-                MR.write(mode.0);
+                MR.write(Mode::disabled().0);
 
                 // Clear CTRL.IEN (for our own statekeeping)
                 self.set_descriptor(0, TCR::default(), 0);
@@ -271,7 +272,7 @@ impl<'a> crc::CRC for Crccu<'a> {
 
         // Configure the data transfer
         let addr = data.as_ptr() as u32;
-        let ctrl = TCR::new(true, TrWidth::Byte, data.len() as u16);
+        let ctrl = TCR::new(true, TrWidth::Word, data.len() as u16);
         let crc = 0;
         self.set_descriptor(addr, ctrl, crc);
         DSCR.write(self.descriptor() as u32);
@@ -283,48 +284,24 @@ impl<'a> crc::CRC for Crccu<'a> {
         let divider = 0;
         let compare = false;
         let enable = true;
-        let mode = Mode::new(divider, Polynomial::CCIT8023, compare, enable);
+        let mode = Mode::new(divider, Polynomial::CCIT16, compare, enable);
         MR.write(mode.0);
-        if MR.read() & 1 != 1 {
-            return ReturnCode::FAIL;
-        }
 
         // Enable error interrupt
         IER.write(1);
-        if IMR.read() & 1 != 1 {
-            return ReturnCode::EOFF;
-        }
 
         // Enable DMA interrupt
         DMAIER.write(1);
-        if DMAIMR.read() & 1 != 1 {
-            return ReturnCode::EOFF;
-        }
 
         // Enable DMA channel
         DMAEN.write(1);
-        if DMASR.read() & 1 != 1 {
-            return ReturnCode::EOFF;
-        }
 
         // DEBUG: Don't wait for the interrupt that isn't coming for some reason.
         // Instead, just busy-wait until DMA has completed
         loop {
-            if DMAISR.read() & 1 == 1 {
-                // A DMA transfer has completed
+            if DMASR.read() & 1 == 0 {
+                // DMA channel disabled
                 if let Some(client) = self.get_client() {
-                    let result = SR.read();
-                    client.receive_result(result);
-                }
-                break;
-            }
-
-            // Or perhaps at least BTSIZE has been been decremented to zero,
-            // indicating the transfer has completed?
-            if self.get_tcr().get_btsize() == 0 {
-                // Yes, in fact we do get here ...
-                if let Some(client) = self.get_client() {
-                    // Although this value is not what we expect.
                     let result = SR.read();
                     client.receive_result(result);
                 }

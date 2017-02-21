@@ -9,7 +9,8 @@ struct CrcClient;
 
 impl crc::Client for CrcClient {
     fn receive_result(&self, result: u32) {
-        if result != 0x1541 {
+        // We get 0xffffa574
+        if result & 0xffff != 0x1541 {
             blink_loop(7);
         }
         blink_loop(5);
@@ -42,7 +43,7 @@ pub fn crc_test_begin() {
 
         CRCCU.set_client(&CLIENT);
 
-        if CRCCU.compute(&DATA[..]) != ReturnCode::SUCCESS {
+        if CRCCU.compute(DATA) != ReturnCode::SUCCESS {
             blink_loop(3);
         }
     }
