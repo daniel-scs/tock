@@ -102,21 +102,6 @@ struct Descriptor {
     crc: Cell<u32>         // Transfer Reference Register (RW): Reference CRC (for compare mode)
 }
 
-/*
-impl Descriptor {
-    const fn new(addr: u32, ctrl: TCR, crc: u32) -> Self {
-        Descriptor { addr: Cell::new(addr),
-                     ctrl: Cell::new(ctrl),
-                     crc:  Cell::new(crc),
-                     _res: [0, 0], }
-    }
-
-    const fn default() -> Self {
-        Self::new(0, TCR::default(), 0)
-    }
-}
-*/
-
 // Transfer Control Register (see Section 41.6.18)
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
