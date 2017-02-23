@@ -8,8 +8,12 @@
 //   CRCCU Descriptor.  Reliable knowledge of kernel alignment might allow this
 //   to be done statically.
 //
-// - It doesn't work: Neither does a DMA transfer appear to be stimulated, nor does
-//   the CRCCU ever issue an interrupt.
+// - It doesn't work:
+//      - Although the DMA transfer appears to complete, the CRCCU doesn't
+//        seem to issue an interrupt.  (If "compare" mode is enabled and the
+//        reference value doesn't match the result, the CRCCU *does* issue
+//        the error interrupt.)
+//      - The CRC values are not as expected.  (See note below.)
 
 // Notes:
 //
@@ -195,9 +199,17 @@ impl<'a> Crccu<'a> {
     }
 
     pub fn handle_interrupt(&mut self) {
+
         // DEBUG: We got some interrupt!
         if let Some(client) = self.get_client() {
             client.interrupt();
+        }
+
+        if ISR.read() & 1 == 1 {
+            // A CRC error has occurred
+            if let Some(client) = self.get_client() {
+                client.receive_err();
+            }
         }
 
         if DMAISR.read() & 1 == 1 {
@@ -229,13 +241,6 @@ impl<'a> Crccu<'a> {
             }
             */
         }
-
-        if ISR.read() & 1 == 1 {
-            // A CRC error has occurred
-            if let Some(client) = self.get_client() {
-                client.receive_err();
-            }
-        }
     }
 }
 
@@ -264,11 +269,21 @@ impl<'a> crc::CRC for Crccu<'a> {
         }
 
         if data.len() > (2^16 - 1) {
-            // Buffer too long (TODO: chain CRCCU computations for large buffers)
+            // Buffer too long
+            // TODO: Chain CRCCU computations to handle large buffers
             return ReturnCode::ESIZE;
         }
 
         self.enable_unit();
+
+        // Enable DMA interrupt
+        DMAIER.write(1);
+
+        // Enable error interrupt
+        IER.write(1);
+
+        // Reset intermediate CRC value
+        CR.write(1);
 
         // Configure the data transfer
         let addr = data.as_ptr() as u32;
@@ -277,9 +292,6 @@ impl<'a> crc::CRC for Crccu<'a> {
         self.set_descriptor(addr, ctrl, crc);
         DSCR.write(self.descriptor() as u32);
 
-        // Reset intermediate CRC value
-        CR.write(1);
-
         // Configure the unit to compute a checksum
         let divider = 0;
         let compare = false;
@@ -287,15 +299,10 @@ impl<'a> crc::CRC for Crccu<'a> {
         let mode = Mode::new(divider, Polynomial::CCIT16, compare, enable);
         MR.write(mode.0);
 
-        // Enable error interrupt
-        IER.write(1);
-
-        // Enable DMA interrupt
-        DMAIER.write(1);
-
         // Enable DMA channel
         DMAEN.write(1);
 
+        /*
         // DEBUG: Don't wait for the interrupt that isn't coming for some reason.
         // Instead, just busy-wait until DMA has completed
         loop {
@@ -308,6 +315,7 @@ impl<'a> crc::CRC for Crccu<'a> {
                 break;
             }
         }
+        */
 
         return ReturnCode::SUCCESS;
     }
