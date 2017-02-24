@@ -219,11 +219,13 @@ impl<'a> Crccu<'a> {
                 // Disable the unit
                 MR.write(Mode::disabled().0);
 
-                // Clear CTRL.IEN (for our own statekeeping)
+                // Reset CTRL.IEN (for our own statekeeping)
                 self.set_descriptor(0, TCR::default(), 0);
                 
-                // Disable DMA interrupt and DMA channel
+                // Disable DMA interrupt
                 DMAIDR.write(1);
+
+                // Disable DMA channel
                 DMADIS.write(1);
             }
 
