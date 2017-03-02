@@ -35,7 +35,7 @@ provides three traits:
 
   * kernel::hil::adc::AdcSingle: takes a single reading from an ADC port
   * kernel::hil::adc::AdcContinuous: starts a continuous stream of readings from a port
-  * kernek::hil::adc::Client: handles the callback when a sample is obtained
+  * kernel::hil::adc::Client: handles the callback when a sample is obtained
 
 The rest of this document discusses each in turn.
 
