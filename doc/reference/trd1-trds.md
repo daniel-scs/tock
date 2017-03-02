@@ -14,9 +14,9 @@ Tock Reference Document (TRD) Structure and Keywords
 Abstract
 -------------------------------
 
-This document describes the structure of all Tock Reference Documents
-(TRDs) follow, and defines the meaning of several key words in those
-documents.
+This document describes the structure followed by all Tock Reference
+Documents (TRDs), and defines the meaning of several key words in
+those documents.
 
 1. Introduction
 ====================================================================
@@ -154,8 +154,8 @@ become part of it.  Unlike Documentary TRDs, Experimental TRDs may
 describe systems that do not have a reference implementation.
 
 The fourth field is "Status," which specifies the status of the TRD.
-A TRD status can either be "Draft," which means it is a work in
-progress, "Final," which means it is complete and will not change. 
+A TRD's status can be either "Draft," which means it is a work in
+progress, or "Final," which means it is complete and will not change.
 Once a TRD has the status "Final," the only change allowed is the
 addition of an "Obsoleted By" field.
 
@@ -193,7 +193,7 @@ Draft-Created states the date the document was created, Draft-Modified
 states when it was last modified. Draft-Version specifies the version
 of the draft, which MUST increase every time a modification is
 made. Draft-Discuss specifies the email address of a mailing list
-where the draft is being discussed. Final and Obsolete TEPs MUST NOT
+where the draft is being discussed. Final and Obsolete TRDs MUST NOT
 have these fields, which are for Drafts only.
 
 3.2 TRD Body
