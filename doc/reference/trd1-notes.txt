@@ -1,0 +1,31 @@
+# Suggestions for TRD1
+
+3. TRD Structure
+
+- Adopt markdown ordering of elements: title, header, body.
+
+- Cite the authoritative description of markdown syntax:
+
+    https://daringfireball.net/projects/markdown/
+
+3.1 Header
+
+- Change header field "Author" to "Authors"
+- Specify date format?
+
+7. Author's Address
+
+- Instead of non-standard triple-tics to format the address
+  information, use a markdown "code block", which is a paragraph with
+  every line indented by at least 4 spaces or 1 tab.
+
+  (See: https://daringfireball.net/projects/markdown/syntax#block)
+
+8. Citations
+
+- For hyperlinks, we could use markdown's built-in link syntax.  These
+  links would then not appear in the Citation section when rendered as
+  HTML.
+
+- If the citation section contains no non-link elements (and would
+  thus be rendered empty as HTML), it could be omitted.
