@@ -80,8 +80,8 @@ implementer feels that it enhances the system while another
 implementer may omit the same item.  An implementation which does not
 include a particular option MUST be prepared to interoperate with
 another implementation which does include the option, though perhaps
-with reduced functionality. In the same vein an implementation which
-does include a particular option MUST be prepared to interoperate with
+with reduced functionality. Similarly, an implementation which does
+include a particular option MUST be prepared to interoperate with
 another implementation which does not include the option (except, of
 course, for the feature the option provides.)
 
@@ -104,7 +104,7 @@ A TRD MUST begin with a title, and then follow with a header and a
 body. The header states document metadata, for management and status.
 The body contains the content of the proposal.
 
-All TRDs MUST conform to [Markdown standards][] to enable
+All TRDs MUST conform to [Markdown syntax][] to enable
 translation to HTML and LaTeX, and for useful display in web tools.
 
 3.1 TRD Header
