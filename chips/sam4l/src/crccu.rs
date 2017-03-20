@@ -294,21 +294,6 @@ impl<'a> crc::CRC for Crccu<'a> {
         // Enable DMA channel
         DMAEN.write(1);
 
-        /*
-        // DEBUG: Don't wait for the interrupt that isn't coming for some reason.
-        // Instead, just busy-wait until DMA has completed
-        loop {
-            if DMASR.read() & 1 == 0 {
-                // DMA channel disabled
-                if let Some(client) = self.get_client() {
-                    let result = SR.read();
-                    client.receive_result(result);
-                }
-                break;
-            }
-        }
-        */
-
         return ReturnCode::SUCCESS;
     }
 }
