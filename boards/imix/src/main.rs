@@ -49,6 +49,7 @@ struct Imix {
     radio: &'static capsules::radio::RadioDriver<'static,
                                                  capsules::rf233::RF233<'static,
                                                  VirtualSpiMasterDevice<'static, sam4l::spi::Spi>>>,
+    crc: &'static capsules::crc::Crc<'static, sam4l::crccu::Crccu<'static>>,
 }
 
 // The RF233 radio stack requires our buffers for its SPI operations:
@@ -85,6 +86,7 @@ impl kernel::Platform for Imix {
             9 => f(Some(self.button)),
             10 => f(Some(self.si7021)),
             11 => f(Some(self.fxos8700_cq)),
+            12 => f(Some(self.crc)),
             154 => f(Some(self.radio)),
             0xff => f(Some(&self.ipc)),
             _ => f(None),
@@ -356,6 +358,11 @@ pub unsafe fn reset_handler() {
         btn.set_client(button);
     }
 
+    let crc = static_init!(
+        capsules::crc::Crc<'static, sam4l::crccu::Crccu<'static>>,
+        capsules::crc::Crc::new(&sam4l::crccu::CRCCU),
+        1*4);
+
     rf233_spi.set_client(rf233);
     rf233.initialize(&mut RF233_BUF, &mut RF233_REG_WRITE, &mut RF233_REG_READ);
 
@@ -378,6 +385,7 @@ pub unsafe fn reset_handler() {
         adc: adc,
         led: led,
         button: button,
+        crc: crc,
         spi: spi_syscalls,
         ipc: kernel::ipc::IPC::new(),
         fxos8700_cq: fx0,
