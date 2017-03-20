@@ -8,12 +8,7 @@
 //   CRCCU Descriptor.  Reliable knowledge of kernel alignment might allow this
 //   to be done statically.
 //
-// - It doesn't work:
-//      - Although the DMA transfer appears to complete, the CRCCU doesn't
-//        seem to issue an interrupt.  (If "compare" mode is enabled and the
-//        reference value doesn't match the result, the CRCCU *does* issue
-//        the error interrupt.)
-//      - The CRC values are not as expected.  (See note below.)
+// - The CRC values are not as expected.  (See note below.)
 
 // Notes:
 //
