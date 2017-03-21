@@ -4,8 +4,9 @@
 #include <timer.h>
 #include <crc.h>
 
+void blinken(uint32_t rate);
+
 int main(void) {
-  uint32_t pause = 100;
   uint32_t v;
 
   if (!crc_exists()) {
@@ -24,18 +25,20 @@ int main(void) {
     goto fail;
   }
 
-  pause = 1000;
   printf("CRC SUCCESS\n");
-  goto blinken;
+  blinken(1000);
 
 fail:
   printf("CRC FAIL\n");
+  blinken(100);
+}
 
-blinken:
+__attribute__((noreturn)) void blinken(uint32_t rate)
+{
   while(1) {
     led_on(0);
-    delay_ms(pause);
+    delay_ms(rate);
     led_off(0);
-    delay_ms(pause);
+    delay_ms(rate);
   }
 }
