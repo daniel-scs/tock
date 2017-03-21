@@ -404,9 +404,6 @@ pub unsafe fn reset_handler() {
 
     rf233.start();
 
-    // DEBUG: Perform a CRC computation
-    crc_dummy::crc_test_begin();
-
     debug!("Initialization complete. Entering main loop");
     kernel::main(&imix, &mut chip, load_processes(), &imix.ipc);
 }

@@ -161,6 +161,7 @@ impl<'a> Crccu<'a> {
     }
 
     fn set_descriptor(&mut self, addr: u32, ctrl: TCR, crc: u32) {
+        // XXX write_volatile?
         let d = unsafe { &mut *self.descriptor() };
         d.addr = addr;
         d.ctrl = ctrl;
@@ -197,9 +198,6 @@ impl<'a> Crccu<'a> {
 
         if ISR.read() & 1 == 1 {
             // A CRC error has occurred
-            if let Some(client) = self.get_client() {
-                client.receive_err();
-            }
         }
 
         if DMAISR.read() & 1 == 1 {
@@ -239,6 +237,7 @@ impl<'a> Crccu<'a> {
 // Implement the generic CRC interface with the CRCCU
 impl<'a> crc::CRC for Crccu<'a> {
     fn init(&mut self) -> ReturnCode {
+        // DEBUG
         let daddr = self.descriptor() as u32;
         if daddr & 0x1ff != 0 {
             // Alignment failure
@@ -293,21 +292,6 @@ impl<'a> crc::CRC for Crccu<'a> {
 
         // Enable DMA channel
         DMAEN.write(1);
-
-        /*
-        // DEBUG: Don't wait for the interrupt that isn't coming for some reason.
-        // Instead, just busy-wait until DMA has completed
-        loop {
-            if DMASR.read() & 1 == 0 {
-                // DMA channel disabled
-                if let Some(client) = self.get_client() {
-                    let result = SR.read();
-                    client.receive_result(result);
-                }
-                break;
-            }
-        }
-        */
 
         return ReturnCode::SUCCESS;
     }
