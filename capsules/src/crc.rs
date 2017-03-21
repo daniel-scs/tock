@@ -17,6 +17,8 @@ impl<'a, C: hil::crc::CRC> Crc<'a, C> {
     }
 }
 
+static CRC_TEST_DATA: &'static [u8] = b"ABCDEFG";
+
 impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
     fn command(&self, command_num: usize, _data: usize, _appid: AppId) -> ReturnCode {
         match command_num {
@@ -28,6 +30,9 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
 
             // Initialize unit
             2 => self.crc_unit.init(),
+
+            // Request computation
+            3 => self.crc_unit.compute(CRC_TEST_DATA),
 
             _ => ReturnCode::ENOSUPPORT,
         }

@@ -11,6 +11,8 @@ extern "C" {
 int       crc_exists(void);
 uint32_t  crc_version(void);
 int       crc_init(void);
+int       crc_subscribe(subscribe_cb callback, void *ud);
+int       crc_compute(void);
 
 #ifdef __cplusplus
 }

@@ -5,6 +5,7 @@
 #include <crc.h>
 
 void blinken(uint32_t rate);
+void finished(int val, int v1, int v2, void *data);
 
 int main(void) {
   uint32_t v;
@@ -25,6 +26,16 @@ int main(void) {
     goto fail;
   }
 
+  if (crc_subscribe(finished, 0) !=0) {
+    printf("CRC subscribe failed\n");
+    goto fail;
+  }
+
+  if (crc_compute() != 0) {
+    printf("CRC compute-request failed\n");
+    goto fail;
+  }
+
   printf("CRC SUCCESS\n");
   blinken(1000);
 
@@ -33,7 +44,14 @@ fail:
   blinken(100);
 }
 
-__attribute__((noreturn)) void blinken(uint32_t rate)
+void finished(int val, __attribute__((unused)) int v1,
+                       __attribute__((unused)) int v2,
+                       __attribute__((unused)) void *data) {
+  printf("CRC finished: %8lx\n", (uint32_t) val);
+}
+
+__attribute__((noreturn)) void
+blinken(uint32_t rate)
 {
   while(1) {
     led_on(0);

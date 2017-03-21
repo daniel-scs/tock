@@ -253,7 +253,7 @@ impl<'a> crc::CRC for Crccu<'a> {
         VERSION.read()
     }
 
-    fn compute(&mut self, data: &[u8]) -> ReturnCode {
+    fn compute(&self, data: &[u8]) -> ReturnCode {
         if self.get_tcr().interrupt_enabled() {
             // A computation is already in progress
             return ReturnCode::EBUSY;
