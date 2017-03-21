@@ -19,17 +19,10 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
             // The driver is present
             0 => ReturnCode::SUCCESS,
 
-            1 => {
-                if self.crc_unit.get_version() == 0x00000202 {
-                    ReturnCode::SUCCESS
-                }
-                else {
-                    ReturnCode::FAIL
-                }
-            }
+            1 => ReturnCode::SuccessWithValue{ value: self.crc_unit.get_version() as usize },
 
+            2 => self.crc_unit.init(),
 
-            // default
             _ => ReturnCode::ENOSUPPORT,
         }
     }

@@ -4,7 +4,7 @@ use returncode::ReturnCode;
 
 pub trait CRC {
     // Call this method exactly once before any other calls
-    fn init(&mut self) -> ReturnCode;
+    fn init(&self) -> ReturnCode;
 
     fn get_version(&self) -> u32;
 
