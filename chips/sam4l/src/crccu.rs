@@ -160,7 +160,7 @@ impl<'a> Crccu<'a> {
         self.client
     }
 
-    fn set_descriptor(&mut self, addr: u32, ctrl: TCR, crc: u32) {
+    fn set_descriptor(&self, addr: u32, ctrl: TCR, crc: u32) {
         // XXX write_volatile?
         let d = unsafe { &mut *self.descriptor() };
         d.addr = addr;
@@ -195,7 +195,6 @@ impl<'a> Crccu<'a> {
     }
 
     pub fn handle_interrupt(&mut self) {
-
         if ISR.read() & 1 == 1 {
             // A CRC error has occurred
         }
@@ -222,21 +221,22 @@ impl<'a> Crccu<'a> {
                 DMADIS.write(1);
             }
 
-            /*
-            // When is it appropriate to unclock the unit?
-            unsafe {
-                nvic::disable(nvic::NvicIdx::CRCCU);
-                disable_clock(Clock::PBB(PBBClock::CRCCU));
-                disable_clock(Clock::HSB(HSBClock::CRCCU));
-            }
-            */
         }
+
+        /*
+        // XXX: When is it appropriate to unclock the unit?
+        unsafe {
+            nvic::disable(nvic::NvicIdx::CRCCU);
+            disable_clock(Clock::PBB(PBBClock::CRCCU));
+            disable_clock(Clock::HSB(HSBClock::CRCCU));
+        }
+        */
     }
 }
 
 // Implement the generic CRC interface with the CRCCU
 impl<'a> crc::CRC for Crccu<'a> {
-    fn init(&mut self) -> ReturnCode {
+    fn init(&self) -> ReturnCode {
         // DEBUG
         let daddr = self.descriptor() as u32;
         if daddr & 0x1ff != 0 {

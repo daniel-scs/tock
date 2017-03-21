@@ -1,15 +1,19 @@
 //! CRC driver
 
-use kernel::{AppId, Driver, ReturnCode};
+use core::cell::Cell;
+use kernel::{AppId, Callback, Driver, ReturnCode};
 use kernel::hil;
 
 pub struct Crc<'a, C: hil::crc::CRC + 'a> {
     crc_unit: &'a C,
+    callback: Cell<Option<Callback>>,
 }
 
 impl<'a, C: hil::crc::CRC> Crc<'a, C> {
     pub fn new(crc_unit: &'a C) -> Crc<'a, C> {
-        Crc{ crc_unit: crc_unit }
+        Crc { crc_unit: crc_unit,
+              callback: Cell::new(None),
+            }
     }
 }
 
@@ -19,8 +23,10 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
             // The driver is present
             0 => ReturnCode::SUCCESS,
 
+            // Get version
             1 => ReturnCode::SuccessWithValue{ value: self.crc_unit.get_version() as usize },
 
+            // Initialize unit
             2 => self.crc_unit.init(),
 
             _ => ReturnCode::ENOSUPPORT,
@@ -31,20 +37,19 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
         match subscribe_num {
             // Set callback for CRC result
             0 => {
-                self.callback
-                    .enter(callback.app_id(), |cntr, _| {
-                        cntr.0 = Some(callback);
-                        ReturnCode::SUCCESS
-                    })
-                    .unwrap_or_else(|err| match err {
-                        Error::OutOfMemory => ReturnCode::ENOMEM,
-                        Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                        Error::NoSuchApp => ReturnCode::EINVAL,
-                    })
+                self.callback.set(Some(callback));
+                ReturnCode::SUCCESS
             },
 
             _ => ReturnCode::ENOSUPPORT,
         }
     }
+}
 
+impl<'a, C: hil::crc::CRC> hil::crc::Client for Crc<'a, C> {
+    fn receive_result(&self, result: u32) {
+        if let Some(mut callback) = self.callback.get() {
+            callback.schedule(result as usize, 0, 0);
+        }
+    }
 }
