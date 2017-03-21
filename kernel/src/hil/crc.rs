@@ -15,9 +15,4 @@ pub trait CRC {
 pub trait Client {
     // Receive the successful result of a CRC calculation
     fn receive_result(&self, u32);
-
-    fn receive_err(&self);
-
-    // For debugging only: We got some CRCCU interrupt
-    fn interrupt(&self);
 }

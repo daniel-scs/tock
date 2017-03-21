@@ -14,14 +14,14 @@ int main(void) {
     goto fail;
   }
 
-  if (crc_init() != 0) {
-    printf("CRC init failed\n");
-    goto fail;
-  }
-
   v = crc_version();
   if (v != 0x00000202) {
     printf("CRC version unexpected: %lu\n", v);
+    goto fail;
+  }
+
+  if (crc_init() != 0) {
+    printf("CRC init failed\n");
     goto fail;
   }
 

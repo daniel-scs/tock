@@ -26,4 +26,25 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
             _ => ReturnCode::ENOSUPPORT,
         }
     }
+
+    fn subscribe(&self, subscribe_num: usize, callback: Callback) -> ReturnCode {
+        match subscribe_num {
+            // Set callback for CRC result
+            0 => {
+                self.callback
+                    .enter(callback.app_id(), |cntr, _| {
+                        cntr.0 = Some(callback);
+                        ReturnCode::SUCCESS
+                    })
+                    .unwrap_or_else(|err| match err {
+                        Error::OutOfMemory => ReturnCode::ENOMEM,
+                        Error::AddressOutOfBounds => ReturnCode::EINVAL,
+                        Error::NoSuchApp => ReturnCode::EINVAL,
+                    })
+            },
+
+            _ => ReturnCode::ENOSUPPORT,
+        }
+    }
+
 }

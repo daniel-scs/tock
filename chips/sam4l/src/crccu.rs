@@ -160,7 +160,8 @@ impl<'a> Crccu<'a> {
         self.client
     }
 
-    fn set_descriptor(&self, addr: u32, ctrl: TCR, crc: u32) {
+    fn set_descriptor(&mut self, addr: u32, ctrl: TCR, crc: u32) {
+        // XXX write_volatile?
         let d = unsafe { &mut *self.descriptor() };
         d.addr = addr;
         d.ctrl = ctrl;
@@ -197,9 +198,6 @@ impl<'a> Crccu<'a> {
 
         if ISR.read() & 1 == 1 {
             // A CRC error has occurred
-            if let Some(client) = self.get_client() {
-                client.receive_err();
-            }
         }
 
         if DMAISR.read() & 1 == 1 {
@@ -238,7 +236,7 @@ impl<'a> Crccu<'a> {
 
 // Implement the generic CRC interface with the CRCCU
 impl<'a> crc::CRC for Crccu<'a> {
-    fn init(&self) -> ReturnCode {
+    fn init(&mut self) -> ReturnCode {
         // DEBUG
         let daddr = self.descriptor() as u32;
         if daddr & 0x1ff != 0 {
