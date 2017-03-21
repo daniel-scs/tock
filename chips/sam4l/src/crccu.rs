@@ -7,8 +7,6 @@
 // - As much as 512 bytes of RAM is wasted to allow runtime alignment of the
 //   CRCCU Descriptor.  Reliable knowledge of kernel alignment might allow this
 //   to be done statically.
-//
-// - The CRC values are not as expected.  (See note below.)
 
 // Notes:
 //
@@ -23,7 +21,7 @@
 use kernel::returncode::ReturnCode;
 use kernel::hil::crc;
 use nvic;
-use pm::{Clock, HSBClock, PBBClock, enable_clock};
+use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
 
 // A memory-mapped register
 struct Reg(*mut u32);
@@ -223,14 +221,12 @@ impl<'a> Crccu<'a> {
 
         }
 
-        /*
         // XXX: When is it appropriate to unclock the unit?
         unsafe {
             nvic::disable(nvic::NvicIdx::CRCCU);
             disable_clock(Clock::PBB(PBBClock::CRCCU));
             disable_clock(Clock::HSB(HSBClock::CRCCU));
         }
-        */
     }
 }
 
@@ -278,7 +274,8 @@ impl<'a> crc::CRC for Crccu<'a> {
 
         // Configure the data transfer
         let addr = data.as_ptr() as u32;
-        let ctrl = TCR::new(true, TrWidth::Word, data.len() as u16);
+        // (It appears data length must be a multiple of transfer width to get the correct result)
+        let ctrl = TCR::new(true, TrWidth::Byte, data.len() as u16);
         let crc = 0;
         self.set_descriptor(addr, ctrl, crc);
         DSCR.write(self.descriptor() as u32);
