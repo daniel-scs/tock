@@ -36,6 +36,10 @@ int main(void) {
     goto fail;
   }
 
+  if (crc_compute() != EBUSY) {
+    printf("unexpected result of overlapping CRC compute-request\n");
+  }
+
   printf("CRC SUCCESS\n");
   blinken(1000);
 
@@ -48,6 +52,12 @@ void finished(int val, __attribute__((unused)) int v1,
                        __attribute__((unused)) int v2,
                        __attribute__((unused)) void *data) {
   printf("CRC finished: %8lx\n", (uint32_t) val);
+
+  delay_ms(1000);
+
+  if (crc_compute() != 0) {
+    printf("additional CRC compute-request failed\n");
+  }
 }
 
 __attribute__((noreturn)) void
