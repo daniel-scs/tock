@@ -275,7 +275,11 @@ impl<'a> crc::CRC for Crccu<'a> {
         // Configure the data transfer
         let addr = data.as_ptr() as u32;
         // (It appears data length must be a multiple of transfer width to get the correct result)
-        let ctrl = TCR::new(true, TrWidth::Byte, data.len() as u16);
+        let len = data.len() as u16;
+        let tr_width = if addr % 4 == 0 && len % 4 == 0 { TrWidth::Word }
+                       else if addr % 2 == 0 && len % 2 == 0 { TrWidth::HalfWord }
+                       else { TrWidth::Byte };
+        let ctrl = TCR::new(true, tr_width, len);
         let crc = 0;
         self.set_descriptor(addr, ctrl, crc);
         DSCR.write(self.descriptor() as u32);
