@@ -16,6 +16,10 @@ int crc_subscribe(subscribe_cb callback, void *ud) {
   return subscribe(DRIVER_NUM_CRC, 0, callback, ud);
 }
 
-int crc_compute(void) {
-  return command(DRIVER_NUM_CRC, 3, 0);
+int crc_set_buffer(const void* buf, size_t len) {
+  return allow(DRIVER_NUM_CRC, 0, (void*) buf, len);
+}
+
+int crc_compute(enum crc_polynomial poly) {
+  return command(DRIVER_NUM_CRC, 3, poly);
 }

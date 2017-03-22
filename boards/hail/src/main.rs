@@ -350,8 +350,8 @@ pub unsafe fn reset_handler() {
     // CRC
     let crc = static_init!(
         capsules::crc::Crc<'static, sam4l::crccu::Crccu<'static>>,
-        capsules::crc::Crc::new(&mut sam4l::crccu::CRCCU),
-        192/8);
+        capsules::crc::Crc::new(&mut sam4l::crccu::CRCCU, kernel::Container::create()),
+        2*4);
     sam4l::crccu::CRCCU.set_client(crc);
 
 
