@@ -92,8 +92,7 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
                         .enter(appid, |app, _| {
                             if app.callback.is_some() {
                                 if let Some(ref buf) = app.buffer {
-                                    self.crc_unit.compute(buf.as_ref(), poly);
-                                    ReturnCode::SUCCESS
+                                    self.crc_unit.compute(buf.as_ref(), poly)
                                 }
                                 else { ReturnCode::EINVAL }
                             }

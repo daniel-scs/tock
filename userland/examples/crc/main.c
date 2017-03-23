@@ -56,7 +56,8 @@ int main(void) {
   for (test_index = 0; test_index < n_test_cases; test_index++) {
     struct test_case *t = &test_cases[test_index];
 
-    printf("Requesting test case %d ...\n", test_index);
+    printf("Requesting test case %d (length %d) ...\n",
+           test_index, strlen(t->input));
 
     if ((r = crc_set_buffer(t->input, strlen(t->input))) != 0) {
       printf("CRC set-buffer failed: %d\n", r);
@@ -64,8 +65,8 @@ int main(void) {
     }
 
     completed = false;
-    if (crc_compute(t->poly) != 0) {
-      printf("CRC compute-request failed\n");
+    if ((r = crc_compute(t->poly)) != 0) {
+      printf("CRC compute-request failed: %d\n", r);
       exit(1);
     }
 

@@ -250,7 +250,7 @@ impl<'a> crc::CRC for Crccu<'a> {
             return ReturnCode::EBUSY;
         }
 
-        if data.len() > (2^16 - 1) {
+        if data.len() > 2usize.pow(16) - 1 {
             // Buffer too long
             // TODO: Chain CRCCU computations to handle large buffers
             return ReturnCode::ESIZE;
