@@ -44,4 +44,3 @@ int crc_compute(enum crc_polynomial);
 #ifdef __cplusplus
 }
 #endif
-

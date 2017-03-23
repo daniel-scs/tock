@@ -12,15 +12,14 @@
 // - As much as 512 bytes of RAM is wasted to allow runtime alignment of the
 //   CRCCU Descriptor.  Reliable knowledge of kernel alignment might allow this
 //   to be done statically.
+//
+// - CRC performance would be improved by using transfer-widths larger than Byte,
+//   but it is not clear in what cases that is possible.
 
 // TODO:
 //
-// - Figure out when we can use transfer widths other than Byte?
-//
-// - write_volatile() for the descriptor?
-//
-// - Publish max buffer size or, better, chain computations to permit
-//   arbitrary-size computations.
+// - Chain computations to permit arbitrary-size computations, or at least
+//   publish the max buffer size the unit can handle.
 //
 // - Support continuous-mode CRC
 
@@ -30,7 +29,9 @@
 //      Atmel is using the low bit instead of the high bit so reversing
 //      the values before calculation did the trick. Here is a calculator
 //      that matches (click CCITT and check the 'reverse data bytes' to
-//      get the correct value).  http://www.zorc.breitbandkatze.de/crc.html
+//      get the correct value):
+//
+//          http://www.zorc.breitbandkatze.de/crc.html
 //
 //      The SAM4L calculates 0x1541 for "ABCDEFG".
 
@@ -210,7 +211,6 @@ impl<'a> Crccu<'a> {
     }
 
     fn set_descriptor(&self, addr: u32, ctrl: TCR, crc: u32) {
-        // XXX write_volatile?
         let d = unsafe { &mut *self.descriptor() };
         d.addr = addr;
         d.ctrl = ctrl;
