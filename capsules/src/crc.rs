@@ -1,7 +1,5 @@
 //! CRC driver
 
-// TODO: virtualize/automate init()?
-
 use mem::cell::Cell;
 use kernel::{AppId, AppSlice, Container, Callback, Driver, ReturnCode, Shared};
 use kernel::hil;
@@ -52,7 +50,6 @@ impl<'a, C: hil::crc::CRC> Crc<'a, C> {
             app.enter(|app, _| {
                 if let Some(poly) = app.waiting {
                     if let Some(ref buf) = app.buffer {
-                        // XXX self.crc_unit.ensure_enabled();
                         let r = self.crc_unit.compute(buf.as_ref(), poly);
                         if r == ReturnValue::SUCCESS {
                             // The unit is now computing a CRC for this app
@@ -70,6 +67,11 @@ impl<'a, C: hil::crc::CRC> Crc<'a, C> {
                 }
             });
             if found { break }
+        }
+
+        if !found {
+            // Power down the CRC unit until next needed
+            self.crc_unit.disable();
         }
     }
 }
@@ -123,11 +125,8 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
                                 value: self.crc_unit.get_version() as usize
                              },
 
-            // Initialize the unit
-            2 => self.crc_unit.init(),
-
             // Request a CRC computation
-            3 => {
+            2 => {
                 let result =
                     if let Some(poly) = hil::crc::poly_from_int(data) {
                         self.apps
@@ -189,7 +188,7 @@ impl<'a, C: hil::crc::CRC> hil::crc::Client for Crc<'a, C> {
             serve_waiting_apps();
         }
         else {
-            ; // Ignore orphaned computation
+            // Ignore orphaned computation
         }
     }
 }

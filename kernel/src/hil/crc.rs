@@ -18,13 +18,14 @@ pub fn poly_from_int(i: usize) -> Option<Polynomial> {
 }
 
 pub trait CRC {
-    // Call this method exactly once before any other calls
-    fn init(&self) -> ReturnCode;
-
+    // Get the version of the CRC unit
     fn get_version(&self) -> u32;
 
     // Initiate a CRC calculation
     fn compute(&self, data: &[u8], Polynomial) -> ReturnCode;
+
+    // Disable the CRC unit until compute() is next called
+    fn disable(&self);
 }
 
 pub trait Client {

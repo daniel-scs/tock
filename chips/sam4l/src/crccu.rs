@@ -130,6 +130,7 @@ impl Mode {
 // State for managing the CRCCU
 pub struct Crccu<'a> {
     client: Option<&'a crc::Client>,
+    enabled: bool,
 
     // Guaranteed room for a Descriptor with 512-byte alignment.
     // (Can we do this statically instead?)
@@ -140,8 +141,11 @@ const DSCR_RESERVE: usize = 512 + 5*4;
 
 impl<'a> Crccu<'a> {
     const fn new() -> Self {
-        Crccu { client: None,
-                descriptor_space: [0; DSCR_RESERVE] }
+        let self = Crccu { client: None,
+                           enabled: false,
+                           descriptor_space: [0; DSCR_RESERVE] };
+        self.set_descriptor(0, TCR::default(), 0);
+        self
     }
 
     pub fn set_client(&mut self, client: &'a crc::Client) {
@@ -174,15 +178,29 @@ impl<'a> Crccu<'a> {
         d.ctrl
     }
 
-    pub fn enable_unit(&self) {
-        unsafe {
-            // see "10.7.4 Clock Mask"
-            enable_clock(Clock::HSB(HSBClock::CRCCU));
-            enable_clock(Clock::PBB(PBBClock::CRCCU));
+    pub fn enable(&self) {
+        if (!self.enabled) {
+            unsafe {
+                // see "10.7.4 Clock Mask"
+                enable_clock(Clock::HSB(HSBClock::CRCCU));
+                enable_clock(Clock::PBB(PBBClock::CRCCU));
 
-            nvic::disable(nvic::NvicIdx::CRCCU);
-            nvic::clear_pending(nvic::NvicIdx::CRCCU);
-            nvic::enable(nvic::NvicIdx::CRCCU);
+                nvic::disable(nvic::NvicIdx::CRCCU);
+                nvic::clear_pending(nvic::NvicIdx::CRCCU);
+                nvic::enable(nvic::NvicIdx::CRCCU);
+            }
+            self.enabled = true;
+        }
+    }
+
+    pub fn disable(&self) {
+        if (self.enabled) {
+            unsafe {
+                nvic::disable(nvic::NvicIdx::CRCCU);
+                disable_clock(Clock::PBB(PBBClock::CRCCU));
+                disable_clock(Clock::HSB(HSBClock::CRCCU));
+            }
+            self.enabled = false;
         }
     }
 
@@ -212,34 +230,12 @@ impl<'a> Crccu<'a> {
                 // Disable DMA channel
                 DMADIS.write(1);
             }
-
-            /*
-            // XXX: When is it appropriate to unclock the unit?
-            unsafe {
-                nvic::disable(nvic::NvicIdx::CRCCU);
-                disable_clock(Clock::PBB(PBBClock::CRCCU));
-                disable_clock(Clock::HSB(HSBClock::CRCCU));
-            }
-            */
         }
     }
 }
 
 // Implement the generic CRC interface with the CRCCU
 impl<'a> crc::CRC for Crccu<'a> {
-    fn init(&self) -> ReturnCode {
-        // DEBUG
-        let daddr = self.descriptor() as u32;
-        if daddr & 0x1ff != 0 {
-            // Alignment failure
-            return ReturnCode::FAIL;
-        }
-
-        self.set_descriptor(0, TCR::default(), 0);
-        self.enable_unit();
-        return ReturnCode::SUCCESS;
-    }
-
     fn get_version(&self) -> u32 {
         VERSION.read()
     }
@@ -256,7 +252,7 @@ impl<'a> crc::CRC for Crccu<'a> {
             return ReturnCode::ESIZE;
         }
 
-        self.enable_unit();
+        self.enable();
 
         // Enable DMA interrupt
         DMAIER.write(1);
@@ -293,6 +289,10 @@ impl<'a> crc::CRC for Crccu<'a> {
         DMAEN.write(1);
 
         return ReturnCode::SUCCESS;
+    }
+
+    fn disable(&self) {
+        Crccu::disable(self);
     }
 }
 
