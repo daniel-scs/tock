@@ -2,6 +2,7 @@
 
 // TODO: virtualize/automate init()?
 
+use mem::cell::Cell;
 use kernel::{AppId, AppSlice, Container, Callback, Driver, ReturnCode, Shared};
 use kernel::hil;
 use kernel::process::Error;
@@ -9,6 +10,7 @@ use kernel::process::Error;
 pub struct App {
     callback: Option<Callback>,
     buffer: Option<AppSlice<Shared, u8>>,
+    waiting: bool,
 }
 
 impl Default for App {
@@ -16,6 +18,7 @@ impl Default for App {
         App {
             callback: None,
             buffer: None,
+            waiting: None,
         }
     }
 }
@@ -23,12 +26,14 @@ impl Default for App {
 pub struct Crc<'a, C: hil::crc::CRC + 'a> {
     crc_unit: &'a C,
     apps: Container<App>,
+    serving_app: Cell<Option<AppId>>,
 }
 
 impl<'a, C: hil::crc::CRC> Crc<'a, C> {
     pub fn new(crc_unit: &'a C, apps: Container<App>) -> Crc<'a, C> {
         Crc { crc_unit: crc_unit,
               apps: apps,
+              serving_app: Cell::new(None),
             }
     }
 }
@@ -87,16 +92,25 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
 
             // Request a CRC computation
             3 => {
+                let active_app = self.active_app.get();
+
                 if let Some(poly) = hil::crc::poly_from_int(data) {
                     self.apps
                         .enter(appid, |app, _| {
-                            if app.callback.is_some() {
-                                if let Some(ref buf) = app.buffer {
-                                    self.crc_unit.compute(buf.as_ref(), poly)
+                            if app.waiting {
+                                // Each app may make only one request at a time
+                                return ReturnCode::EBUSY;
+                            }
+                            else {
+                                if app.callback.is_some() && app.buffer.is_some() {
+                                    app.waiting = true;
+                                    if let Some(ref buf) = app.buffer {
+                                        self.crc_unit.compute(buf.as_ref(), poly)
+                                    }
+                                    else { ReturnCode::EINVAL }
                                 }
                                 else { ReturnCode::EINVAL }
                             }
-                            else { ReturnCode::EINVAL }
                         })
                         .unwrap_or_else(|err| {
                             match err {
