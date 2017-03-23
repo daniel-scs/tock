@@ -2,6 +2,7 @@
 
 use returncode::ReturnCode;
 
+#[derive(Copy, Clone)]
 pub enum Polynomial {
 	CCIT8023,   // Polynomial 0x04C11DB7
 	CASTAGNOLI, // Polynomial 0x1EDC6F41

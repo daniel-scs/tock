@@ -38,6 +38,7 @@ int crc_set_buffer(const void*, size_t);
 // the registered callback.
 //
 // Returns EBUSY if a computation is already in progress.
+// Returns ESIZE if the buffer is too big for the unit.
 int crc_compute(enum crc_polynomial);
 
 #ifdef __cplusplus

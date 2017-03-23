@@ -130,6 +130,7 @@ impl Mode {
 // State for managing the CRCCU
 pub struct Crccu<'a> {
     client: Option<&'a crc::Client>,
+    initialized: bool,
     enabled: bool,
 
     // Guaranteed room for a Descriptor with 512-byte alignment.
@@ -141,12 +142,46 @@ const DSCR_RESERVE: usize = 512 + 5*4;
 
 impl<'a> Crccu<'a> {
     const fn new() -> Self {
-        let self = Crccu { client: None,
-                           enabled: false,
-                           descriptor_space: [0; DSCR_RESERVE] };
-        self.set_descriptor(0, TCR::default(), 0);
-        self
+        Crccu { client: None,
+                initialized: false,
+                enabled: false,
+                descriptor_space: [0; DSCR_RESERVE] }
     }
+
+    fn init(&self) {
+        if !self.initialized {
+            self.set_descriptor(0, TCR::default(), 0);
+            self.initialized = true;
+        }
+    }
+
+    pub fn enable(&self) {
+        if !self.enabled {
+            self.init();
+            unsafe {
+                // see "10.7.4 Clock Mask"
+                enable_clock(Clock::HSB(HSBClock::CRCCU));
+                enable_clock(Clock::PBB(PBBClock::CRCCU));
+
+                nvic::disable(nvic::NvicIdx::CRCCU);
+                nvic::clear_pending(nvic::NvicIdx::CRCCU);
+                nvic::enable(nvic::NvicIdx::CRCCU);
+            }
+            self.enabled = true;
+        }
+    }
+
+    pub fn disable(&self) {
+        if self.enabled {
+            unsafe {
+                nvic::disable(nvic::NvicIdx::CRCCU);
+                disable_clock(Clock::PBB(PBBClock::CRCCU));
+                disable_clock(Clock::HSB(HSBClock::CRCCU));
+            }
+            self.enabled = false;
+        }
+    }
+
 
     pub fn set_client(&mut self, client: &'a crc::Client) {
         self.client = Some(client);
@@ -164,6 +199,11 @@ impl<'a> Crccu<'a> {
         d.crc = crc;
     }
 
+    fn get_tcr(&self) -> TCR {
+        let d = unsafe { &*self.descriptor() };
+        d.ctrl
+    }
+
     // Dynamically calculate the 512-byte-aligned location for Descriptor
     fn descriptor(&self) -> *mut Descriptor {
         let s = &self.descriptor_space as *const [u8; DSCR_RESERVE] as u32;
@@ -171,37 +211,6 @@ impl<'a> Crccu<'a> {
         let u = 512 - t;
         let d = s + u;
         return d as *mut Descriptor;
-    }
-
-    fn get_tcr(&self) -> TCR {
-        let d = unsafe { &*self.descriptor() };
-        d.ctrl
-    }
-
-    pub fn enable(&self) {
-        if (!self.enabled) {
-            unsafe {
-                // see "10.7.4 Clock Mask"
-                enable_clock(Clock::HSB(HSBClock::CRCCU));
-                enable_clock(Clock::PBB(PBBClock::CRCCU));
-
-                nvic::disable(nvic::NvicIdx::CRCCU);
-                nvic::clear_pending(nvic::NvicIdx::CRCCU);
-                nvic::enable(nvic::NvicIdx::CRCCU);
-            }
-            self.enabled = true;
-        }
-    }
-
-    pub fn disable(&self) {
-        if (self.enabled) {
-            unsafe {
-                nvic::disable(nvic::NvicIdx::CRCCU);
-                disable_clock(Clock::PBB(PBBClock::CRCCU));
-                disable_clock(Clock::HSB(HSBClock::CRCCU));
-            }
-            self.enabled = false;
-        }
     }
 
     pub fn handle_interrupt(&mut self) {

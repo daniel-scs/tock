@@ -1,6 +1,6 @@
 //! CRC driver
 
-use mem::cell::Cell;
+use core::cell::Cell;
 use kernel::{AppId, AppSlice, Container, Callback, Driver, ReturnCode, Shared};
 use kernel::hil;
 use kernel::process::Error;
@@ -39,27 +39,27 @@ impl<'a, C: hil::crc::CRC> Crc<'a, C> {
     }
 
     fn serve_waiting_apps(&self) {
-        if self.serving_app.is_some() {
+        if self.serving_app.get().is_some() {
             // A computation is in progress
             return;
         }
 
         // Find a waiting app and start its requested computation
-        let found = false;
+        let mut found = false;
         for app in self.apps.iter() {
             app.enter(|app, _| {
                 if let Some(poly) = app.waiting {
-                    if let Some(ref buf) = app.buffer {
-                        let r = self.crc_unit.compute(buf.as_ref(), poly);
-                        if r == ReturnValue::SUCCESS {
+                    if app.buffer.is_some() {
+                        let r = self.crc_unit.compute(app.buffer.unwrap().as_ref(), poly);
+                        if r == ReturnCode::SUCCESS {
                             // The unit is now computing a CRC for this app
                             self.serving_app.set(Some(app.appid()));
-                            found = 1;
+                            found = true;
                         }
                         else {
                             // The app's request failed
                             if let Some(mut callback) = app.callback {
-                                callback.schedule(EINVAL, 0, 0);
+                                callback.schedule(From::from(r), 0, 0);
                             }
                             app.waiting = None;
                         }
@@ -156,7 +156,7 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
                     };
 
                 if result == ReturnCode::SUCCESS {
-                    serve_waiting_apps();
+                    self.serve_waiting_apps();
                 }
                 result
             }
@@ -168,11 +168,11 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
 
 impl<'a, C: hil::crc::CRC> hil::crc::Client for Crc<'a, C> {
     fn receive_result(&self, result: u32) {
-        if let Some(appid) = self.serving_app {
+        if let Some(appid) = self.serving_app.get() {
             self.apps
                 .enter(appid, |app, _| {
                     if let Some(mut callback) = app.callback {
-                        callback.schedule(SUCCESS, result as usize, 0);
+                        callback.schedule(From::from(ReturnCode::SUCCESS), result as usize, 0);
                     }
                     app.waiting = None;
                 })
@@ -185,7 +185,7 @@ impl<'a, C: hil::crc::CRC> hil::crc::Client for Crc<'a, C> {
                 });
 
             self.serving_app.set(None);
-            serve_waiting_apps();
+            self.serve_waiting_apps();
         }
         else {
             // Ignore orphaned computation
