@@ -49,8 +49,8 @@ impl<'a, C: hil::crc::CRC> Crc<'a, C> {
         for app in self.apps.iter() {
             app.enter(|app, _| {
                 if let Some(poly) = app.waiting {
-                    if app.buffer.is_some() {
-                        let r = self.crc_unit.compute(app.buffer.unwrap().as_ref(), poly);
+                    if let Some(buffer) = app.buffer.take() {
+                        let r = self.crc_unit.compute(buffer.as_ref(), poly);
                         if r == ReturnCode::SUCCESS {
                             // The unit is now computing a CRC for this app
                             self.serving_app.set(Some(app.appid()));
@@ -63,6 +63,9 @@ impl<'a, C: hil::crc::CRC> Crc<'a, C> {
                             }
                             app.waiting = None;
                         }
+
+                        // Put back taken buffer
+                        app.buffer = Some(buffer);
                     }
                 }
             });

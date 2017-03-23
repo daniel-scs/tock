@@ -2,11 +2,27 @@
 //
 //  see datasheet section "41. Cyclic Redundancy Check Calculation Unit (CRCCU)"
 
+// Bugs:
+//
+// - Calculations with the two 32-bit polynomials produce results different
+//   from the reference in the notes below.
+
 // Infelicities:
 //
 // - As much as 512 bytes of RAM is wasted to allow runtime alignment of the
 //   CRCCU Descriptor.  Reliable knowledge of kernel alignment might allow this
 //   to be done statically.
+
+// TODO:
+//
+// - Figure out when we can use transfer widths other than Byte?
+//
+// - write_volatile() for the descriptor?
+//
+// - Publish max buffer size or, better, chain computations to permit
+//   arbitrary-size computations.
+//
+// - Support continuous-mode CRC
 
 // Notes:
 //
@@ -18,6 +34,7 @@
 //
 //      The SAM4L calculates 0x1541 for "ABCDEFG".
 
+use core::cell::Cell;
 use kernel::returncode::ReturnCode;
 use kernel::hil::crc::{self, Polynomial};
 use nvic;
@@ -127,11 +144,13 @@ impl Mode {
     }
 }
 
+#[derive(Copy, Clone, PartialEq)]
+enum State { Invalid, Initialized, Enabled }
+
 // State for managing the CRCCU
 pub struct Crccu<'a> {
     client: Option<&'a crc::Client>,
-    initialized: bool,
-    enabled: bool,
+    state: Cell<State>,
 
     // Guaranteed room for a Descriptor with 512-byte alignment.
     // (Can we do this statically instead?)
@@ -143,20 +162,19 @@ const DSCR_RESERVE: usize = 512 + 5*4;
 impl<'a> Crccu<'a> {
     const fn new() -> Self {
         Crccu { client: None,
-                initialized: false,
-                enabled: false,
+                state: Cell::new(State::Invalid),
                 descriptor_space: [0; DSCR_RESERVE] }
     }
 
     fn init(&self) {
-        if !self.initialized {
+        if self.state.get() == State::Invalid {
             self.set_descriptor(0, TCR::default(), 0);
-            self.initialized = true;
+            self.state.set(State::Initialized);
         }
     }
 
     pub fn enable(&self) {
-        if !self.enabled {
+        if self.state.get() != State::Enabled {
             self.init();
             unsafe {
                 // see "10.7.4 Clock Mask"
@@ -167,18 +185,18 @@ impl<'a> Crccu<'a> {
                 nvic::clear_pending(nvic::NvicIdx::CRCCU);
                 nvic::enable(nvic::NvicIdx::CRCCU);
             }
-            self.enabled = true;
+            self.state.set(State::Enabled);
         }
     }
 
     pub fn disable(&self) {
-        if self.enabled {
+        if self.state.get() == State::Enabled {
             unsafe {
                 nvic::disable(nvic::NvicIdx::CRCCU);
                 disable_clock(Clock::PBB(PBBClock::CRCCU));
                 disable_clock(Clock::HSB(HSBClock::CRCCU));
             }
-            self.enabled = false;
+            self.state.set(State::Initialized);
         }
     }
 
