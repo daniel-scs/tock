@@ -268,6 +268,8 @@ impl<'a> crc::CRC for Crccu<'a> {
     }
 
     fn compute(&self, data: &[u8], poly: Polynomial) -> ReturnCode {
+        self.init();
+
         if self.get_tcr().interrupt_enabled() {
             // A computation is already in progress
             return ReturnCode::EBUSY;
