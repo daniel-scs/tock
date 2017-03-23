@@ -72,11 +72,10 @@ int main(void) {
   printf("Finished\n");
 }
 
-void receive_result(int v0, int v1,
+void receive_result(int status, int v1,
                     __attribute__((unused)) int v2,
                     __attribute__((unused)) void *data)
 {
-  usize status = v0;
   uint32_t result = v1;
 
   struct test_case *t = &test_cases[test_index];
