@@ -10,7 +10,10 @@ use kernel::process::Error;
 pub struct App {
     callback: Option<Callback>,
     buffer: Option<AppSlice<Shared, u8>>,
-    waiting: bool,
+
+    // if Some, the application is awaiting the result of a CRC
+    //   using the given polynomial
+    waiting: Option<hil::crc::Polynomial>,
 }
 
 impl Default for App {
@@ -35,6 +38,39 @@ impl<'a, C: hil::crc::CRC> Crc<'a, C> {
               apps: apps,
               serving_app: Cell::new(None),
             }
+    }
+
+    fn serve_waiting_apps(&self) {
+        if self.serving_app.is_some() {
+            // A computation is in progress
+            return;
+        }
+
+        // Find a waiting app and start its requested computation
+        let found = false;
+        for app in self.apps.iter() {
+            app.enter(|app, _| {
+                if let Some(poly) = app.waiting {
+                    if let Some(ref buf) = app.buffer {
+                        // XXX self.crc_unit.ensure_enabled();
+                        let r = self.crc_unit.compute(buf.as_ref(), poly);
+                        if r == ReturnValue::SUCCESS {
+                            // The unit is now computing a CRC for this app
+                            self.serving_app.set(Some(app.appid()));
+                            found = 1;
+                        }
+                        else {
+                            // The app's request failed
+                            if let Some(mut callback) = app.callback {
+                                callback.schedule(EINVAL, 0, 0);
+                            }
+                            app.waiting = None;
+                        }
+                    }
+                }
+            });
+            if found { break }
+        }
     }
 }
 
@@ -79,10 +115,10 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
 
     fn command(&self, command_num: usize, data: usize, appid: AppId) -> ReturnCode {
         match command_num {
-            // The driver is present
+            // This driver is present
             0 => ReturnCode::SUCCESS,
 
-            // Get version
+            // Get version of CRC unit
             1 => ReturnCode::SuccessWithValue {
                                 value: self.crc_unit.get_version() as usize
                              },
@@ -92,35 +128,38 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
 
             // Request a CRC computation
             3 => {
-                let active_app = self.active_app.get();
-
-                if let Some(poly) = hil::crc::poly_from_int(data) {
-                    self.apps
-                        .enter(appid, |app, _| {
-                            if app.waiting {
-                                // Each app may make only one request at a time
-                                return ReturnCode::EBUSY;
-                            }
-                            else {
-                                if app.callback.is_some() && app.buffer.is_some() {
-                                    app.waiting = true;
-                                    if let Some(ref buf) = app.buffer {
-                                        self.crc_unit.compute(buf.as_ref(), poly)
+                let result =
+                    if let Some(poly) = hil::crc::poly_from_int(data) {
+                        self.apps
+                            .enter(appid, |app, _| {
+                                if app.waiting.is_some() {
+                                    // Each app may make only one request at a time
+                                    ReturnCode::EBUSY
+                                }
+                                else {
+                                    if app.callback.is_some() && app.buffer.is_some() {
+                                        app.waiting = Some(poly);
+                                        ReturnCode::SUCCESS
                                     }
                                     else { ReturnCode::EINVAL }
                                 }
-                                else { ReturnCode::EINVAL }
-                            }
-                        })
-                        .unwrap_or_else(|err| {
-                            match err {
-                                Error::OutOfMemory => ReturnCode::ENOMEM,
-                                Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                                Error::NoSuchApp => ReturnCode::EINVAL,
-                            }
-                        })
+                            })
+                            .unwrap_or_else(|err| {
+                                match err {
+                                    Error::OutOfMemory => ReturnCode::ENOMEM,
+                                    Error::AddressOutOfBounds => ReturnCode::EINVAL,
+                                    Error::NoSuchApp => ReturnCode::EINVAL,
+                                }
+                            })
+                    }
+                    else {
+                        ReturnCode::EINVAL
+                    };
+
+                if result == ReturnCode::SUCCESS {
+                    serve_waiting_apps();
                 }
-                else { ReturnCode::EINVAL }
+                result
             }
 
             _ => ReturnCode::ENOSUPPORT,
@@ -130,14 +169,27 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
 
 impl<'a, C: hil::crc::CRC> hil::crc::Client for Crc<'a, C> {
     fn receive_result(&self, result: u32) {
-        for app in self.apps.iter() {
-            app.enter(|app, _| {
-                // XXX: for now just alert every app
-                if let Some(mut callback) = app.callback {
-                    callback.schedule(result as usize, 0, 0);
-                }
-            });
-            break; // XXX
+        if let Some(appid) = self.serving_app {
+            self.apps
+                .enter(appid, |app, _| {
+                    if let Some(mut callback) = app.callback {
+                        callback.schedule(SUCCESS, result as usize, 0);
+                    }
+                    app.waiting = None;
+                })
+                .unwrap_or_else(|err| {
+                    match err {
+                        Error::OutOfMemory => {},
+                        Error::AddressOutOfBounds => {},
+                        Error::NoSuchApp => {},
+                    }
+                });
+
+            self.serving_app.set(None);
+            serve_waiting_apps();
+        }
+        else {
+            ; // Ignore orphaned computation
         }
     }
 }
