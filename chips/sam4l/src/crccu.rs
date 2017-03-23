@@ -19,7 +19,7 @@
 //      The SAM4L calculates 0x1541 for "ABCDEFG".
 
 use kernel::returncode::ReturnCode;
-use kernel::hil::crc;
+use kernel::hil::crc::{self, Polynomial};
 use nvic;
 use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
 
@@ -127,12 +127,6 @@ impl Mode {
     }
 }
 
-pub enum Polynomial {
-	CCIT8023,   // Polynomial 0x04C11DB7
-	CASTAGNOLI, // Polynomial 0x1EDC6F41
-	CCIT16,		// Polynomial 0x1021
-}
-
 // State for managing the CRCCU
 pub struct Crccu<'a> {
     client: Option<&'a crc::Client>,
@@ -219,13 +213,14 @@ impl<'a> Crccu<'a> {
                 DMADIS.write(1);
             }
 
-        }
-
-        // XXX: When is it appropriate to unclock the unit?
-        unsafe {
-            nvic::disable(nvic::NvicIdx::CRCCU);
-            disable_clock(Clock::PBB(PBBClock::CRCCU));
-            disable_clock(Clock::HSB(HSBClock::CRCCU));
+            /*
+            // XXX: When is it appropriate to unclock the unit?
+            unsafe {
+                nvic::disable(nvic::NvicIdx::CRCCU);
+                disable_clock(Clock::PBB(PBBClock::CRCCU));
+                disable_clock(Clock::HSB(HSBClock::CRCCU));
+            }
+            */
         }
     }
 }
@@ -249,7 +244,7 @@ impl<'a> crc::CRC for Crccu<'a> {
         VERSION.read()
     }
 
-    fn compute(&self, data: &[u8]) -> ReturnCode {
+    fn compute(&self, data: &[u8], poly: Polynomial) -> ReturnCode {
         if self.get_tcr().interrupt_enabled() {
             // A computation is already in progress
             return ReturnCode::EBUSY;
@@ -277,8 +272,8 @@ impl<'a> crc::CRC for Crccu<'a> {
         // (It appears data length must be a multiple of transfer width to get the correct result)
         let len = data.len() as u16;
         let tr_width = if addr % 4 == 0 && len % 4 == 0 { TrWidth::Word }
-                       else if addr % 2 == 0 && len % 2 == 0 { TrWidth::HalfWord }
-                       else { TrWidth::Byte };
+                       else { if addr % 2 == 0 && len % 2 == 0 { TrWidth::HalfWord }
+                              else { TrWidth::Byte } };
         let ctrl = TCR::new(true, tr_width, len);
         let crc = 0;
         self.set_descriptor(addr, ctrl, crc);
@@ -288,7 +283,7 @@ impl<'a> crc::CRC for Crccu<'a> {
         let divider = 0;
         let compare = false;
         let enable = true;
-        let mode = Mode::new(divider, Polynomial::CCIT16, compare, enable);
+        let mode = Mode::new(divider, poly, compare, enable);
         MR.write(mode.0);
 
         // Enable DMA channel

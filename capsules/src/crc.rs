@@ -72,7 +72,7 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
         }
     }
 
-    fn command(&self, command_num: usize, _data: usize, appid: AppId) -> ReturnCode {
+    fn command(&self, command_num: usize, data: usize, appid: AppId) -> ReturnCode {
         match command_num {
             // The driver is present
             0 => ReturnCode::SUCCESS,
@@ -87,24 +87,27 @@ impl<'a, C: hil::crc::CRC> Driver for Crc<'a, C>  {
 
             // Request a CRC computation
             3 => {
-                self.apps
-                    .enter(appid, |app, _| {
-                        if app.callback.is_some() {
-                            if let Some(ref buf) = app.buffer {
-                                self.crc_unit.compute(buf.as_ref());
-                                ReturnCode::SUCCESS
+                if let Some(poly) = hil::crc::poly_from_int(data) {
+                    self.apps
+                        .enter(appid, |app, _| {
+                            if app.callback.is_some() {
+                                if let Some(ref buf) = app.buffer {
+                                    self.crc_unit.compute(buf.as_ref(), poly);
+                                    ReturnCode::SUCCESS
+                                }
+                                else { ReturnCode::EINVAL }
                             }
                             else { ReturnCode::EINVAL }
-                        }
-                        else { ReturnCode::EINVAL }
-                    })
-                    .unwrap_or_else(|err| {
-                        match err {
-                            Error::OutOfMemory => ReturnCode::ENOMEM,
-                            Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                            Error::NoSuchApp => ReturnCode::EINVAL,
-                        }
-                    })
+                        })
+                        .unwrap_or_else(|err| {
+                            match err {
+                                Error::OutOfMemory => ReturnCode::ENOMEM,
+                                Error::AddressOutOfBounds => ReturnCode::EINVAL,
+                                Error::NoSuchApp => ReturnCode::EINVAL,
+                            }
+                        })
+                }
+                else { ReturnCode::EINVAL }
             }
 
             _ => ReturnCode::ENOSUPPORT,
@@ -121,6 +124,7 @@ impl<'a, C: hil::crc::CRC> hil::crc::Client for Crc<'a, C> {
                     callback.schedule(result as usize, 0, 0);
                 }
             });
+            break; // XXX
         }
     }
 }
