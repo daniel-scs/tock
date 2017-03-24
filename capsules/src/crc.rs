@@ -5,6 +5,7 @@ use kernel::{AppId, AppSlice, Container, Callback, Driver, ReturnCode, Shared};
 use kernel::hil;
 use kernel::process::Error;
 
+#[derive(Default)]
 pub struct App {
     callback: Option<Callback>,
     buffer: Option<AppSlice<Shared, u8>>,
@@ -12,16 +13,6 @@ pub struct App {
     // if Some, the application is awaiting the result of a CRC
     //   using the given polynomial
     waiting: Option<hil::crc::Polynomial>,
-}
-
-impl Default for App {
-    fn default() -> App {
-        App {
-            callback: None,
-            buffer: None,
-            waiting: None,
-        }
-    }
 }
 
 pub struct Crc<'a, C: hil::crc::CRC + 'a> {
