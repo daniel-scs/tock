@@ -169,7 +169,18 @@ fn post_process(result: u32, alg: CrcAlg) -> u32 {
 }
 
 fn reverse_and_invert(n: u32) -> u32 {
-    n // XXX TODO
+    let mut out: u32 = 0;
+
+    // Bit-reverse
+    for j in 0..32 {
+        let i = 31 - j;
+        out |= ((n & (1 << i)) >> i) << j;
+    }
+
+    // Bit-invert
+    out ^= 0xffffffff;
+
+    out
 }
 
 pub enum TrWidth { Byte, HalfWord, Word }
