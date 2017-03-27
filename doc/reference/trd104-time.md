@@ -11,7 +11,7 @@ Kernel Time HIL
 **Draft-Version:** 1<br/>
 **Draft-Discuss:** tock-dev@googlegroups.com</br>
 
-0. Abstract
+Abstract
 -------------------------------
 
 This document describes the hardware independent layer interface (HIL) for time
@@ -19,7 +19,7 @@ in the Tock operating system kernel. It describes the Rust traits and other
 definitions for this service as well as the reasoning behind them. This
 document is in full compliance with [TRD1].
 
-1. Introduction
+1 Introduction
 -------------------------------
 
 Microcontrollers provide a variety of hardware controllers that keep track of
@@ -49,7 +49,7 @@ up the stack as possible.
 
 The rest of this document discusses each trait in turn.
 
-2. `Time` trait
+2 `Time` trait
 -------------------------------
 
 The `Time` trait is the base-type for controllers that keep track of time. The
@@ -92,7 +92,7 @@ queued (i.e. an alarm or timer).
 
 [associated type]: https://doc.rust-lang.org/book/associated-types.html
 
-3. `Alarm` trait
+3 `Alarm` trait
 -------------------------------
 
 Instances of the `Alarm` trait track a continuously incrementing clock and can
@@ -120,7 +120,7 @@ invalidate and replace any previous calls to `set_alarm`.
 The `get_alarm` method returns the value passed to the previous call to
 `set_alarm`. `get_alarm` is only meaningful if `Time#is_armed` returns true.
 
-3. `Timer` trait
+4 `Timer` trait
 -------------------------------
 
 Instances of the `Timer` trait counts underlying clock tics and trigger an
@@ -149,7 +149,7 @@ timer, though, and implementations SHOULD use this facility when available.
 Calling `oneshot` MUST invalidate and replace any previous calls to `oneshot`
 or `repeat`.
 
-4. `Client` trait
+5 `Client` trait
 -------------------------------
 
 The `Client` trait is how a caller provides a callback to a `Timer` or `Alarm`
@@ -165,10 +165,10 @@ pub trait Client {
 Whenever an alarm or timer event occures, the implementation MUST call the
 `Client`'s `fired` method.
 
-5. Example Implementation
+6 Example Implementation
 ---------------------------------
 
-6. Authors' Address
+7 Authors' Address
 ---------------------------------
 
 email - amit@amitlevy.com
