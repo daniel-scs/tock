@@ -11,7 +11,7 @@ Kernel Time HIL
 **Draft-Version:** 1<br/>
 **Draft-Discuss:** tock-dev@googlegroups.com</br>
 
-Abstract
+0. Abstract
 -------------------------------
 
 This document describes the hardware independent layer interface (HIL) for time
@@ -36,8 +36,8 @@ main traits:
     fire when the underlying clock reaches a certain value.
   * `kernel::hil::time::Timer`: Presents an abstract time controller that can
     fire at given intervals.
-  * `kernel::hil::gpio::Client`: handles the callback either an `Alarm` or
-    `Timer` fire.
+  * `kernel::hil::gpio::Client`: handles the callback from an `Alarm` or
+    a `Timer`.
 
 Most hardware time controllers can implement both the `Timer` and `Alarm`
 traits, however some are more natural for one rather than the other. Moreover,
