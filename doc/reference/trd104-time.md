@@ -98,7 +98,7 @@ queued (i.e. an alarm or timer).
 Instances of the `Alarm` trait track a continuously incrementing clock and can
 fire an event when the clock reaches a specific value. The trait is a subtype
 of the `Time` trait and, as a result, has access to the `Time::Frequency`
-associated type. Whenever the trait referes to "tics", they are interpreted in
+associated type. Whenever the trait refers to "tics", they are interpreted in
 native clock tics.
 
 ```rust
@@ -143,7 +143,7 @@ Calling `oneshot` MUST invalidate and replace any previous calls to
 
 The `repeat` method causes the alarm to call the `Client`'s `fired` method
 (below) each time the given number of clock tics have elapsed, continuously. An
-implementation MAY incur negligable delay between firing an event and reseting
+implementation MAY incur negligable delay between firing an event and resetting
 the timer. Many hardware timers can be configured to automatically reset the
 timer, though, and implementations SHOULD use this facility when available.
 Calling `oneshot` MUST invalidate and replace any previous calls to `oneshot`
