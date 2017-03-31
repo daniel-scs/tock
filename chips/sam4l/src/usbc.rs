@@ -2,6 +2,8 @@
 
 use nvic;
 use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
+use core::cell::Cell;
+use core::ops::Index;
 
 /* I/O
 The USBC pins may be multiplexed with the I/O Controller lines. The user must first configure
@@ -60,7 +62,7 @@ impl Reg {
 struct Regs(*mut u32);
 
 impl Index<u32> for Regs {
-    type Output: Reg;
+    type Output = Reg;
 
     fn index(&self, index: u32) -> Reg {
         Reg(self.0.offset(index as isize))
@@ -71,7 +73,7 @@ impl Index<u32> for Regs {
 struct RegsW(*mut u32);
 
 impl Index<u32> for RegsW {
-    type Output: RegW;
+    type Output = RegW;
 
     fn index(&self, index: u32) -> RegW {
         RegW(self.0.offset(index as isize))
@@ -82,7 +84,7 @@ impl Index<u32> for RegsW {
 struct RegsR(*mut u32);
 
 impl Index<u32> for RegsR {
-    type Output: RegR;
+    type Output = RegR;
 
     fn index(&self, index: u32) -> RegR {
         RegR(self.0.offset(index as isize))
@@ -92,101 +94,97 @@ impl Index<u32> for RegsR {
 // Base address of USBC registers.  See "7.1 Product Mapping"
 const USBC_BASE: u32 = 0x400A5000;
 
-macro_rules! registers {
-    [ $( { $offset:expr, $description:expr, $name:ident, "RW" } ),* ] => {
-        $( #[allow(dead_code)]
-           const $name: Reg = Reg((USBC_BASE + $offset) as *mut u32); )*
+macro_rules! reg {
+    [ $offset:expr, $description:expr, $name:ident, "RW" ] => {
+        #[allow(dead_code)]
+        const $name: Reg = Reg((USBC_BASE + $offset) as *mut u32);
     };
 
-    [ $( { $offset:expr, $description:expr, $name:ident, "R" } ),* ] => {
-        $( #[allow(dead_code)]
-           const $name: Reg = RegR((USBC_BASE + $offset) as *mut u32); )*
+    [ $offset:expr, $description:expr, $name:ident, "R" ] => {
+        #[allow(dead_code)]
+        const $name: RegR = RegR((USBC_BASE + $offset) as *mut u32);
     };
 
-    [ $( { $offset:expr, $description:expr, $name:ident, "W" } ),* ] => {
-        $( #[allow(dead_code)]
-           const $name: Reg = RegW((USBC_BASE + $offset) as *mut u32); )*
-    };
-
-    [ $( { $offset:expr, $description:expr, $name:ident, "RW", $count:expr } ),* ] => {
-        $( #[allow(dead_code)]
-           const $name: Regs = Regs((USBC_BASE + $offset) as *mut u32); )*
-    };
-
-    [ $( { $offset:expr, $description:expr, $name:ident, "R", $count:expr } ),* ] => {
-        $( #[allow(dead_code)]
-           const $name: RegsR = RegsR((USBC_BASE + $offset) as *mut u32); )*
-    };
-
-    [ $( { $offset:expr, $description:expr, $name:ident, "W", $count:expr } ),* ] => {
-        $( #[allow(dead_code)]
-           const $name: RegsW = RegsW((USBC_BASE + $offset) as *mut u32); )*
+    [ $offset:expr, $description:expr, $name:ident, "W" ] => {
+        #[allow(dead_code)]
+        const $name: RegW = RegW((USBC_BASE + $offset) as *mut u32);
     };
 }
 
-registers![
-	{ 0x0000, "Device General Control Register", UDCON, "RW" },
-	{ 0x0004, "Device Global Interrupt Register", UDINT, "R" },
-	{ 0x0008, "Device Global Interrupt Clear Register", UDINTCLR, "W" },
-	{ 0x000C, "Device Global Interrupt Set Register", UDINTSET, "W" },
-	{ 0x0010, "Device Global Interrupt Enable Register", UDINTE, "R" },
-	{ 0x0014, "Device Global Interrupt Enable Clear Register", UDINTECLR, "W" },
-	{ 0x0018, "Device Global Interrupt Enable Set Register", UDINTESET, "W" },
-	{ 0x001C, "Endpoint Enable/Reset Register", UERST, "RW" },
-	{ 0x0020, "Device Frame Number Register", UDFNUM, "R" },
+macro_rules! regs {
+    [ $offset:expr, $description:expr, $name:ident, "RW", $count:expr ] => {
+        #[allow(dead_code)]
+        const $name: Regs = Regs((USBC_BASE + $offset) as *mut u32);
+    };
 
-    { 0x0100, "Endpoint n Configuration Register", UECFGn, "RW", 8 },
-    { 0x0130, "Endpoint n Status Register", UESTAn, "R", 8 },
-    { 0x0160, "Endpoint n Status Clear Register", UESTAnCLR, "W", 8 },
-    { 0x0190, "Endpoint n Status Set Register", UESTAnSET, "W", 8 },
-    { 0x01C0, "Endpoint n Control Register", UECONn, "R", 8 },
-    { 0x01F0, "Endpoint n Control Set Register", UECONnSET, "W", 8 },
-    { 0x0220, "Endpoint n Control Clear Register", UECONnCLR, "W", 8 },
+    [ $offset:expr, $description:expr, $name:ident, "R", $count:expr ] => {
+        #[allow(dead_code)]
+        const $name: RegsR = RegsR((USBC_BASE + $offset) as *mut u32);
+    };
+
+    [ $offset:expr, $description:expr, $name:ident, "W", $count:expr ] => {
+        #[allow(dead_code)]
+        const $name: RegsW = RegsW((USBC_BASE + $offset) as *mut u32);
+    };
+}
+
+reg![0x0000, "Device General Control Register", UDCON, "RW"];
+reg![0x0004, "Device Global Interrupt Register", UDINT, "R"];
+reg![0x0008, "Device Global Interrupt Clear Register", UDINTCLR, "W"];
+reg![0x000C, "Device Global Interrupt Set Register", UDINTSET, "W"];
+reg![0x0010, "Device Global Interrupt Enable Register", UDINTE, "R"];
+reg![0x0014, "Device Global Interrupt Enable Clear Register", UDINTECLR, "W"];
+reg![0x0018, "Device Global Interrupt Enable Set Register", UDINTESET, "W"];
+reg![0x001C, "Endpoint Enable/Reset Register", UERST, "RW"];
+reg![0x0020, "Device Frame Number Register", UDFNUM, "R"];
+
+regs![0x0100, "Endpoint n Configuration Register", UECFGn, "RW", 8];
+regs![0x0130, "Endpoint n Status Register", UESTAn, "R", 8];
+regs![0x0160, "Endpoint n Status Clear Register", UESTAnCLR, "W", 8];
+regs![0x0190, "Endpoint n Status Set Register", UESTAnSET, "W", 8];
+regs![0x01C0, "Endpoint n Control Register", UECONn, "R", 8];
+regs![0x01F0, "Endpoint n Control Set Register", UECONnSET, "W", 8];
+regs![0x0220, "Endpoint n Control Clear Register", UECONnCLR, "W", 8];
  
-	{ 0x0400, "Host General Control Register", UHCON, "RW" },
-    { 0x0404, "Host Global Interrupt Register", UHINT, "R" },
-    { 0x0408, "Host Global Interrupt Clear Register", UHINTCLR, "W" },
-    { 0x040C, "Host Global Interrupt Set Register", UHINTSET, "W" },
-    { 0x0410, "Host Global Interrupt Enable Register", UHINTE, "R" },
-    { 0x0414, "Host Global Interrupt Enable Clear Register", UHINTECLR, "W" },
-    { 0x0418, "Host Global Interrupt Enable Set Register UHINTESET", "W" },
-    { 0x041C, "Pipe Enable/Reset Register", UPRST, "RW" },
-    { 0x0420, "Host Frame Number Register", UHFNUM, "RW" },
-    { 0x0424, "Host Start Of Frame Control Register", UHSOFC, "RW" },
+reg![0x0400, "Host General Control Register", UHCON, "RW"];
+reg![0x0404, "Host Global Interrupt Register", UHINT, "R"];
+reg![0x0408, "Host Global Interrupt Clear Register", UHINTCLR, "W"];
+reg![0x040C, "Host Global Interrupt Set Register", UHINTSET, "W"];
+reg![0x0410, "Host Global Interrupt Enable Register", UHINTE, "R"];
+reg![0x0414, "Host Global Interrupt Enable Clear Register", UHINTECLR, "W"];
+reg![0x0418, "Host Global Interrupt Enable Set Register", UHINTESET, "W"];
+reg![0x041C, "Pipe Enable/Reset Register", UPRST, "RW"];
+reg![0x0420, "Host Frame Number Register", UHFNUM, "RW"];
+reg![0x0424, "Host Start Of Frame Control Register", UHSOFC, "RW"];
 
-    { 0x0500, "Pipe n Configuration Register", UPCFGn, "RW", 8 },
-    { 0x0530, "Pipe n Status Register", UPSTAn, "R", 8 },
-    { 0x0560, "Pipe n Status Clear Register", UPSTAnCLR, "W", 8 },
-    { 0x0590, "Pipe n Status Set Register", UPSTAnSET, "W", 8 },
-    { 0x05C0, "Pipe n Control Register", UPCONn, "R", 8 },
-    { 0x05F0, "Pipe n Control Set Register", UPCONnSET, "W", 8 },
-    { 0x0620, "Pipe n Control Clear Register", UPCONnCLR, "W", 8 },
-    { 0x0650, "Pipe n IN Request Register", UPINRQn, "RW", 8 },
+regs![0x0500, "Pipe n Configuration Register", UPCFGn, "RW", 8];
+regs![0x0530, "Pipe n Status Register", UPSTAn, "R", 8];
+regs![0x0560, "Pipe n Status Clear Register", UPSTAnCLR, "W", 8];
+regs![0x0590, "Pipe n Status Set Register", UPSTAnSET, "W", 8];
+regs![0x05C0, "Pipe n Control Register", UPCONn, "R", 8];
+regs![0x05F0, "Pipe n Control Set Register", UPCONnSET, "W", 8];
+regs![0x0620, "Pipe n Control Clear Register", UPCONnCLR, "W", 8];
+regs![0x0650, "Pipe n IN Request Register", UPINRQn, "RW", 8];
 
-    { 0x0800, "General Control Register", USBCON, "RW" },
-    { 0x0804, "General Status Register", USBSTA, "R" },
-    { 0x0808, "General Status Clear Register", USBSTACLR, "W" },
-    { 0x080C, "General Status Set Register", USBSTASET, "W" },
-    { 0x0818, "IP Version Register", UVERS, "R" },
-    { 0x081C, "IP Features Register", UFEATURES, "R" },
-    { 0x0820, "IP PB Address Size Register", UADDRSIZE, "R" },
-    { 0x0824, "IP Name Register 1", UNAME1, "R" },
-    { 0x0828, "IP Name Register 2", UNAME2, "R" },
-    { 0x082C, "USB Finite State Machine Status Register", USBFSM, "R" },
-    { 0x0830, "USB Descriptor address", UDESC, "RW" },
-];
+reg![0x0800, "General Control Register", USBCON, "RW"];
+reg![0x0804, "General Status Register", USBSTA, "R"];
+reg![0x0808, "General Status Clear Register", USBSTACLR, "W"];
+reg![0x080C, "General Status Set Register", USBSTASET, "W"];
+reg![0x0818, "IP Version Register", UVERS, "R"];
+reg![0x081C, "IP Features Register", UFEATURES, "R"];
+reg![0x0820, "IP PB Address Size Register", UADDRSIZE, "R"];
+reg![0x0824, "IP Name Register 1", UNAME1, "R"];
+reg![0x0828, "IP Name Register 2", UNAME2, "R"];
+reg![0x082C, "USB Finite State Machine Status Register", USBFSM, "R"];
+reg![0x0830, "USB Descriptor address", UDESC, "RW"];
 
 /// State for managing the USB controller
 pub struct Usbc<'a> {
-    client: Option<&'a crc::Client>,
+    // client: Option<&'a crc::Client>,
     state: Cell<State>,
 }
 
-enum State {
-    Invalid,
-    Initialized,
-    Enabled,
-}
+type Address = u32; // XXX
 
 #[derive(Copy, Clone, PartialEq)]
 enum Mode {
@@ -215,19 +213,21 @@ struct EndpointDescriptor {
 
 struct ControlStatus(u32);
 
+struct PacketSize(u32);
+
 impl ControlStatus {
     // Stall request for next transfer
     fn set_stallreq_next() { }
 
-    fn get_status_underflow() -> bool {
+    fn get_status_underflow(&self) -> bool {
         self.0 & (1 << 18) == 1
     }
 
-    fn get_status_overflow() -> bool {
+    fn get_status_overflow(&self) -> bool {
         self.0 & (1 << 17) == 1
     }
 
-    fn get_status_crcerror() -> bool {
+    fn get_status_crcerror(&self) -> bool {
         self.0 & (1 << 16) == 1
     }
 }
@@ -241,7 +241,7 @@ enum EndpointStatus {
 impl<'a> Usbc<'a> {
     const fn new() -> Self {
         Usbc {
-            client: None,
+            // client: None,
             state: Cell::new(State::Reset),
         }
     }
@@ -293,19 +293,32 @@ impl<'a> Usbc<'a> {
 
     pub fn attach(&self) {
         match self.state.get() {
-            State::Idle(mode) {
+            State::Idle(mode) => {
                 // USBCON.DETACH <- 0
                 self.state.set(State::Active(mode));
             }
         }
     }
 
-    pub fn speed(&self) {
-        match mode {
-            Mode::Device(speed) => speed,
-            Mode::Host => {
-                // USBSTA.SPEED
-            }
+    pub fn mode(&self) -> Option<Mode> {
+        match self.state.get() {
+            State::Idle(mode) => Some(mode),
+            _ => None
+        }
+    }
+
+    pub fn speed(&self) -> Option<Speed> {
+        match self.mode() {
+            Some(mode) => match mode {
+                Mode::Device(speed) => Some(speed),
+                /*
+                Mode::Host => {
+                    // USBSTA.SPEED
+                }
+                */
+            },
+            _ => None
+        }
     }
 
     /// Disable the controller's clocks and interrupt
@@ -325,14 +338,15 @@ impl<'a> Usbc<'a> {
 
     pub fn set_address(&self, addr: Address) {
         if self.address == 0 && addr != 0 {
-            self.start_transaction(Tx::Setup(Request::new(SET_ADDRESS(addr))));
+            // self.start_transaction(Tx::Setup(Request::new(SET_ADDRESS(addr))));
             // UDCON.UADD.set(addr);
             // UDCON.ADDEN.clear();
-            self.send(self->control_endpoint(), In::new(empty()));
+            // self.send(self.control_endpoint(), In::new(empty()));
             // UDCON.ADDEN.set();
         }
     }
 
+    /*
     /// Set a client to receive data from the USBC
     pub fn set_client(&mut self, client: &'a crc::Client) {
         self.client = Some(client);
@@ -342,6 +356,7 @@ impl<'a> Usbc<'a> {
     pub fn get_client(&self) -> Option<&'a crc::Client> {
         self.client
     }
+    */
 
     /// Handle an interrupt from the USBC
     pub fn handle_interrupt(&mut self) {
