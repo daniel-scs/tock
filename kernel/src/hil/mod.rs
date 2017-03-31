@@ -11,6 +11,7 @@ pub mod watchdog;
 pub mod radio;
 pub mod temperature;
 pub mod crc;
+pub mod usb;
 
 pub trait Controller {
     type Config;
