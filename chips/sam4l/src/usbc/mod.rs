@@ -119,7 +119,8 @@ impl<'a> Usbc<'a> {
 
                     // Are the USBC clocks enabled at reset?
                     //   10.7.4 says no, but 17.5.3 says yes
-                    // 17.6.2: "Being in Idle state does not require the USB clocks to be activated"
+                    // Also, "Being in Idle state does not require the USB clocks to be activated"
+                    //   (17.6.2)
                     enable_clock(Clock::HSB(HSBClock::USBC));
                     enable_clock(Clock::PBB(PBBClock::USBC));
 
@@ -135,9 +136,6 @@ impl<'a> Usbc<'a> {
                     // If we got to this state via disable() instead of chip reset,
                     // the values USBCON.FRZCLK, USBCON.UIMOD, UDCON.LS have not been reset.
 
-                    // Configure pads and speed ...
-
-                    // USBCON.UIMOD <- mode
                     match mode {
                         Mode::Device(_speed) => {
                             // USBCON.LS <- speed
@@ -145,8 +143,13 @@ impl<'a> Usbc<'a> {
                         _ => {}
                     }
 
-                    // USBCON.FRZCLK <- 0
-                    // USBCON.USBE <- 1
+                    let mode_bit = match mode {
+                        Mode::Device(_) => UIMOD,
+                        Mode::Host => 0,
+                    };
+                    let no_freeze_clock = 0;
+                    USBCON.write(mode_bit | no_freeze_clock);        // XXX?
+                    USBCON.write(mode_bit | no_freeze_clock | USBE);
                 }
                 self.state.set(State::Idle(mode));
             }

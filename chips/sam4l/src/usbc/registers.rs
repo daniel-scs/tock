@@ -64,36 +64,41 @@ const USBC_BASE: u32 = 0x400A5000;
 macro_rules! reg {
     [ $offset:expr, $description:expr, $name:ident, "RW" ] => {
         #[allow(dead_code)]
-        const $name: Reg = Reg((USBC_BASE + $offset) as *mut u32);
+        pub const $name: Reg = Reg((USBC_BASE + $offset) as *mut u32);
     };
 
     [ $offset:expr, $description:expr, $name:ident, "R" ] => {
         #[allow(dead_code)]
-        const $name: RegR = RegR((USBC_BASE + $offset) as *mut u32);
+        pub const $name: RegR = RegR((USBC_BASE + $offset) as *mut u32);
     };
 
     [ $offset:expr, $description:expr, $name:ident, "W" ] => {
         #[allow(dead_code)]
-        const $name: RegW = RegW((USBC_BASE + $offset) as *mut u32);
+        pub const $name: RegW = RegW((USBC_BASE + $offset) as *mut u32);
     };
 }
 
 macro_rules! regs {
     [ $offset:expr, $description:expr, $name:ident, "RW", $count:expr ] => {
         #[allow(dead_code)]
-        const $name: Regs = Regs((USBC_BASE + $offset) as *mut u32);
+        pub const $name: Regs = Regs((USBC_BASE + $offset) as *mut u32);
     };
 
     [ $offset:expr, $description:expr, $name:ident, "R", $count:expr ] => {
         #[allow(dead_code)]
-        const $name: RegsR = RegsR((USBC_BASE + $offset) as *mut u32);
+        pub const $name: RegsR = RegsR((USBC_BASE + $offset) as *mut u32);
     };
 
     [ $offset:expr, $description:expr, $name:ident, "W", $count:expr ] => {
         #[allow(dead_code)]
-        const $name: RegsW = RegsW((USBC_BASE + $offset) as *mut u32);
+        pub const $name: RegsW = RegsW((USBC_BASE + $offset) as *mut u32);
     };
 }
+
+// Bits for USBCON
+pub const UIMOD: u32 = 1 << 25;
+pub const USBE: u32 = 1 << 15;
+pub const FRZCLK: u32 = 1 << 14;
 
 reg![0x0000, "Device General Control Register", UDCON, "RW"];
 reg![0x0004, "Device Global Interrupt Register", UDINT, "R"];
