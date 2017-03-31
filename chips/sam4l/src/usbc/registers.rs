@@ -1,5 +1,8 @@
 #![allow(non_upper_case_globals)]
 
+use core::convert::Into;
+use core::ops::{BitOr, Not};
+
 // A memory-mapped register
 pub struct Reg(*mut u32);
 
@@ -8,8 +11,8 @@ impl Reg {
         unsafe { ::core::ptr::read_volatile(self.0) }
     }
 
-    pub fn write(self, n: u32) {
-        unsafe { ::core::ptr::write_volatile(self.0, n); }
+    pub fn write<U: Into<u32>>(self, n: U) {
+        unsafe { ::core::ptr::write_volatile(self.0, Into::into(n)); }
     }
 }
 
@@ -95,10 +98,33 @@ macro_rules! regs {
     };
 }
 
+#[derive(Copy, Clone)]
+pub struct UsbCon(pub u32);
+
+impl BitOr for UsbCon {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        UsbCon(self.0 | rhs.0)
+    }
+}
+
+impl Not for UsbCon {
+    type Output = Self;
+    fn not(self) -> Self {
+        UsbCon(!self.0)
+    }
+}
+
+impl Into<u32> for UsbCon {
+    fn into(self) -> u32 {
+        self.0
+    }
+}
+
 // Bits for USBCON
-pub const UIMOD: u32 = 1 << 25;
-pub const USBE: u32 = 1 << 15;
-pub const FRZCLK: u32 = 1 << 14;
+pub const UIMOD: UsbCon = UsbCon(1 << 25);
+pub const USBE: UsbCon = UsbCon(1 << 15);
+pub const FRZCLK: UsbCon = UsbCon(1 << 14);
 
 reg![0x0000, "Device General Control Register", UDCON, "RW"];
 reg![0x0004, "Device Global Interrupt Register", UDINT, "R"];

@@ -145,11 +145,10 @@ impl<'a> Usbc<'a> {
 
                     let mode_bit = match mode {
                         Mode::Device(_) => UIMOD,
-                        Mode::Host => 0,
+                        Mode::Host => !UIMOD,
                     };
-                    let no_freeze_clock = 0;
-                    USBCON.write(mode_bit | no_freeze_clock);        // XXX?
-                    USBCON.write(mode_bit | no_freeze_clock | USBE);
+                    USBCON.write(mode_bit | !FRZCLK);        // XXX?
+                    USBCON.write(mode_bit | !FRZCLK | USBE);
                 }
                 self.state.set(State::Idle(mode));
             }
@@ -163,7 +162,7 @@ impl<'a> Usbc<'a> {
             State::Reset => { client_err!("Not enabled") }
             State::Active(_) => { client_err!("Already attached") }
             State::Idle(mode) => {
-                // USBCON.DETACH <- 0
+                // UDCON.DETACH <- 0
                 self.state.set(State::Active(mode));
             }
         }
