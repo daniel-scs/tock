@@ -27,6 +27,7 @@ pub mod flashcalw;
 pub mod wdt;
 pub mod trng;
 pub mod crccu;
+pub mod usbc;
 
 unsafe extern "C" fn unhandled_interrupt() {
     let mut interrupt_number: u32;

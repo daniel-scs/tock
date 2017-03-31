@@ -25,6 +25,157 @@ using the USB, the user must ensure that the USB generic clock (GCLK_USBC) is en
 48MHz in the SCIF module.
 */
 
+// A memory-mapped register
+struct Reg(*mut u32);
+
+impl Reg {
+    fn read(self) -> u32 {
+        unsafe { ::core::ptr::read_volatile(self.0) }
+    }
+
+    fn write(self, n: u32) {
+        unsafe { ::core::ptr::write_volatile(self.0, n); }
+    }
+}
+
+// A write-only memory-mapped register
+struct RegW(*mut u32);
+
+impl RegW {
+    fn write(self, n: u32) {
+        unsafe { ::core::ptr::write_volatile(self.0, n); }
+    }
+}
+
+// A read-only memory-mapped register
+struct RegR(*const u32);
+
+impl Reg {
+    fn read(self) -> u32 {
+        unsafe { ::core::ptr::read_volatile(self.0) }
+    }
+}
+
+// An array of memory-mapped registers
+struct Regs(*mut u32);
+
+impl Index<u32> for Regs {
+    type Output: Reg;
+
+    fn index(&self, index: u32) -> Reg {
+        Reg(self.0.offset(index as isize))
+    }
+}
+
+// An array of write-only memory-mapped registers
+struct RegsW(*mut u32);
+
+impl Index<u32> for RegsW {
+    type Output: RegW;
+
+    fn index(&self, index: u32) -> RegW {
+        RegW(self.0.offset(index as isize))
+    }
+}
+
+// An array of read-only memory-mapped registers
+struct RegsR(*mut u32);
+
+impl Index<u32> for RegsR {
+    type Output: RegR;
+
+    fn index(&self, index: u32) -> RegR {
+        RegR(self.0.offset(index as isize))
+    }
+}
+
+// Base address of USBC registers.  See "7.1 Product Mapping"
+const USBC_BASE: u32 = 0x400A5000;
+
+macro_rules! registers {
+    [ $( { $offset:expr, $description:expr, $name:ident, "RW" } ),* ] => {
+        $( #[allow(dead_code)]
+           const $name: Reg = Reg((USBC_BASE + $offset) as *mut u32); )*
+    };
+
+    [ $( { $offset:expr, $description:expr, $name:ident, "R" } ),* ] => {
+        $( #[allow(dead_code)]
+           const $name: Reg = RegR((USBC_BASE + $offset) as *mut u32); )*
+    };
+
+    [ $( { $offset:expr, $description:expr, $name:ident, "W" } ),* ] => {
+        $( #[allow(dead_code)]
+           const $name: Reg = RegW((USBC_BASE + $offset) as *mut u32); )*
+    };
+
+    [ $( { $offset:expr, $description:expr, $name:ident, "RW", $count:expr } ),* ] => {
+        $( #[allow(dead_code)]
+           const $name: Regs = Regs((USBC_BASE + $offset) as *mut u32); )*
+    };
+
+    [ $( { $offset:expr, $description:expr, $name:ident, "R", $count:expr } ),* ] => {
+        $( #[allow(dead_code)]
+           const $name: RegsR = RegsR((USBC_BASE + $offset) as *mut u32); )*
+    };
+
+    [ $( { $offset:expr, $description:expr, $name:ident, "W", $count:expr } ),* ] => {
+        $( #[allow(dead_code)]
+           const $name: RegsW = RegsW((USBC_BASE + $offset) as *mut u32); )*
+    };
+}
+
+registers![
+	{ 0x0000, "Device General Control Register", UDCON, "RW" },
+	{ 0x0004, "Device Global Interrupt Register", UDINT, "R" },
+	{ 0x0008, "Device Global Interrupt Clear Register", UDINTCLR, "W" },
+	{ 0x000C, "Device Global Interrupt Set Register", UDINTSET, "W" },
+	{ 0x0010, "Device Global Interrupt Enable Register", UDINTE, "R" },
+	{ 0x0014, "Device Global Interrupt Enable Clear Register", UDINTECLR, "W" },
+	{ 0x0018, "Device Global Interrupt Enable Set Register", UDINTESET, "W" },
+	{ 0x001C, "Endpoint Enable/Reset Register", UERST, "RW" },
+	{ 0x0020, "Device Frame Number Register", UDFNUM, "R" },
+
+    { 0x0100, "Endpoint n Configuration Register", UECFGn, "RW", 8 },
+    { 0x0130, "Endpoint n Status Register", UESTAn, "R", 8 },
+    { 0x0160, "Endpoint n Status Clear Register", UESTAnCLR, "W", 8 },
+    { 0x0190, "Endpoint n Status Set Register", UESTAnSET, "W", 8 },
+    { 0x01C0, "Endpoint n Control Register", UECONn, "R", 8 },
+    { 0x01F0, "Endpoint n Control Set Register", UECONnSET, "W", 8 },
+    { 0x0220, "Endpoint n Control Clear Register", UECONnCLR, "W", 8 },
+ 
+	{ 0x0400, "Host General Control Register", UHCON, "RW" },
+    { 0x0404, "Host Global Interrupt Register", UHINT, "R" },
+    { 0x0408, "Host Global Interrupt Clear Register", UHINTCLR, "W" },
+    { 0x040C, "Host Global Interrupt Set Register", UHINTSET, "W" },
+    { 0x0410, "Host Global Interrupt Enable Register", UHINTE, "R" },
+    { 0x0414, "Host Global Interrupt Enable Clear Register", UHINTECLR, "W" },
+    { 0x0418, "Host Global Interrupt Enable Set Register UHINTESET", "W" },
+    { 0x041C, "Pipe Enable/Reset Register", UPRST, "RW" },
+    { 0x0420, "Host Frame Number Register", UHFNUM, "RW" },
+    { 0x0424, "Host Start Of Frame Control Register", UHSOFC, "RW" },
+
+    { 0x0500, "Pipe n Configuration Register", UPCFGn, "RW", 8 },
+    { 0x0530, "Pipe n Status Register", UPSTAn, "R", 8 },
+    { 0x0560, "Pipe n Status Clear Register", UPSTAnCLR, "W", 8 },
+    { 0x0590, "Pipe n Status Set Register", UPSTAnSET, "W", 8 },
+    { 0x05C0, "Pipe n Control Register", UPCONn, "R", 8 },
+    { 0x05F0, "Pipe n Control Set Register", UPCONnSET, "W", 8 },
+    { 0x0620, "Pipe n Control Clear Register", UPCONnCLR, "W", 8 },
+    { 0x0650, "Pipe n IN Request Register", UPINRQn, "RW", 8 },
+
+    { 0x0800, "General Control Register", USBCON, "RW" },
+    { 0x0804, "General Status Register", USBSTA, "R" },
+    { 0x0808, "General Status Clear Register", USBSTACLR, "W" },
+    { 0x080C, "General Status Set Register", USBSTASET, "W" },
+    { 0x0818, "IP Version Register", UVERS, "R" },
+    { 0x081C, "IP Features Register", UFEATURES, "R" },
+    { 0x0820, "IP PB Address Size Register", UADDRSIZE, "R" },
+    { 0x0824, "IP Name Register 1", UNAME1, "R" },
+    { 0x0828, "IP Name Register 2", UNAME2, "R" },
+    { 0x082C, "USB Finite State Machine Status Register", USBFSM, "R" },
+    { 0x0830, "USB Descriptor address", UDESC, "RW" },
+];
+
 /// State for managing the USB controller
 pub struct Usbc<'a> {
     client: Option<&'a crc::Client>,
@@ -66,17 +217,17 @@ struct ControlStatus(u32);
 
 impl ControlStatus {
     // Stall request for next transfer
-    set_stallreq_next() { }
+    fn set_stallreq_next() { }
 
-    get_status_underflow() -> bool {
+    fn get_status_underflow() -> bool {
         self.0 & (1 << 18) == 1
     }
 
-    get_status_overflow() -> bool {
+    fn get_status_overflow() -> bool {
         self.0 & (1 << 17) == 1
     }
 
-    get_status_crcerror() -> bool {
+    fn get_status_crcerror() -> bool {
         self.0 & (1 << 16) == 1
     }
 }
@@ -100,11 +251,20 @@ impl<'a> Usbc<'a> {
         match self.state.get() {
             State::Reset => {
                 unsafe {
+                    /* XXX To follow the usb data rate at 12Mbit/s in full-speed mode, the CLK_USBC_AHB
+                     * clock should be at minimum 12MHz.
+                     */
+
                     // Are the USBC clocks enabled at reset?
                     //   10.7.4 says no, but 17.5.3 says yes
                     // 17.6.2: "Being in Idle state does not require the USB clocks to be activated"
                     enable_clock(Clock::HSB(HSBClock::USBC));
                     enable_clock(Clock::PBB(PBBClock::USBC));
+
+                    /* XXX The 48MHz USB clock is generated by a dedicated generic clock from the SCIF
+                     * module. Before using the USB, the user must ensure that the USB generic
+                     * clock (GCLK_USBC) is enabled at 48MHz in the SCIF module.
+                     */
 
                     nvic::disable(nvic::NvicIdx::USBC);
                     nvic::clear_pending(nvic::NvicIdx::USBC);
@@ -113,7 +273,7 @@ impl<'a> Usbc<'a> {
                     // If we got to this state via disable() instead of chip reset,
                     // the values USBCON.FRZCLK, USBCON.UIMOD, UDCON.LS have not been reset.
 
-                    // Configure pads and speed
+                    // Configure pads and speed ...
 
                     // USBCON.UIMOD <- mode
                     match mode {
@@ -166,10 +326,10 @@ impl<'a> Usbc<'a> {
     pub fn set_address(&self, addr: Address) {
         if self.address == 0 && addr != 0 {
             self.start_transaction(Tx::Setup(Request::new(SET_ADDRESS(addr))));
-            UDCON.UADD.set(addr);
-            UDCON.ADDEN.clear();
+            // UDCON.UADD.set(addr);
+            // UDCON.ADDEN.clear();
             self.send(self->control_endpoint(), In::new(empty()));
-            UDCON.ADDEN.set();
+            // UDCON.ADDEN.set();
         }
     }
 
@@ -183,6 +343,7 @@ impl<'a> Usbc<'a> {
         self.client
     }
 
+    /// Handle an interrupt from the USBC
     pub fn handle_interrupt(&mut self) {
         // UDINT.SUSP => goto (Idle ==? Suspend)
         // "To further reduce power consumption it is recommended to freeze the USB clock by
@@ -201,3 +362,8 @@ impl<'a> Usbc<'a> {
 
     // Remote wakeup (Device -> Host, after receiving DEVICE_REMOTE_WAKEUP)
 }
+
+/// Static state to manage the USBC
+pub static mut USBC: Usbc<'static> = Usbc::new();
+
+interrupt_handler!(interrupt_handler, USBC);
