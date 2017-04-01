@@ -1,11 +1,7 @@
 #![allow(non_upper_case_globals)]
 
 use core::ops::{BitOr, Not};
-
 use usbc::common_register::*;
-
-#[macro_use]
-mod register_macros;
 
 // Base address of USBC registers.  See "7.1 Product Mapping"
 const USBC_BASE: u32 = 0x400A5000;

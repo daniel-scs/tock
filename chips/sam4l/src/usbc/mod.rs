@@ -9,6 +9,8 @@ use core::cell::Cell;
 use scif;
 
 mod common_register;
+#[macro_use]
+mod register_macros;
 mod registers;
 use self::registers::*;
 
