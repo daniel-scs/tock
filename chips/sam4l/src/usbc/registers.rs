@@ -1,178 +1,14 @@
 #![allow(non_upper_case_globals)]
 
 use core::ops::{BitOr, Not};
-use core::marker::PhantomData;
 
-// A memory-mapped register
-#[derive(Copy, Clone)]
-pub struct Reg<T> {
-    addr: *mut u32,
-    phantom: PhantomData<*mut T>,
-}
+use usbc::common_register::*;
 
-impl<T: FromWord + ToWord> Reg<T> {
-    pub const fn new(addr: *mut u32) -> Self {
-        Reg { addr: addr, phantom: PhantomData }
-    }
-
-    #[inline]
-    pub fn read(self) -> T {
-        unsafe { T::from_word(::core::ptr::read_volatile(self.addr)) }
-    }
-
-    #[inline]
-    pub fn write(self, val: T) {
-        unsafe { ::core::ptr::write_volatile(self.addr, T::to_word(val)); }
-    }
-}
-
-// A write-only memory-mapped register
-pub struct RegW<T> {
-    addr: *mut u32,
-    phantom: PhantomData<*mut T>,
-}
-
-impl<T: FromWord + ToWord> RegW<T> {
-    pub const fn new(addr: *mut u32) -> Self {
-        RegW { addr: addr, phantom: PhantomData }
-    }
-
-    #[inline]
-    pub fn write(self, val: T) {
-        unsafe { ::core::ptr::write_volatile(self.addr, T::to_word(val)); }
-    }
-}
-
-// A read-only memory-mapped register
-pub struct RegR<T> {
-    addr: *const u32,
-    phantom: PhantomData<*mut T>,
-}
-
-impl<T: FromWord + ToWord> RegR<T> {
-    pub const fn new(addr: *const u32) -> Self {
-        RegR { addr: addr, phantom: PhantomData }
-    }
-
-    #[inline]
-    pub fn read(self) -> T {
-        unsafe { T::from_word(::core::ptr::read_volatile(self.addr)) }
-    }
-}
-
-// An array of memory-mapped registers
-pub struct Regs<T> {
-    addr: *mut u32,
-    phantom: PhantomData<*mut T>,
-}
-
-impl<T: FromWord + ToWord> Regs<T> {
-    pub const fn new(addr: *mut u32) -> Self {
-        Regs { addr: addr, phantom: PhantomData }
-    }
-
-    pub fn n(&self, index: u32) -> Reg<T> {
-        unsafe { Reg::new(self.addr.offset(index as isize)) }
-    }
-}
-
-// An array of write-only memory-mapped registers
-pub struct RegsW<T> {
-    addr: *mut u32,
-    phantom: PhantomData<*mut T>,
-}
-
-impl<T: FromWord + ToWord> RegsW<T> {
-    pub const fn new(addr: *mut u32) -> Self {
-        RegsW { addr: addr, phantom: PhantomData }
-    }
-
-    pub fn n(&self, index: u32) -> RegW<T> {
-        unsafe { RegW::new(self.addr.offset(index as isize)) }
-    }
-}
-
-// An array of read-only memory-mapped registers
-pub struct RegsR<T> {
-    addr: *const u32,
-    phantom: PhantomData<*const T>,
-}
-
-impl<T: FromWord + ToWord> RegsR<T> {
-    pub const fn new(addr: *const u32) -> Self {
-        RegsR { addr: addr, phantom: PhantomData }
-    }
-
-    pub fn n(&self, index: u32) -> RegR<T> {
-        unsafe { RegR::new(self.addr.offset(index as isize)) }
-    }
-}
-
-pub trait ToWord {
-    fn to_word(self) -> u32;
-}
-
-pub trait FromWord {
-    fn from_word(u32) -> Self;
-}
-
-impl ToWord for u32 {
-    #[inline]
-    fn to_word(self) -> u32 { self }
-}
-
-impl ToWord for bool {
-    #[inline]
-    fn to_word(self) -> u32 { if self { 1 } else { 0 } }
-}
-
-impl FromWord for u32 {
-    #[inline]
-    fn from_word(w: u32) -> Self { w }
-}
-
+#[macro_use]
+mod register_macros;
 
 // Base address of USBC registers.  See "7.1 Product Mapping"
 const USBC_BASE: u32 = 0x400A5000;
-
-macro_rules! reg {
-    [ $offset:expr, $description:expr, $name:ident, "RW" ] => {
-        #[allow(dead_code)]
-        pub const $name: Reg<u32> = Reg::new((USBC_BASE + $offset) as *mut u32);
-    };
-
-    [ $offset:expr, $description:expr, $name:ident, "RW", $t:ty ] => {
-        #[allow(dead_code)]
-        pub const $name: Reg<$t> = Reg::new((USBC_BASE + $offset) as *mut u32);
-    };
-
-    [ $offset:expr, $description:expr, $name:ident, "R" ] => {
-        #[allow(dead_code)]
-        pub const $name: RegR<u32> = RegR::new((USBC_BASE + $offset) as *mut u32);
-    };
-
-    [ $offset:expr, $description:expr, $name:ident, "W" ] => {
-        #[allow(dead_code)]
-        pub const $name: RegW<u32> = RegW::new((USBC_BASE + $offset) as *mut u32);
-    };
-}
-
-macro_rules! regs {
-    [ $offset:expr, $description:expr, $name:ident, "RW", $count:expr ] => {
-        #[allow(dead_code)]
-        pub const $name: Regs<u32> = Regs::new((USBC_BASE + $offset) as *mut u32);
-    };
-
-    [ $offset:expr, $description:expr, $name:ident, "R", $count:expr ] => {
-        #[allow(dead_code)]
-        pub const $name: RegsR<u32> = RegsR::new((USBC_BASE + $offset) as *mut u32);
-    };
-
-    [ $offset:expr, $description:expr, $name:ident, "W", $count:expr ] => {
-        #[allow(dead_code)]
-        pub const $name: RegsW<u32> = RegsW::new((USBC_BASE + $offset) as *mut u32);
-    };
-}
 
 // USBCON
 
@@ -259,27 +95,5 @@ reg![0x0828, "IP Name Register 2", UNAME2, "R"];
 reg![0x082C, "USB Finite State Machine Status Register", USBFSM, "R"];
 reg![0x0830, "USB Descriptor address", UDESC, "RW"];
 
-pub struct BitField<T> {
-    reg: Reg<u32>,
-    bits: u32,
-    shift: u32,
-    phantom: PhantomData<*mut T>,
-}
-
-impl<T: ToWord> BitField<T> {
-    pub const fn new(reg: Reg<u32>, bits: u32, shift: u32) -> Self {
-        BitField { reg: reg, bits: bits, shift: shift, phantom: PhantomData }
-    }
-
-    #[inline]
-    pub fn write(self, val: T) {
-        let w = self.reg.read();
-        let mask = self.bits << self.shift;
-        let val_bits = (val.to_word() & self.bits) << self.shift;
-        self.reg.write(w & !mask | val_bits);
-    }
-}
-
 // bitfield![UDCON_DETACH, UDCON, bool, 1, 8]
-
 pub const UDCON_DETACH: BitField<bool> = BitField::new(UDCON, 1, 8);

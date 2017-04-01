@@ -8,6 +8,7 @@ use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
 use core::cell::Cell;
 use scif;
 
+mod common_register;
 mod registers;
 use self::registers::*;
 
