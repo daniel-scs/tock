@@ -1,6 +1,5 @@
 #![allow(non_upper_case_globals)]
 
-use core::convert::Into;
 use core::ops::{BitOr, Not};
 use core::marker::PhantomData;
 
@@ -11,19 +10,19 @@ pub struct Reg<T> {
     phantom: PhantomData<*mut T>,
 }
 
-impl<T: From<u32> + Into<u32>> Reg<T> {
+impl<T: FromWord + ToWord> Reg<T> {
     pub const fn new(addr: *mut u32) -> Self {
         Reg { addr: addr, phantom: PhantomData }
     }
 
     #[inline]
     pub fn read(self) -> T {
-        unsafe { From::from(::core::ptr::read_volatile(self.addr)) }
+        unsafe { T::from_word(::core::ptr::read_volatile(self.addr)) }
     }
 
     #[inline]
-    pub fn write(self, n: T) {
-        unsafe { ::core::ptr::write_volatile(self.addr, Into::into(n)); }
+    pub fn write(self, val: T) {
+        unsafe { ::core::ptr::write_volatile(self.addr, T::to_word(val)); }
     }
 }
 
@@ -33,14 +32,14 @@ pub struct RegW<T> {
     phantom: PhantomData<*mut T>,
 }
 
-impl<T: From<u32> + Into<u32>> RegW<T> {
+impl<T: FromWord + ToWord> RegW<T> {
     pub const fn new(addr: *mut u32) -> Self {
         RegW { addr: addr, phantom: PhantomData }
     }
 
     #[inline]
-    pub fn write(self, n: T) {
-        unsafe { ::core::ptr::write_volatile(self.addr, Into::into(n)); }
+    pub fn write(self, val: T) {
+        unsafe { ::core::ptr::write_volatile(self.addr, T::to_word(val)); }
     }
 }
 
@@ -50,14 +49,14 @@ pub struct RegR<T> {
     phantom: PhantomData<*mut T>,
 }
 
-impl<T: From<u32> + Into<u32>> RegR<T> {
+impl<T: FromWord + ToWord> RegR<T> {
     pub const fn new(addr: *const u32) -> Self {
         RegR { addr: addr, phantom: PhantomData }
     }
 
     #[inline]
     pub fn read(self) -> T {
-        unsafe { From::from(::core::ptr::read_volatile(self.addr)) }
+        unsafe { T::from_word(::core::ptr::read_volatile(self.addr)) }
     }
 }
 
@@ -67,7 +66,7 @@ pub struct Regs<T> {
     phantom: PhantomData<*mut T>,
 }
 
-impl<T: From<u32> + Into<u32>> Regs<T> {
+impl<T: FromWord + ToWord> Regs<T> {
     pub const fn new(addr: *mut u32) -> Self {
         Regs { addr: addr, phantom: PhantomData }
     }
@@ -83,7 +82,7 @@ pub struct RegsW<T> {
     phantom: PhantomData<*mut T>,
 }
 
-impl<T: From<u32> + Into<u32>> RegsW<T> {
+impl<T: FromWord + ToWord> RegsW<T> {
     pub const fn new(addr: *mut u32) -> Self {
         RegsW { addr: addr, phantom: PhantomData }
     }
@@ -99,7 +98,7 @@ pub struct RegsR<T> {
     phantom: PhantomData<*const T>,
 }
 
-impl<T: From<u32> + Into<u32>> RegsR<T> {
+impl<T: FromWord + ToWord> RegsR<T> {
     pub const fn new(addr: *const u32) -> Self {
         RegsR { addr: addr, phantom: PhantomData }
     }
@@ -108,6 +107,30 @@ impl<T: From<u32> + Into<u32>> RegsR<T> {
         unsafe { RegR::new(self.addr.offset(index as isize)) }
     }
 }
+
+pub trait ToWord {
+    fn to_word(self) -> u32;
+}
+
+pub trait FromWord {
+    fn from_word(u32) -> Self;
+}
+
+impl ToWord for u32 {
+    #[inline]
+    fn to_word(self) -> u32 { self }
+}
+
+impl ToWord for bool {
+    #[inline]
+    fn to_word(self) -> u32 { if self { 1 } else { 0 } }
+}
+
+impl FromWord for u32 {
+    #[inline]
+    fn from_word(w: u32) -> Self { w }
+}
+
 
 // Base address of USBC registers.  See "7.1 Product Mapping"
 const USBC_BASE: u32 = 0x400A5000;
@@ -170,14 +193,14 @@ impl Not for UsbCon {
     }
 }
 
-impl From<u32> for UsbCon {
-    fn from(n: u32) -> Self {
+impl FromWord for UsbCon {
+    fn from_word(n: u32) -> Self {
         UsbCon(n)
     }
 }
 
-impl Into<u32> for UsbCon {
-    fn into(self) -> u32 {
+impl ToWord for UsbCon {
+    fn to_word(self) -> u32 {
         self.0
     }
 }
@@ -236,16 +259,6 @@ reg![0x0828, "IP Name Register 2", UNAME2, "R"];
 reg![0x082C, "USB Finite State Machine Status Register", USBFSM, "R"];
 reg![0x0830, "USB Descriptor address", UDESC, "RW"];
 
-pub trait AsWord {
-    fn as_word(self) -> u32;
-}
-
-impl AsWord for bool {
-    fn as_word(self) -> u32 { if self { 1 } else { 0 } }
-}
-
-// bitfield![UDCON_DETACH, UDCON, bool, 1, 8]
-
 pub struct BitField<T> {
     reg: Reg<u32>,
     bits: u32,
@@ -253,7 +266,7 @@ pub struct BitField<T> {
     phantom: PhantomData<*mut T>,
 }
 
-impl<T: AsWord> BitField<T> {
+impl<T: ToWord> BitField<T> {
     pub const fn new(reg: Reg<u32>, bits: u32, shift: u32) -> Self {
         BitField { reg: reg, bits: bits, shift: shift, phantom: PhantomData }
     }
@@ -262,9 +275,11 @@ impl<T: AsWord> BitField<T> {
     pub fn write(self, val: T) {
         let w = self.reg.read();
         let mask = self.bits << self.shift;
-        let val_bits: u32 = (val.as_word() & self.bits) << self.shift;
+        let val_bits = (val.to_word() & self.bits) << self.shift;
         self.reg.write(w & !mask | val_bits);
     }
 }
+
+// bitfield![UDCON_DETACH, UDCON, bool, 1, 8]
 
 pub const UDCON_DETACH: BitField<bool> = BitField::new(UDCON, 1, 8);
