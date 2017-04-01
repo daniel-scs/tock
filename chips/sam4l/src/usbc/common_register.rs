@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-// A memory-mapped register
+/// A memory-mapped register
 #[derive(Copy, Clone)]
 pub struct Reg<T> {
     addr: *mut u32,
@@ -23,7 +23,7 @@ impl<T: FromWord + ToWord> Reg<T> {
     }
 }
 
-// A write-only memory-mapped register
+/// A write-only memory-mapped register
 pub struct RegW<T> {
     addr: *mut u32,
     phantom: PhantomData<*mut T>,
@@ -40,7 +40,7 @@ impl<T: FromWord + ToWord> RegW<T> {
     }
 }
 
-// A read-only memory-mapped register
+/// A read-only memory-mapped register
 pub struct RegR<T> {
     addr: *const u32,
     phantom: PhantomData<*mut T>,
@@ -57,7 +57,7 @@ impl<T: FromWord + ToWord> RegR<T> {
     }
 }
 
-// An array of memory-mapped registers
+/// An array of memory-mapped registers
 pub struct Regs<T> {
     addr: *mut u32,
     phantom: PhantomData<*mut T>,
@@ -73,7 +73,7 @@ impl<T: FromWord + ToWord> Regs<T> {
     }
 }
 
-// An array of write-only memory-mapped registers
+/// An array of write-only memory-mapped registers
 pub struct RegsW<T> {
     addr: *mut u32,
     phantom: PhantomData<*mut T>,
@@ -89,7 +89,7 @@ impl<T: FromWord + ToWord> RegsW<T> {
     }
 }
 
-// An array of read-only memory-mapped registers
+/// An array of read-only memory-mapped registers
 pub struct RegsR<T> {
     addr: *const u32,
     phantom: PhantomData<*const T>,
@@ -105,17 +105,17 @@ impl<T: FromWord + ToWord> RegsR<T> {
     }
 }
 
-// A bitfield of a memory-mapped register
+/// A bitfield of a memory-mapped register
 pub struct BitField<T> {
     reg: Reg<u32>,
-    bits: u32,
     shift: u32,
+    bits: u32,
     phantom: PhantomData<*mut T>,
 }
 
 impl<T: ToWord> BitField<T> {
-    pub const fn new(reg: Reg<u32>, bits: u32, shift: u32) -> Self {
-        BitField { reg: reg, bits: bits, shift: shift, phantom: PhantomData }
+    pub const fn new(reg: Reg<u32>, shift: u32, bits: u32) -> Self {
+        BitField { reg: reg, shift: shift, bits: bits, phantom: PhantomData }
     }
 
     #[inline]
@@ -131,10 +131,6 @@ pub trait ToWord {
     fn to_word(self) -> u32;
 }
 
-pub trait FromWord {
-    fn from_word(u32) -> Self;
-}
-
 impl ToWord for u32 {
     #[inline]
     fn to_word(self) -> u32 { self }
@@ -143,6 +139,10 @@ impl ToWord for u32 {
 impl ToWord for bool {
     #[inline]
     fn to_word(self) -> u32 { if self { 1 } else { 0 } }
+}
+
+pub trait FromWord {
+    fn from_word(u32) -> Self;
 }
 
 impl FromWord for u32 {

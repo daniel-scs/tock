@@ -8,6 +8,9 @@ use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
 use core::cell::Cell;
 use scif;
 
+mod data;
+use self::data::*;
+
 mod common_register;
 #[macro_use]
 mod register_macros;
@@ -46,61 +49,6 @@ macro_rules! client_err {
 pub struct Usbc<'a> {
     client: Option<&'a hil::usb::Client>,
     state: Cell<State>,
-}
-
-type Address = u32; // XXX
-
-#[derive(Copy, Clone, PartialEq)]
-pub enum Mode {
-    Device(Speed),
-    Host,
-}
-
-#[derive(Copy, Clone, PartialEq)]
-pub enum Speed {
-    Full,
-    Low,
-}
-
-#[derive(Copy, Clone, PartialEq)]
-enum State {
-    Reset,
-    Idle(Mode),
-    Active(Mode),
-}
-
-#[repr(C, packed)]
-struct EndpointDescriptor {
-    addr: u32,
-    packet_size: PacketSize,
-    ctrl_status: ControlStatus,
-}
-
-struct ControlStatus(u32);
-
-struct PacketSize(u32);
-
-impl ControlStatus {
-    // Stall request for next transfer
-    fn set_stallreq_next() { }
-
-    fn get_status_underflow(&self) -> bool {
-        self.0 & (1 << 18) == 1
-    }
-
-    fn get_status_overflow(&self) -> bool {
-        self.0 & (1 << 17) == 1
-    }
-
-    fn get_status_crcerror(&self) -> bool {
-        self.0 & (1 << 16) == 1
-    }
-}
-
-enum EndpointStatus {
-    Underflow,
-    Overflow,
-    CRCError,
 }
 
 impl<'a> Usbc<'a> {
@@ -143,28 +91,12 @@ impl<'a> Usbc<'a> {
                     // If we got to this state via disable() instead of chip reset,
                     // the values USBCON.FRZCLK, USBCON.UIMOD, UDCON.LS have not been reset.
 
-                    match mode {
-                        Mode::Device(_speed) => {
-                            // UDCON.LS <- speed
-                        }
-                        _ => {}
+                    if let Mode::Device(speed) = mode {
+                        UDCON_LS.write(speed)
                     }
-
-                    /*
-                    match mode {
-                        Mode::Device(_) => USBCON.set_bits(mode_bit),
-                        Mode::Host => USBCON.clr_bits(mode_bit),
-                    }
-                    USBCON.clr_bits(FRZCLK);
-                    USBCON.set_bits(USBE);
-                    */
-
-                    let mode_bit = match mode {
-                        Mode::Device(_) => UIMOD,
-                        Mode::Host => !UIMOD,
-                    };
-                    USBCON.write(mode_bit | !FRZCLK);        // XXX?
-                    USBCON.write(mode_bit | !FRZCLK | USBE);
+                    USBCON_UIMOD.write(mode);
+                    USBCON_FRZCLK.write(false);
+                    USBCON_USBE.write(true);
                 }
                 self.state.set(State::Idle(mode));
             }

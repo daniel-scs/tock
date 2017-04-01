@@ -1,45 +1,10 @@
 #![allow(non_upper_case_globals)]
 
-use core::ops::{BitOr, Not};
 use usbc::common_register::*;
+use usbc::data::*;
 
 // Base address of USBC registers.  See "7.1 Product Mapping"
 const USBC_BASE: u32 = 0x400A5000;
-
-// USBCON
-
-#[derive(Copy, Clone)]
-pub struct UsbCon(pub u32);
-
-impl BitOr for UsbCon {
-    type Output = Self;
-    fn bitor(self, rhs: Self) -> Self {
-        UsbCon(self.0 | rhs.0)
-    }
-}
-
-impl Not for UsbCon {
-    type Output = Self;
-    fn not(self) -> Self {
-        UsbCon(!self.0)
-    }
-}
-
-impl FromWord for UsbCon {
-    fn from_word(n: u32) -> Self {
-        UsbCon(n)
-    }
-}
-
-impl ToWord for UsbCon {
-    fn to_word(self) -> u32 {
-        self.0
-    }
-}
-
-pub const UIMOD: UsbCon = UsbCon(1 << 25);
-pub const USBE: UsbCon = UsbCon(1 << 15);
-pub const FRZCLK: UsbCon = UsbCon(1 << 14);
 
 reg![0x0000, "Device General Control Register", UDCON, "RW"];
 reg![0x0004, "Device Global Interrupt Register", UDINT, "R"];
@@ -79,7 +44,7 @@ regs![0x05F0, "Pipe n Control Set Register", UPCONnSET, "W", 8];
 regs![0x0620, "Pipe n Control Clear Register", UPCONnCLR, "W", 8];
 regs![0x0650, "Pipe n IN Request Register", UPINRQn, "RW", 8];
 
-reg![0x0800, "General Control Register", USBCON, "RW", UsbCon ];
+reg![0x0800, "General Control Register", USBCON, "RW"];
 reg![0x0804, "General Status Register", USBSTA, "R"];
 reg![0x0808, "General Status Clear Register", USBSTACLR, "W"];
 reg![0x080C, "General Status Set Register", USBSTASET, "W"];
@@ -91,5 +56,9 @@ reg![0x0828, "IP Name Register 2", UNAME2, "R"];
 reg![0x082C, "USB Finite State Machine Status Register", USBFSM, "R"];
 reg![0x0830, "USB Descriptor address", UDESC, "RW"];
 
-// bitfield![UDCON_DETACH, UDCON, bool, 1, 8]
-pub const UDCON_DETACH: BitField<bool> = BitField::new(UDCON, 1, 8);
+bitfield![USBCON, USBCON_UIMOD, Mode, 25, 1];
+bitfield![USBCON, USBCON_USBE, bool, 15, 1];
+bitfield![USBCON, USBCON_FRZCLK, bool, 14, 1];
+
+bitfield![UDCON, UDCON_DETACH, bool, 8, 1];
+bitfield![UDCON, UDCON_LS, Speed, 12, 1];

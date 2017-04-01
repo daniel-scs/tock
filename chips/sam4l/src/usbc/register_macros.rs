@@ -38,3 +38,11 @@ macro_rules! regs {
         pub const $name: RegsW<u32> = RegsW::new((USBC_BASE + $offset) as *mut u32);
     };
 }
+
+#[macro_export]
+macro_rules! bitfield {
+    [ $reg:ident, $field:ident, $t:ty, $shift:expr, $bits:expr ] => {
+        #[allow(dead_code)]
+        pub const $field: BitField<$t> = BitField::new($reg, $shift, $bits);
+    };
+}
