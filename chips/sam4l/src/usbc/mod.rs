@@ -22,6 +22,10 @@ The USBC pins may be multiplexed with the I/O Controller lines. The user must fi
 the I/O Controller to assign the desired USBC pins to their peripheral functions.
 The USB VBUS and ID pin lines should be connected to GPIO pins and the user should monitor
 this with software.
+
+PA25: A = USBC DM
+PA26: A = USBC DP
+
 */
 
 /* CLOCKS
