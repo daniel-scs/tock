@@ -127,6 +127,18 @@ impl<'a> Usbc<'a> {
         */
     }
 
+    pub fn configure_endpoint() {
+		/*
+		Before using an endpoint, the user should setup the endpoint address for each bank. Depending
+		on the direction, the type, and the packet-mode (single or multi-packet), the user should also ini-
+		tialize the endpoint packet size, and the endpoint control and status fields, so that the USBC
+		controller does not compute random values from the RAM.
+
+		When using an endpoint the user should read the UESTAX.CURRBK field to know which bank
+		is currently being processed.
+		*/
+    }
+
     /// Set a client to receive data from the USBC
     pub fn set_client(&mut self, client: &'a hil::usb::Client) {
         self.client = Some(client);
@@ -152,6 +164,10 @@ impl<'a> Usbc<'a> {
 
         // WAKEUP => goto Active
         // UDINT.EORST => USB reset
+
+        // RXSTPI => client.received_setup(bank); clear RXSTPI;
+        // RXOUTI => client.received_out(bank); clear RXOUTI;
+        // TXINI  => client.transmit_ready(bank); clear TXINI to send packet;
     }
 
     pub fn mode(&self) -> Option<Mode> {
