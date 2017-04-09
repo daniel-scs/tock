@@ -1,6 +1,6 @@
 use usbc::common_register::*;
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Mode {
     Host,
     Device(Speed),
@@ -16,7 +16,7 @@ impl ToWord for Mode {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Speed {
     Full,
     Low,
@@ -31,7 +31,7 @@ impl ToWord for Speed {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum State {
     Reset,
     Idle(Mode),

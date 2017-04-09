@@ -24,6 +24,7 @@ use kernel::mpu::MPU;
 pub mod io;
 
 // Unit Tests for drivers.
+mod usbc_dummy;
 #[allow(dead_code)]
 mod i2c_dummy;
 #[allow(dead_code)]
@@ -401,6 +402,8 @@ pub unsafe fn reset_handler() {
     //    rf233.config_commit();
 
     rf233.start();
+
+    usbc_dummy::test();
 
     debug!("Initialization complete. Entering main loop");
     kernel::main(&imix, &mut chip, load_processes(), &imix.ipc);

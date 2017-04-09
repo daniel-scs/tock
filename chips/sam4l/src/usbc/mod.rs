@@ -8,7 +8,7 @@ use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
 use core::cell::Cell;
 use scif;
 
-mod data;
+pub mod data;
 use self::data::*;
 
 mod common_register;
@@ -30,7 +30,7 @@ pub struct Usbc<'a> {
 }
 
 impl<'a> Usbc<'a> {
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         Usbc {
             client: None,
             state: Cell::new(State::Reset),
@@ -60,7 +60,10 @@ impl<'a> Usbc<'a> {
                      *
                      * Generic clock 7 is allocated to the USBC (13.8)
                      */
-                    // scif::generic_clock_enable(scif::GenericClock::GCLK7, scif::ClockSource::XXX);
+
+                    // XXX: This setting works only because the imix configures DFLL0 to
+                    // produce 48MHz
+                    scif::generic_clock_enable(scif::GenericClock::GCLK7, scif::ClockSource::DFLL0);
 
                     nvic::disable(nvic::NvicIdx::USBC);
                     nvic::clear_pending(nvic::NvicIdx::USBC);
@@ -79,7 +82,9 @@ impl<'a> Usbc<'a> {
                 }
                 self.state.set(State::Idle(mode));
             }
-            _ => { /* Already enabled */ }
+            _ => {
+                client_err!("Already enabled")
+            }
         }
     }
 
@@ -115,7 +120,7 @@ impl<'a> Usbc<'a> {
     }
 
     /// Set address
-    pub fn set_address(&self, _addr: Address) {
+    pub fn set_address(&self /* , _addr: Address */) {
         /*
         if self.address == 0 && addr != 0 {
             self.start_transaction(Tx::Setup(Request::new(SET_ADDRESS(addr))));
@@ -168,6 +173,10 @@ impl<'a> Usbc<'a> {
         // RXSTPI => client.received_setup(bank); clear RXSTPI;
         // RXOUTI => client.received_out(bank); clear RXOUTI;
         // TXINI  => client.transmit_ready(bank); clear TXINI to send packet;
+    }
+
+    pub fn state(&self) -> State {
+        self.state.get()
     }
 
     pub fn mode(&self) -> Option<Mode> {
