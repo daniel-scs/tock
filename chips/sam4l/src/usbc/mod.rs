@@ -170,9 +170,10 @@ impl<'a> Usbc<'a> {
         // WAKEUP => goto Active
         // UDINT.EORST => USB reset
 
-        // RXSTPI => client.received_setup(bank); clear RXSTPI;
-        // RXOUTI => client.received_out(bank); clear RXOUTI;
-        // TXINI  => client.transmit_ready(bank); clear TXINI to send packet;
+        // Mode device:
+        //   RXSTPI => client.received_setup(bank); clear RXSTPI;
+        //   RXOUTI => client.received_out(bank); clear RXOUTI;
+        //   TXINI  => if outbound data waiting, bank it for transmission; clear TXINI;
     }
 
     pub fn state(&self) -> State {
