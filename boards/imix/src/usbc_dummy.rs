@@ -2,8 +2,20 @@
 
 #![allow(unused_unsafe)]   // XXX
 
+extern crate kernel;
+use kernel::hil;
+
 use sam4l::usbc::{USBC};
 use sam4l::usbc::data::*;
+
+struct Dummy { };
+
+impl hil::usb::Client for Dummy {
+    fn received_setup(&self /* , descriptor/bank */);
+
+    fn received_out(&self /* , descriptor/bank */);
+
+}
 
 pub unsafe fn test() {
     println!("Mode: {:?}", USBC.state());

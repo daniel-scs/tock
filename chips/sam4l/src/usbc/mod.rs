@@ -132,7 +132,7 @@ impl<'a> Usbc<'a> {
         */
     }
 
-    pub fn configure_endpoint(&self, endpoint: u32) {
+    pub fn enable_endpoint(&self, endpoint: u32) {
 		/*
 		Before using an endpoint, the user should setup the endpoint address for each bank. Depending
 		on the direction, the type, and the packet-mode (single or multi-packet), the user should also ini-
@@ -143,6 +143,7 @@ impl<'a> Usbc<'a> {
 		is currently being processed.
 		*/
 
+        UDINTESET.set_bit(12 + endpoint);   // Enable interrupts for this endpoint
         UERST.set_bit(endpoint);
     }
 
@@ -171,6 +172,13 @@ impl<'a> Usbc<'a> {
 
         // WAKEUP => goto Active
         // UDINT.EORST => USB reset
+
+        if let Some(client) = self.client {
+            if UDINT.read() & (1<<12) != 0 {
+                // Endpoint 0 interrupt
+            }
+
+        }
 
         // Mode device:
         //   RXSTPI => client.received_setup(bank); clear RXSTPI;
