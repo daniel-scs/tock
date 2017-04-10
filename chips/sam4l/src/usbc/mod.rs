@@ -132,7 +132,7 @@ impl<'a> Usbc<'a> {
         */
     }
 
-    pub fn configure_endpoint() {
+    pub fn configure_endpoint(&self, endpoint: u32) {
 		/*
 		Before using an endpoint, the user should setup the endpoint address for each bank. Depending
 		on the direction, the type, and the packet-mode (single or multi-packet), the user should also ini-
@@ -142,6 +142,8 @@ impl<'a> Usbc<'a> {
 		When using an endpoint the user should read the UESTAX.CURRBK field to know which bank
 		is currently being processed.
 		*/
+
+        UERST.set_bit(endpoint);
     }
 
     /// Set a client to receive data from the USBC

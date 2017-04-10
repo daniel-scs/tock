@@ -23,6 +23,15 @@ impl<T: FromWord + ToWord> Reg<T> {
     }
 }
 
+impl Reg<u32> {
+    #[inline]
+    pub fn set_bit(self, bit_index: u32) {
+        let w = self.read();
+        let bit = 1 << bit_index;
+        self.write(w | bit);
+    }
+}
+
 /// A write-only memory-mapped register
 pub struct RegW<T> {
     addr: *mut u32,
