@@ -16,7 +16,7 @@ reg![0x0018, "Device Global Interrupt Enable Set Register", UDINTESET, "W"];
 reg![0x001C, "Endpoint Enable/Reset Register", UERST, "RW"];
 reg![0x0020, "Device Frame Number Register", UDFNUM, "R"];
 
-regs![0x0100, "Endpoint n Configuration Register", UECFGn, "RW", 8];
+regs![0x0100, "Endpoint n Configuration Register", UECFGn, "RW", 8, EndpointConfig];
 regs![0x0130, "Endpoint n Status Register", UESTAn, "R", 8];
 regs![0x0160, "Endpoint n Status Clear Register", UESTAnCLR, "W", 8];
 regs![0x0190, "Endpoint n Status Set Register", UESTAnSET, "W", 8];
@@ -56,9 +56,11 @@ reg![0x0828, "IP Name Register 2", UNAME2, "R"];
 reg![0x082C, "USB Finite State Machine Status Register", USBFSM, "R"];
 reg![0x0830, "USB Descriptor address", UDESC, "RW"];
 
-bitfield![USBCON, USBCON_UIMOD, Mode, 25, 1];
-bitfield![USBCON, USBCON_USBE, bool, 15, 1];
-bitfield![USBCON, USBCON_FRZCLK, bool, 14, 1];
+bitfield![USBCON, USBCON_UIMOD, "RW", Mode, 25, 1];
+bitfield![USBCON, USBCON_USBE, "RW", bool, 15, 1];
+bitfield![USBCON, USBCON_FRZCLK, "RW", bool, 14, 1];
 
-bitfield![UDCON, UDCON_DETACH, bool, 8, 1];
-bitfield![UDCON, UDCON_LS, Speed, 12, 1];
+bitfield![UDCON, UDCON_DETACH, "RW", bool, 8, 1];
+bitfield![UDCON, UDCON_LS, "RW", Speed, 12, 1];
+
+bitfield![USBSTA, USBSTA_CLKUSABLE, "R", bool, 14, 1];

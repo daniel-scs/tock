@@ -96,3 +96,64 @@ impl ControlStatus {
         self.0 & (1 << 16) != 0
     }
 }
+
+#[repr(C, packed)]
+pub struct EndpointConfig(u32);
+
+impl EndpointConfig {
+    /// Create an endpoint configuration
+    pub fn new(banks: BankCount,
+               size: EndpointSize,
+               dir: EndpointDirection,
+               typ: EndpointType,
+               redir: EndpointIndex) {
+        EndpointConfig((banks as u32 << 2) |
+                       (size as u32 << 4) |
+                       (dir as u32 << 8) |
+                       (typ as u32 << 11) |
+                       (redir as u32 << 16))
+}
+
+impl ToWord for EndpointConfig {
+    fn to_word(cfg) { cfg.0 }
+}
+
+pub enum BankCount {
+    Single,
+    Double,
+}
+
+pub enum EndpointSize {
+    Bytes8,
+    Bytes16,
+    Bytes32,
+    Bytes64,
+    Bytes128,
+    Bytes256,
+    Bytes512,
+    Bytes1024,
+}
+
+pub enum EndpointDirection {
+    Out,
+    In,
+}
+
+pub enum EndpointType {
+    Control,
+    Isochronous,
+    Bulk,
+    Interrupt,
+}
+
+pub struct EndpointIndex(u32);
+
+impl EndpointIndex {
+    pub fn new(index: u32) {
+        EndpointIndex(u32 & 0xf)
+    }
+}
+
+impl ToWord for EndpointIndex {
+    fn to_word(idx) { idx.0 }
+}

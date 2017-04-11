@@ -23,6 +23,12 @@ macro_rules! client_err {
     };
 }
 
+macro_rules! debug {
+    [ $offset:expr ] => {
+        { /* ignore */ }
+    };
+}
+
 /// State for managing the USB controller
 pub struct Usbc<'a> {
     client: Option<&'a hil::usb::Client>,
@@ -65,9 +71,15 @@ impl<'a> Usbc<'a> {
                     // produce 48MHz
                     scif::generic_clock_enable(scif::GenericClock::GCLK7, scif::ClockSource::DFLL0);
 
+                    if !USBSTA_CLKUSABLE.read() {
+                        debug!("Clock not usable");
+                    }
+
                     nvic::disable(nvic::NvicIdx::USBC);
                     nvic::clear_pending(nvic::NvicIdx::USBC);
                     nvic::enable(nvic::NvicIdx::USBC);
+
+                    UDESC.write(self.descr);
 
                     // If we got to this state via disable() instead of chip reset,
                     // the values USBCON.FRZCLK, USBCON.UIMOD, UDCON.LS have *not* been reset to
@@ -79,6 +91,8 @@ impl<'a> Usbc<'a> {
                     USBCON_UIMOD.write(mode);
                     USBCON_FRZCLK.write(false);
                     USBCON_USBE.write(true);
+
+
                 }
                 self.state.set(State::Idle(mode));
             }
@@ -132,18 +146,29 @@ impl<'a> Usbc<'a> {
         */
     }
 
-    pub fn enable_endpoint(&self, endpoint: u32) {
+    pub fn enable_endpoint(&self, endpoint: u32, cfg: EndpointConfig) {
 		/*
 		Before using an endpoint, the user should setup the endpoint address for each bank. Depending
 		on the direction, the type, and the packet-mode (single or multi-packet), the user should also ini-
 		tialize the endpoint packet size, and the endpoint control and status fields, so that the USBC
 		controller does not compute random values from the RAM.
-
-		When using an endpoint the user should read the UESTAX.CURRBK field to know which bank
-		is currently being processed.
 		*/
 
-        UDINTESET.set_bit(12 + endpoint);   // Enable interrupts for this endpoint
+        // Configure the endpoint
+        UECFGn.n(endpoint).write(cfg);
+
+        // Specify which endpoint interrupts we want
+        UECONnSET.n(endpoint).write(1 |        // TXINE
+                                    (1 << 1) | // RXOUTE
+                                    (1 << 2) | // RXSTPE/ERRORFE
+                                    (1 << 3) | // NAKOUTE
+                                    (1 << 4) | // NAKINE
+                                    (1 << 6))  // STALLEDE/CRCERRE
+
+        // Set EPnINTE (n == endpoint), enabling interrupts for this endpoint
+        UDINTESET.set_bit(12 + endpoint);
+
+        // Enable the endpoint (meaning the controller will respond to requests)
         UERST.set_bit(endpoint);
     }
 
@@ -173,10 +198,12 @@ impl<'a> Usbc<'a> {
         // WAKEUP => goto Active
         // UDINT.EORST => USB reset
 
+        let endpoint = 0;
+        if UDINT.read() & (1<<12) != 0 {
+            // Endpoint 0 interrupt
+        }
+
         if let Some(client) = self.client {
-            if UDINT.read() & (1<<12) != 0 {
-                // Endpoint 0 interrupt
-            }
 
         }
 

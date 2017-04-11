@@ -32,7 +32,7 @@ impl Reg<u32> {
     }
 }
 
-/// A write-only memory-mapped register
+/// A write-only memory-mapped register, where any zero bits written have no effect
 pub struct RegW<T> {
     addr: *mut u32,
     phantom: PhantomData<*mut T>,
@@ -46,6 +46,17 @@ impl<T: FromWord + ToWord> RegW<T> {
     #[inline]
     pub fn write(self, val: T) {
         unsafe { ::core::ptr::write_volatile(self.addr, T::to_word(val)); }
+    }
+}
+
+impl RegW<u32> {
+    #[inline]
+    pub fn set_bit(self, bit_index: u32) {
+        // For this kind of register, reads always return zero
+        // and zero bits have no effect, so we simply write the
+        // single bit requested.
+        let bit = 1 << bit_index;
+        self.write(bit);
     }
 }
 
@@ -116,8 +127,11 @@ impl<T: FromWord + ToWord> RegsR<T> {
 
 /// A bitfield of a memory-mapped register
 pub struct BitField<T> {
+    /// The register that hosts this bitfield
     reg: Reg<u32>,
+    /// Bit offset of the value within a word
     shift: u32,
+    /// Bit pattern of the value (e.g. 0b111 for a three-bit field)
     bits: u32,
     phantom: PhantomData<*mut T>,
 }
@@ -133,6 +147,45 @@ impl<T: ToWord> BitField<T> {
         let mask = self.bits << self.shift;
         let val_bits = (val.to_word() & self.bits) << self.shift;
         self.reg.write(w & !mask | val_bits);
+    }
+}
+
+/// A bitfield of a write-only memory-mapped register,
+/// where any zeros written have no effect
+pub struct BitFieldW<T> {
+    reg: RegW<u32>,
+    shift: u32,
+    bits: u32,
+    phantom: PhantomData<*mut T>,
+}
+
+impl<T: ToWord> BitFieldW<T> {
+    pub const fn new(reg: RegW<u32>, shift: u32, bits: u32) -> Self {
+        BitFieldW { reg: reg, shift: shift, bits: bits, phantom: PhantomData }
+    }
+
+    #[inline]
+    pub fn write(self, val: T) {
+        let val_bits = (val.to_word() & self.bits) << self.shift;
+        self.reg.write(val_bits);
+    }
+}
+
+pub struct BitFieldR<T> {
+    reg: RegR<u32>,
+    shift: u32,
+    bits: u32,
+    phantom: PhantomData<*mut T>,
+}
+
+impl<T: FromWord> BitFieldR<T> {
+    pub const fn new(reg: RegR<u32>, shift: u32, bits: u32) -> Self {
+        BitFieldR { reg: reg, shift: shift, bits: bits, phantom: PhantomData }
+    }
+
+    #[inline]
+    pub fn read(self) -> T {
+        FromWord::fromWord((self.reg.read() & self.bits) >> self.shift);
     }
 }
 
@@ -157,4 +210,11 @@ pub trait FromWord {
 impl FromWord for u32 {
     #[inline]
     fn from_word(w: u32) -> Self { w }
+}
+
+impl FromWord for bool {
+    #[inline]
+    fn from_word(w: u32) -> bool {
+        if w & 1 == 1 { 1 } else { 0 }
+    }
 }

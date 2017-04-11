@@ -1,7 +1,5 @@
 //! Diagnostics for the USBC
 
-#![allow(unused_unsafe)]   // XXX
-
 extern crate kernel;
 use kernel::hil;
 
@@ -12,11 +10,10 @@ struct Dummy { };
 
 impl hil::usb::Client for Dummy {
     fn received_setup(&self /* , descriptor/bank */);
-
     fn received_out(&self /* , descriptor/bank */);
-
 }
 
+#[allow(unused_unsafe)]
 pub unsafe fn test() {
     println!("Mode: {:?}", USBC.state());
 

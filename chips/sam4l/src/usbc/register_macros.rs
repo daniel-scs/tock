@@ -41,8 +41,18 @@ macro_rules! regs {
 
 #[macro_export]
 macro_rules! bitfield {
-    [ $reg:ident, $field:ident, $t:ty, $shift:expr, $bits:expr ] => {
+    [ $reg:ident, $field:ident, "RW", $t:ty, $shift:expr, $bits:expr ] => {
         #[allow(dead_code)]
         pub const $field: BitField<$t> = BitField::new($reg, $shift, $bits);
+    };
+
+    [ $reg:ident, $field:ident, "W", $t:ty, $shift:expr, $bits:expr ] => {
+        #[allow(dead_code)]
+        pub const $field: BitFieldW<$t> = BitFieldW::new($reg, $shift, $bits);
+    };
+
+    [ $reg:ident, $field:ident, "R", $t:ty, $shift:expr, $bits:expr ] => {
+        #[allow(dead_code)]
+        pub const $field: BitFieldR<$t> = BitFieldR::new($reg, $shift, $bits);
     };
 }
