@@ -64,3 +64,13 @@ bitfield![UDCON, UDCON_DETACH, "RW", bool, 8, 1];
 bitfield![UDCON, UDCON_LS, "RW", Speed, 12, 1];
 
 bitfield![USBSTA, USBSTA_CLKUSABLE, "R", bool, 14, 1];
+
+// Bitfields for UECONnSET, UESTAn, UESTAnCLR
+pub const TXIN: u32 = 1 << 0;
+pub const RXOUT: u32 = 1 << 1;
+pub const RXSTP: u32 = 1 << 2;
+pub const ERRORF: u32 = 1 << 2;
+pub const NAKOUT: u32 = 1 << 3;
+pub const NAKIN: u32 = 1 << 4;
+pub const STALLED: u32 = 1 << 6;
+pub const CRCERR: u32 = 1 << 6;

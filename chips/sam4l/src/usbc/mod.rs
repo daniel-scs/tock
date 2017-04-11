@@ -75,6 +75,13 @@ impl<'a> Usbc<'a> {
                         debug!("Clock not usable");
                     }
 
+                    UDINTESET.write_bit(1 |        // SUSPES
+                                        (1 << 2) | // SOFES
+                                        (1 << 3) | // EORSTES
+                                        (1 << 4) | // WAKEUPES
+                                        (1 << 5) | // EORSMES
+                                        (1 << 6)); // UPRSMES
+
                     nvic::disable(nvic::NvicIdx::USBC);
                     nvic::clear_pending(nvic::NvicIdx::USBC);
                     nvic::enable(nvic::NvicIdx::USBC);
@@ -91,8 +98,6 @@ impl<'a> Usbc<'a> {
                     USBCON_UIMOD.write(mode);
                     USBCON_FRZCLK.write(false);
                     USBCON_USBE.write(true);
-
-
                 }
                 self.state.set(State::Idle(mode));
             }
@@ -158,12 +163,8 @@ impl<'a> Usbc<'a> {
         UECFGn.n(endpoint).write(cfg);
 
         // Specify which endpoint interrupts we want
-        UECONnSET.n(endpoint).write(1 |        // TXINE
-                                    (1 << 1) | // RXOUTE
-                                    (1 << 2) | // RXSTPE/ERRORFE
-                                    (1 << 3) | // NAKOUTE
-                                    (1 << 4) | // NAKINE
-                                    (1 << 6))  // STALLEDE/CRCERRE
+        UECONnSET.n(endpoint).write(TXIN | RXOUT | RXSTP | ERRORF | NAKOUT |
+                                    NAKIN | STALLED | CRCERR);
 
         // Set EPnINTE (n == endpoint), enabling interrupts for this endpoint
         UDINTESET.set_bit(12 + endpoint);
@@ -184,33 +185,94 @@ impl<'a> Usbc<'a> {
 
     /// Handle an interrupt from the USBC
     pub fn handle_interrupt(&mut self) {
-        // UDINT.SUSP => goto (Idle ==? Suspend)
-        // "To further reduce power consumption it is recommended to freeze the USB clock by
-        // writing a one to the Freeze USB Clock (FRZCLK) bit in USBCON when the USB bus is in
-        // suspend mode.
-        //
-        // To recover from the suspend mode, the user shall wait for the Wakeup (WAKEUP) interrupt
-        // bit, which is set when a non-idle event is detected, and then write a zero to FRZCLK.
-        //
-        // As the WAKEUP interrupt bit in UDINT is set when a non-idle event is detected, it can
-        // occur regardless of whether the controller is in the suspend mode or not."
 
-        // WAKEUP => goto Active
-        // UDINT.EORST => USB reset
+        // Handle host-mode interrupt
+        // XXX TODO
 
-        let endpoint = 0;
-        if UDINT.read() & (1<<12) != 0 {
-            // Endpoint 0 interrupt
+        // Handle device-mode interrupt
+
+        let udint: u32 = UDINT.read();
+
+        if udint & 1 != 0 {
+            debug!("UDINT SUSP");
+
+            // goto (Idle ==? Suspend)
+            //
+            // "To further reduce power consumption it is recommended to freeze the USB clock by
+            // writing a one to the Freeze USB Clock (FRZCLK) bit in USBCON when the USB bus is in
+            // suspend mode.
         }
 
-        if let Some(client) = self.client {
-
+        if udint & (1 << 2) != 0 {
+            debug!("UDINT SOF");
         }
 
-        // Mode device:
-        //   RXSTPI => client.received_setup(bank); clear RXSTPI;
-        //   RXOUTI => client.received_out(bank); clear RXOUTI;
-        //   TXINI  => if outbound data waiting, bank it for transmission; clear TXINI;
+        if udint & (1 << 3) != 0 {
+            // USB bus reset
+            debug!("UDINT EORST");
+        }
+
+        if udint & (1 << 4) != 0 {
+            debug!("UDINT WAKEUP");
+
+            // goto Active
+            //
+            // To recover from the suspend mode, the user shall wait for the Wakeup (WAKEUP) interrupt
+            // bit, which is set when a non-idle event is detected, and then write a zero to FRZCLK.
+            //
+            // As the WAKEUP interrupt bit in UDINT is set when a non-idle event is detected, it can
+            // occur regardless of whether the controller is in the suspend mode or not."
+        }
+
+        if udint & (1 << 5) != 0 {
+            // End of resume
+            debug!("UDINT EORSM");
+        }
+
+        if udint & (1 << 6) != 0 {
+            debug!("UDINT UPRSM");
+        }
+
+        for endpoint in 0..9 {
+            if udint & (1 << (12 + endpoint)) == 0 {
+                // No interrupts for this endpoint
+                continue;
+            }
+
+            let status = UESTAn.n(endpoint).read();
+
+            if status & TXIN != 0 {
+                debug!("D({}) TXINI", endpoint);
+                // if outbound data waiting, bank it for transmission
+                // clear TXINI
+            }
+
+            if status & RXOUT != 0 {
+                debug!("D({}) RXOUTI", endpoint);
+                // client.received_out(bank)
+                // clear RXOUTI
+            }
+
+            if status & RXSTP != 0 {
+                debug!("D({}) RXSTPI/ERRORFI", endpoint);
+                // check error?
+                // client.received_setup(bank)
+                // clear RXSTPI
+                // UESTAnCLR(endpoint).write(1 << 2);
+            }
+
+            if status & NAKOUT != 0 {
+                debug!("D({}) NAKOUTI", endpoint);
+            }
+
+            if status & NAKIN != 0 {
+                debug!("D({}) NAKINI", endpoint);
+            }
+
+            if status & STALLED != 0 {
+                debug!("D({}) STALLEDI/CRCERRI", endpoint);
+            }
+        }
     }
 
     pub fn state(&self) -> State {
