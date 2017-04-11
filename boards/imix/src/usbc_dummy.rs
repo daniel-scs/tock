@@ -6,11 +6,11 @@ use kernel::hil;
 use sam4l::usbc::{USBC};
 use sam4l::usbc::data::*;
 
-struct Dummy { };
+struct Dummy { }
 
 impl hil::usb::Client for Dummy {
-    fn received_setup(&self /* , descriptor/bank */);
-    fn received_out(&self /* , descriptor/bank */);
+    fn received_setup(&self /* , descriptor/bank */) {}
+    fn received_out(&self /* , descriptor/bank */) {}
 }
 
 #[allow(unused_unsafe)]

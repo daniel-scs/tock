@@ -28,6 +28,11 @@ macro_rules! regs {
         pub const $name: Regs<u32> = Regs::new((USBC_BASE + $offset) as *mut u32);
     };
 
+    [ $offset:expr, $description:expr, $name:ident, "RW", $count:expr, $t:ty ] => {
+        #[allow(dead_code)]
+        pub const $name: Regs<$t> = Regs::new((USBC_BASE + $offset) as *mut u32);
+    };
+
     [ $offset:expr, $description:expr, $name:ident, "R", $count:expr ] => {
         #[allow(dead_code)]
         pub const $name: RegsR<u32> = RegsR::new((USBC_BASE + $offset) as *mut u32);

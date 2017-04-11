@@ -18,14 +18,8 @@ mod registers;
 use self::registers::*;
 
 macro_rules! client_err {
-    [ $offset:expr ] => {
-        { /* ignore error */ }
-    };
-}
-
-macro_rules! debug {
-    [ $offset:expr ] => {
-        { /* ignore */ }
+    [ $msg:expr ] => {
+        debug!($msg)
     };
 }
 
@@ -33,6 +27,7 @@ macro_rules! debug {
 pub struct Usbc<'a> {
     client: Option<&'a hil::usb::Client>,
     state: Cell<State>,
+    descriptors: [Endpoint; 8],
 }
 
 impl<'a> Usbc<'a> {
@@ -40,6 +35,14 @@ impl<'a> Usbc<'a> {
         Usbc {
             client: None,
             state: Cell::new(State::Reset),
+            descriptors: [ Endpoint::new(),
+                           Endpoint::new(),
+                           Endpoint::new(),
+                           Endpoint::new(),
+                           Endpoint::new(),
+                           Endpoint::new(),
+                           Endpoint::new(),
+                           Endpoint::new() ],
         }
     }
 
@@ -75,18 +78,18 @@ impl<'a> Usbc<'a> {
                         debug!("Clock not usable");
                     }
 
-                    UDINTESET.write_bit(1 |        // SUSPES
-                                        (1 << 2) | // SOFES
-                                        (1 << 3) | // EORSTES
-                                        (1 << 4) | // WAKEUPES
-                                        (1 << 5) | // EORSMES
-                                        (1 << 6)); // UPRSMES
+                    UDINTESET.write(1 |        // SUSPES
+                                    (1 << 2) | // SOFES
+                                    (1 << 3) | // EORSTES
+                                    (1 << 4) | // WAKEUPES
+                                    (1 << 5) | // EORSMES
+                                    (1 << 6)); // UPRSMES
 
                     nvic::disable(nvic::NvicIdx::USBC);
                     nvic::clear_pending(nvic::NvicIdx::USBC);
                     nvic::enable(nvic::NvicIdx::USBC);
 
-                    UDESC.write(self.descr);
+                    UDESC.write(&self.descriptors as *const Endpoint as u32);
 
                     // If we got to this state via disable() instead of chip reset,
                     // the values USBCON.FRZCLK, USBCON.UIMOD, UDCON.LS have *not* been reset to

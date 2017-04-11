@@ -185,7 +185,7 @@ impl<T: FromWord> BitFieldR<T> {
 
     #[inline]
     pub fn read(self) -> T {
-        FromWord::fromWord((self.reg.read() & self.bits) >> self.shift);
+        FromWord::from_word((self.reg.read() & self.bits) >> self.shift)
     }
 }
 
@@ -215,6 +215,6 @@ impl FromWord for u32 {
 impl FromWord for bool {
     #[inline]
     fn from_word(w: u32) -> bool {
-        if w & 1 == 1 { 1 } else { 0 }
+        if w & 1 == 1 { true } else { false }
     }
 }

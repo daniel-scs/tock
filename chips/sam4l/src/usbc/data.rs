@@ -1,3 +1,4 @@
+use core::cell::Cell;
 use usbc::common_register::*;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -40,20 +41,35 @@ pub enum State {
 
 #[repr(C, packed)]
 pub struct Endpoint {
-    bank0: Bank,
-    bank1: Bank,
+    banks: [Bank; 2]
+}
+
+impl Endpoint {
+    pub const fn new() -> Endpoint {
+        Endpoint { banks: [Bank::new(), Bank::new()] }
+    }
 }
 
 #[repr(C, packed)]
 pub struct Bank {
-    addr: Buffer,
-    packet_size: PacketSize,
-    ctrl_status: ControlStatus,
+    addr: Cell<Buffer>,
+    packet_size: Cell<PacketSize>,
+    ctrl_status: Cell<ControlStatus>,
 }
 
+impl Bank {
+    pub const fn new() -> Bank {
+        Bank { addr: Cell::new(Buffer(0)),
+               packet_size: Cell::new(PacketSize(0)),
+               ctrl_status: Cell::new(ControlStatus(0)) }
+    }
+}
+
+#[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct Buffer(u32);
 
+#[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct PacketSize(u32);
 
@@ -77,6 +93,7 @@ impl PacketSize {
     }
 }
 
+#[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct ControlStatus(u32);
 
@@ -106,16 +123,23 @@ impl EndpointConfig {
                size: EndpointSize,
                dir: EndpointDirection,
                typ: EndpointType,
-               redir: EndpointIndex) {
-        EndpointConfig((banks as u32 << 2) |
-                       (size as u32 << 4) |
-                       (dir as u32 << 8) |
-                       (typ as u32 << 11) |
-                       (redir as u32 << 16))
+               redir: EndpointIndex) -> EndpointConfig {
+        EndpointConfig(((banks as u32) << 2) |
+                       ((size as u32) << 4) |
+                       ((dir as u32) << 8) |
+                       ((typ as u32) << 11) |
+                       (redir.to_word() << 16))
+    }
 }
 
 impl ToWord for EndpointConfig {
-    fn to_word(cfg) { cfg.0 }
+    fn to_word(self) -> u32 { self.0 }
+}
+
+impl FromWord for EndpointConfig {
+    fn from_word(_w: u32) -> Self {
+        panic!("Unimplemented");
+    }
 }
 
 pub enum BankCount {
@@ -149,11 +173,11 @@ pub enum EndpointType {
 pub struct EndpointIndex(u32);
 
 impl EndpointIndex {
-    pub fn new(index: u32) {
-        EndpointIndex(u32 & 0xf)
+    pub fn new(index: u32) -> EndpointIndex {
+        EndpointIndex(index & 0xf)
     }
 }
 
 impl ToWord for EndpointIndex {
-    fn to_word(idx) { idx.0 }
+    fn to_word(self) -> u32 { self.0 }
 }
