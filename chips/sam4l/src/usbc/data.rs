@@ -63,11 +63,19 @@ impl Bank {
                packet_size: Cell::new(PacketSize(0)),
                ctrl_status: Cell::new(ControlStatus(0)) }
     }
+
+    pub fn set_addr(&self, addr: Buffer) {
+        self.addr.set(addr);
+    }
+
+    pub fn set_packet_size(&self, size: PacketSize) {
+        self.packet_size.set(size);
+    }
 }
 
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
-pub struct Buffer(u32);
+pub struct Buffer(pub u32);
 
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
@@ -78,6 +86,10 @@ impl PacketSize {
         PacketSize((byte_count & 0x7ffff) |
                    ((multi_packet_size & 0x7ffff) << 16) |
                    ((if auto_zlp { 1 } else { 0 }) << 31))
+    }
+
+    pub fn single(byte_count: u32) -> PacketSize {
+        PacketSize::new(byte_count, 0, false)
     }
 
     pub fn byte_count(&self) -> u32 {
