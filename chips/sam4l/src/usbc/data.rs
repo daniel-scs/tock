@@ -39,10 +39,7 @@ pub enum State {
     Active(Mode),
 }
 
-#[repr(C, packed)]
-pub struct Endpoint {
-    banks: [Bank; 2]
-}
+pub type Endpoint = [Bank; 2];
 
 impl Endpoint {
     pub const fn new() -> Endpoint {
