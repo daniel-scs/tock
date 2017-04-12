@@ -28,11 +28,13 @@ pub struct Usbc<'a> {
     client: Option<&'a hil::usb::Client>,
     state: Cell<State>,
     pub descriptors: [Endpoint; 8],
+    got_interrupt: bool,
 }
 
 impl<'a> Usbc<'a> {
     const fn new() -> Self {
         Usbc {
+            got_interrupt: false,
             client: None,
             state: Cell::new(State::Reset),
             descriptors: [ new_endpoint(),
@@ -71,7 +73,7 @@ impl<'a> Usbc<'a> {
                     // the values USBCON.FRZCLK, USBCON.UIMOD, UDCON.LS have *not* been reset to
                     // their default values.
 
-                    if let Mode::Device(speed) = mode {
+                    if let Mode::Device(speed, _) = mode {
                         UDCON_LS.write(speed)
                     }
 
@@ -82,17 +84,16 @@ impl<'a> Usbc<'a> {
                     UDESC.write(&self.descriptors as *const Endpoint as u32);
 
                     // Device interrupts
-                    let udints = UDINT_SUSP |
+                    let udints = // UDINT_SUSP | // XXX ignore while debugging interrupts
                                  UDINT_SOF |
                                  UDINT_EORST |
-                                 UDINT_WAKEUP |
                                  UDINT_EORSM |
                                  UDINT_UPRSM;
 
-                    // Clear all pending device global interrupts
+                    // Clear pending device global interrupts
                     UDINTCLR.write(udints);
 
-                    // Enable all device global interrupts
+                    // Enable device global interrupts
                     UDINTESET.write(udints);
 
                     /*
@@ -107,7 +108,7 @@ impl<'a> Usbc<'a> {
                     */
 
                     debug!("Enabled.");
-                    debug_regs();
+                    // debug_regs();
                 }
                 self.state.set(State::Idle(mode));
             }
@@ -130,9 +131,9 @@ impl<'a> Usbc<'a> {
                 // XXX: This setting works only because the imix configures DFLL0 to
                 // produce 48MHz
                 scif::generic_clock_enable(scif::GenericClock::GCLK7, scif::ClockSource::DFLL0);
-                debug!("Waiting for USB clock ...");
+                // debug!("Waiting for USB clock ...");
                 while !USBSTA_CLKUSABLE.read() {}
-                debug!("USB clock ready."); 
+                // debug!("USB clock ready."); 
 
                 UDCON_DETACH.write(false);
                 debug!("Attached.");
@@ -199,7 +200,10 @@ impl<'a> Usbc<'a> {
     }
 
     /// Configure and enable an endpoint
-    pub fn enable_endpoint(&self, endpoint: u32, cfg: EndpointConfig) {
+    /// XXX: include addr and packetsize?
+    pub fn endpoint_enable(&self, endpoint: u32, cfg: EndpointConfig) {
+        // XXX assert state is Idle or Active
+
 		/*
 		Before using an endpoint, the user should setup the endpoint address for each bank. Depending
 		on the direction, the type, and the packet-mode (single or multi-packet), the user should also ini-
@@ -210,18 +214,39 @@ impl<'a> Usbc<'a> {
         // Enable the endpoint (meaning the controller will respond to requests)
         UERST.set_bit(endpoint);
 
-        // Configure the endpoint
-        UECFGn.n(endpoint).write(cfg);
+        self.endpoint_configure(endpoint, cfg);
 
-        // Specify which endpoint interrupts we want
-        UECONnSET.n(endpoint).write(TXIN | RXOUT | RXSTP | ERRORF | NAKOUT |
-                                    NAKIN | STALLED | CRCERR | RAMACERR);
+        // Record config in case of later reset
+        match self.state.get() {
+            State::Reset => {
+                client_err!("Not enabled");
+            }
+            State::Idle(Mode::Device(speed, _)) => {
+                self.state.set(State::Idle(Mode::Device(speed, Some(cfg))));
+            }
+            State::Active(Mode::Device(speed, _)) => {
+                self.state.set(State::Active(Mode::Device(speed, Some(cfg))));
+            }
+            _ => {
+                client_err!("Not in Device mode");
+            }
+        }
 
         // Set EPnINTE (n == endpoint), enabling interrupts for this endpoint
         UDINTESET.set_bit(12 + endpoint);
 
         debug!("Enabled endpoint {}", endpoint);
-        debug_regs();
+        // debug_regs();
+    }
+
+    fn endpoint_configure(&self, endpoint: u32, cfg: EndpointConfig) {
+        // Configure the endpoint
+        UECFGn.n(endpoint).write(cfg);
+
+        // Specify which endpoint interrupts we want
+        // UECONnSET.n(endpoint).write(TXIN | RXOUT | RXSTP | ERRORF | NAKOUT |
+        //                             NAKIN | STALLED | CRCERR | RAMACERR);
+        UECONnSET.n(endpoint).write(RXSTP | ERRORF | STALLED | CRCERR | RAMACERR);
     }
 
     /// Set a client to receive data from the USBC
@@ -236,7 +261,8 @@ impl<'a> Usbc<'a> {
 
     /// Handle an interrupt from the USBC
     pub fn handle_interrupt(&mut self) {
-        debug!("USB interrupt!");
+
+        self.got_interrupt = true;
 
         // Handle host-mode interrupt
         // XXX TODO
@@ -245,45 +271,60 @@ impl<'a> Usbc<'a> {
 
         let udint: u32 = UDINT.read();
 
-        if udint & 1 != 0 {
-            debug!("UDINT SUSP");
+        // debug!("USB interrupt! UDINT={:08x}", udint);
 
-            // goto (Idle ==? Suspend)
-            //
+        if udint & UDINT_EORST != 0 {
+            // USB bus reset
+            self.reset();
+
+            // Acknowledge the interrupt
+            UDINTCLR.write(UDINT_EORST);
+        }
+
+        if udint & UDINT_SUSP != 0 {
+            // The transceiver has been suspended due to the bus being idle for 3ms.
+            // This condition is over when WAKEUP is set.
+
             // "To further reduce power consumption it is recommended to freeze the USB clock by
             // writing a one to the Freeze USB Clock (FRZCLK) bit in USBCON when the USB bus is in
             // suspend mode.
-        }
-
-        if udint & (1 << 2) != 0 {
-            debug!("UDINT SOF");
-        }
-
-        if udint & (1 << 3) != 0 {
-            // USB bus reset
-            debug!("UDINT EORST");
-            self.state.set(State::Reset);
-            // alert client?
-        }
-
-        if udint & (1 << 4) != 0 {
-            debug!("UDINT WAKEUP");
-
-            // goto Active
             //
             // To recover from the suspend mode, the user shall wait for the Wakeup (WAKEUP) interrupt
             // bit, which is set when a non-idle event is detected, and then write a zero to FRZCLK.
             //
             // As the WAKEUP interrupt bit in UDINT is set when a non-idle event is detected, it can
             // occur regardless of whether the controller is in the suspend mode or not."
+
+            // Subscribe to WAKEUP
+            UDINTSET.write(UDINT_WAKEUP);
+
+            // Acknowledge the "suspend" event
+            UDINTCLR.write(UDINT_SUSP);
         }
 
-        if udint & (1 << 5) != 0 {
+        if udint & UDINT_WAKEUP != 0 {
+            // Unfreeze the clock (and unsleep the MCU)
+
+            // Unsubscribe from WAKEUP
+            UDINTECLR.write(UDINT_WAKEUP);
+
+            // Acknowledge the interrupt
+            UDINTCLR.write(UDINT_WAKEUP);
+        }
+
+        if udint & UDINT_SOF != 0 {
+            // Start of frame
+
+            // Acknowledge the interrupt
+            UDINTCLR.write(UDINT_SOF);
+        }
+
+        if udint & UDINT_EORSM != 0 {
             // End of resume
             debug!("UDINT EORSM");
         }
 
-        if udint & (1 << 6) != 0 {
+        if udint & UDINT_UPRSM != 0 {
             debug!("UDINT UPRSM");
         }
 
@@ -294,37 +335,87 @@ impl<'a> Usbc<'a> {
             }
 
             let status = UESTAn.n(endpoint).read();
+            debug!("UESTA{}={:08x}", endpoint, status);
 
             if status & TXIN != 0 {
                 debug!("D({}) TXINI", endpoint);
                 // if outbound data waiting, bank it for transmission
-                // clear TXINI
+                
+                // UESTAnCLR.n(endpoint).write(TXINI);
+
+                // For non-control endpoints:
+                // clear FIFOCON to allow send
             }
 
             if status & RXOUT != 0 {
                 debug!("D({}) RXOUTI", endpoint);
                 // client.received_out(bank)
-                // clear RXOUTI
+
+                // Acknowledge
+                UESTAnCLR.n(endpoint).write(RXOUT);
+
+                // For non-control endpoints:
+                // clear FIFOCON to free bank
             }
 
             if status & RXSTP != 0 {
                 debug!("D({}) RXSTPI/ERRORFI", endpoint);
                 // check error?
                 // client.received_setup(bank)
-                // clear RXSTPI
-                // UESTAnCLR(endpoint).write(1 << 2);
+
+                // Acknowledge
+                UESTAnCLR.n(endpoint).write(RXSTP);
             }
 
             if status & NAKOUT != 0 {
-                debug!("D({}) NAKOUTI", endpoint);
+                // debug!("D({}) NAKOUTI", endpoint);
+
+                // Acknowledge
+                UESTAnCLR.n(endpoint).write(NAKOUT);
             }
 
             if status & NAKIN != 0 {
-                debug!("D({}) NAKINI", endpoint);
+                // debug!("D({}) NAKINI", endpoint);
+
+                // Acknowledge
+                UESTAnCLR.n(endpoint).write(NAKIN);
             }
 
             if status & STALLED != 0 {
                 debug!("D({}) STALLEDI/CRCERRI", endpoint);
+
+                // Acknowledge
+                UESTAnCLR.n(endpoint).write(STALLED);
+            }
+        }
+
+        // debug!("Handled interrupt");
+    }
+
+    fn reset(&mut self) {
+        // debug!("USB Bus Reset");
+
+        match self.state.get() {
+            State::Reset => {
+                /* Ignore */
+            }
+            State::Idle(_) => {
+                // XXX does this ever happen?
+                self.reconfigure();
+            }
+            State::Active(_) => {
+                self.reconfigure();
+            }
+        }
+        // alert client?
+    }
+
+    fn reconfigure(&mut self) {
+        if let Some(Mode::Device(speed, cfg)) = self.mode() {
+            UDCON_LS.write(speed);
+
+            if let Some(cfg) = cfg {
+                self.endpoint_configure(0, cfg);
             }
         }
     }
@@ -336,6 +427,7 @@ impl<'a> Usbc<'a> {
     pub fn mode(&self) -> Option<Mode> {
         match self.state.get() {
             State::Idle(mode) => Some(mode),
+            State::Active(mode) => Some(mode),
             _ => None
         }
     }
@@ -343,7 +435,7 @@ impl<'a> Usbc<'a> {
     pub fn speed(&self) -> Option<Speed> {
         match self.mode() {
             Some(mode) => match mode {
-                Mode::Device(speed) => Some(speed),
+                Mode::Device(speed, _) => Some(speed),
                 Mode::Host => {
                     None // XXX USBSTA.SPEED
                 }
@@ -356,15 +448,27 @@ impl<'a> Usbc<'a> {
 }
 
 fn debug_regs() {
-    debug!("    USBFSM={:08x}", USBFSM.read());
-    debug!("    USBCON={:08x}", USBCON.read());
-    debug!("    USBSTA={:08x}", USBSTA.read());
-    debug!("     UDCON={:08x}", UDCON.read());
-    debug!("    UDINTE={:08x}", UDINTE.read());
-    debug!("     UDINT={:08x}", UDINT.read());
-    debug!("     UERST={:08x}", UERST.read());
-    debug!("    UECFG0={:08x}", UECFG0.read_word());
-    debug!("    UECON0={:08x}", UECON0.read());
+    debug!("    registers:\
+            \n    USBFSM={:08x}\
+            \n    USBCON={:08x}\
+            \n    USBSTA={:08x}\
+            \n     UDCON={:08x}\
+            \n    UDINTE={:08x}\
+            \n     UDINT={:08x}\
+            \n     UERST={:08x}\
+            \n    UECFG0={:08x}\
+            \n    UECON0={:08x}",
+
+           USBFSM.read(),
+           USBCON.read(),
+           USBSTA.read(),
+           UDCON.read(),
+           UDINTE.read(),
+           UDINT.read(),
+           UERST.read(),
+           UECFG0.read_word(),
+           UECON0.read());
+
     // debug!("    UHINTE={:08x}", UHINTE.read());
     // debug!("     UHINT={:08x}", UDINT.read());
 }

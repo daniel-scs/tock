@@ -4,7 +4,7 @@ use usbc::common_register::*;
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Mode {
     Host,
-    Device(Speed),
+    Device(Speed, Option<EndpointConfig>),
 }
 
 // value for USBCON.UIMOD
@@ -12,7 +12,7 @@ impl ToWord for Mode {
     fn to_word(self) -> u32 {
         match self {
             Mode::Host => 0,
-            Mode::Device(_) => 1,
+            Mode::Device(_, _) => 1,
         }
     }
 }
@@ -121,6 +121,7 @@ impl ControlStatus {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
 #[repr(C, packed)]
 pub struct EndpointConfig(u32);
 
