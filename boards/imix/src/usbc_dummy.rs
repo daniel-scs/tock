@@ -17,37 +17,23 @@ impl hil::usb::Client for Dummy {
 pub unsafe fn test() {
 
     let cfg0_buf: [u8; 8] = [0; 8];
-    USBC.descriptors[0][0].set_addr(Buffer::new(&cfg0_buf as *const [u8] as u32));
+    USBC.descriptors[0][0].set_addr(Buffer(&cfg0_buf as *const [u8] as *const u32 as u32));
     USBC.descriptors[0][0].set_packet_size(PacketSize::single(8));
 
-    let cfg0_in = EndpointConfig::new(BankCount::Single,
-                                      EndpointSize::Bytes8,
-                                      EndpointDirection::In,
-                                      EndpointType::Control,
-                                      0);
-    USBC.enable_endpoint(0, cfg0_in);
+    USBC.enable(Mode::Device(Speed::Low));
 
-    let cfg0_out = EndpointConfig::new(BankCount::Single,
-                                       EndpointSize::Bytes8,
-                                       EndpointDirection::In,
-                                       EndpointType::Control,
-                                       0);
-    USBC.enable_endpoint(0, cfg0_out);
-
-    println!("Mode: {:?}", USBC.state());
-
-    let mode = Mode::Device(Speed::Low);
-    USBC.enable(mode);
-    println!("Mode: {:?}", USBC.state());
+    let cfg0 = EndpointConfig::new(BankCount::Single,
+                                   EndpointSize::Bytes8,
+                                   EndpointDirection::In,
+                                   EndpointType::Control,
+                                   EndpointIndex::new(0));
+    USBC.enable_endpoint(0, cfg0);
 
     USBC.attach();
-    println!("Mode: {:?}", USBC.state());
 
-    /*
-    USBC.detach();
-    println!("Mode: {:?}", USBC.state());
-    */
+    // USBC.stimulate_interrupts();
 
-    USBC.disable();
-    println!("Mode: {:?}", USBC.state());
+    // USBC.detach();
+
+    // USBC.disable();
 }

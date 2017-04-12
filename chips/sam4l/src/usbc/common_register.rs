@@ -185,7 +185,7 @@ impl<T: FromWord> BitFieldR<T> {
 
     #[inline]
     pub fn read(self) -> T {
-        FromWord::from_word((self.reg.read() & self.bits) >> self.shift)
+        FromWord::from_word((self.reg.read() >> self.shift) & self.bits)
     }
 }
 

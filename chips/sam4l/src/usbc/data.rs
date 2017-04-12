@@ -41,10 +41,8 @@ pub enum State {
 
 pub type Endpoint = [Bank; 2];
 
-impl Endpoint {
-    pub const fn new() -> Endpoint {
-        Endpoint { banks: [Bank::new(), Bank::new()] }
-    }
+pub const fn new_endpoint() -> Endpoint {
+    [Bank::new(), Bank::new()]
 }
 
 #[repr(C, packed)]

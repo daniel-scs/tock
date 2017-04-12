@@ -56,7 +56,7 @@ reg![0x0828, "IP Name Register 2", UNAME2, "R"];
 reg![0x082C, "USB Finite State Machine Status Register", USBFSM, "R"];
 reg![0x0830, "USB Descriptor address", UDESC, "RW"];
 
-bitfield![USBCON, USBCON_UIMOD, "RW", Mode, 25, 1];
+bitfield![USBCON, USBCON_UIMOD, "RW", Mode, 24, 1]; // sheet says bit 25, but maybe it's 24?
 bitfield![USBCON, USBCON_USBE, "RW", bool, 15, 1];
 bitfield![USBCON, USBCON_FRZCLK, "RW", bool, 14, 1];
 
@@ -64,6 +64,14 @@ bitfield![UDCON, UDCON_DETACH, "RW", bool, 8, 1];
 bitfield![UDCON, UDCON_LS, "RW", Speed, 12, 1];
 
 bitfield![USBSTA, USBSTA_CLKUSABLE, "R", bool, 14, 1];
+
+// Bitfields for UDINT, UDINTCLR, UDINTESET
+pub const UDINT_SUSP: u32 = 1 << 0;
+pub const UDINT_SOF: u32 = 1 << 2;
+pub const UDINT_EORST: u32 = 1 << 3;
+pub const UDINT_WAKEUP: u32 = 1 << 4;
+pub const UDINT_EORSM: u32 = 1 << 5;
+pub const UDINT_UPRSM: u32 = 1 << 6;
 
 // Bitfields for UECONnSET, UESTAn, UESTAnCLR
 pub const TXIN: u32 = 1 << 0;
@@ -74,3 +82,4 @@ pub const NAKOUT: u32 = 1 << 3;
 pub const NAKIN: u32 = 1 << 4;
 pub const STALLED: u32 = 1 << 6;
 pub const CRCERR: u32 = 1 << 6;
+pub const RAMACERR: u32 = 1 << 11;
