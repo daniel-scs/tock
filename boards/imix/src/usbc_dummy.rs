@@ -13,8 +13,12 @@ impl hil::usb::Client for Dummy {
     fn received_out(&self /* , descriptor/bank */) {}
 }
 
+static DUMMY: Dummy = Dummy {};
+
 #[allow(unused_unsafe)]
 pub unsafe fn test() {
+
+    USBC.set_client(&DUMMY);
 
     let cfg0_buf: [u8; 8] = [0; 8];
     USBC.descriptors[0][0].set_addr(Buffer(&cfg0_buf as *const [u8] as *const u32 as u32));
@@ -24,7 +28,7 @@ pub unsafe fn test() {
 
     let cfg0 = EndpointConfig::new(BankCount::Single,
                                    EndpointSize::Bytes8,
-                                   EndpointDirection::In,
+                                   EndpointDirection::Out,
                                    EndpointType::Control,
                                    EndpointIndex::new(0));
     USBC.enable_endpoint(0, cfg0);

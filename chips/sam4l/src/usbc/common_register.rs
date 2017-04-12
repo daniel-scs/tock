@@ -14,12 +14,17 @@ impl<T: FromWord + ToWord> Reg<T> {
 
     #[inline]
     pub fn read(self) -> T {
-        unsafe { T::from_word(::core::ptr::read_volatile(self.addr)) }
+        T::from_word(self.read_word())
     }
 
     #[inline]
     pub fn write(self, val: T) {
         unsafe { ::core::ptr::write_volatile(self.addr, T::to_word(val)); }
+    }
+
+    #[inline]
+    pub fn read_word(self) -> u32 {
+        unsafe { ::core::ptr::read_volatile(self.addr) }
     }
 }
 
@@ -73,7 +78,12 @@ impl<T: FromWord + ToWord> RegR<T> {
 
     #[inline]
     pub fn read(self) -> T {
-        unsafe { T::from_word(::core::ptr::read_volatile(self.addr)) }
+        T::from_word(self.read_word())
+    }
+
+    #[inline]
+    pub fn read_word(self) -> u32 {
+        unsafe { ::core::ptr::read_volatile(self.addr) }
     }
 }
 

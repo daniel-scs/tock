@@ -137,7 +137,7 @@ impl<'a> Usbc<'a> {
                 UDCON_DETACH.write(false);
                 debug!("Attached.");
                 debug_regs();
-                // self.state.set(State::Active(mode));
+                self.state.set(State::Active(mode));
             }
         }
     }
@@ -207,6 +207,9 @@ impl<'a> Usbc<'a> {
 		controller does not compute random values from the RAM.
 		*/
 
+        // Enable the endpoint (meaning the controller will respond to requests)
+        UERST.set_bit(endpoint);
+
         // Configure the endpoint
         UECFGn.n(endpoint).write(cfg);
 
@@ -217,8 +220,8 @@ impl<'a> Usbc<'a> {
         // Set EPnINTE (n == endpoint), enabling interrupts for this endpoint
         UDINTESET.set_bit(12 + endpoint);
 
-        // Enable the endpoint (meaning the controller will respond to requests)
-        UERST.set_bit(endpoint);
+        debug!("Enabled endpoint {}", endpoint);
+        debug_regs();
     }
 
     /// Set a client to receive data from the USBC
@@ -359,8 +362,11 @@ fn debug_regs() {
     debug!("     UDCON={:08x}", UDCON.read());
     debug!("    UDINTE={:08x}", UDINTE.read());
     debug!("     UDINT={:08x}", UDINT.read());
-    debug!("    UHINTE={:08x}", UHINTE.read());
-    debug!("     UHINT={:08x}", UDINT.read());
+    debug!("     UERST={:08x}", UERST.read());
+    debug!("    UECFG0={:08x}", UECFG0.read_word());
+    debug!("    UECON0={:08x}", UECON0.read());
+    // debug!("    UHINTE={:08x}", UHINTE.read());
+    // debug!("     UHINT={:08x}", UDINT.read());
 }
 
 /// Static state to manage the USBC
