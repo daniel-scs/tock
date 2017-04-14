@@ -1,4 +1,5 @@
 use core::cell::Cell;
+use core::fmt;
 use usbc::common_register::*;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -47,9 +48,9 @@ pub const fn new_endpoint() -> Endpoint {
 
 #[repr(C, packed)]
 pub struct Bank {
-    addr: Cell<Buffer>,
-    packet_size: Cell<PacketSize>,
-    ctrl_status: Cell<ControlStatus>,
+    pub addr: Cell<Buffer>,
+    pub packet_size: Cell<PacketSize>,
+    pub ctrl_status: Cell<ControlStatus>,
 }
 
 impl Bank {
@@ -100,6 +101,13 @@ impl PacketSize {
     }
 }
 
+impl fmt::Debug for PacketSize {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "PacketSize {:08x} {{ byte_count: {}, multi_packet_size: {}, auto_zlp: {} }}",
+               self.0, self.byte_count(), self.multi_packet_size(), self.auto_zlp())
+    }
+}
+
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct ControlStatus(u32);
@@ -118,6 +126,13 @@ impl ControlStatus {
 
     fn get_status_crcerror(&self) -> bool {
         self.0 & (1 << 16) != 0
+    }
+}
+
+impl fmt::Debug for ControlStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ControlStatus {:08x} {{ underflow: {}, overflow: {}, crcerror: {} }}",
+               self.0, self.get_status_underflow(), self.get_status_overflow(), self.get_status_crcerror())
     }
 }
 

@@ -6,6 +6,7 @@ use nvic;
 use kernel::hil;
 use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
 use core::cell::Cell;
+use core::slice;
 use scif;
 
 pub mod data;
@@ -85,7 +86,7 @@ impl<'a> Usbc<'a> {
 
                     // Device interrupts
                     let udints = // UDINT_SUSP | // XXX ignore while debugging interrupts
-                                 UDINT_SOF |
+                                 // UDINT_SOF |
                                  UDINT_EORST |
                                  UDINT_EORSM |
                                  UDINT_UPRSM;
@@ -246,7 +247,8 @@ impl<'a> Usbc<'a> {
         // Specify which endpoint interrupts we want
         // UECONnSET.n(endpoint).write(TXIN | RXOUT | RXSTP | ERRORF | NAKOUT |
         //                             NAKIN | STALLED | CRCERR | RAMACERR);
-        UECONnSET.n(endpoint).write(RXSTP | ERRORF | STALLED | CRCERR | RAMACERR);
+        UECONnSET.n(endpoint).write(RXSTP | RXOUT |
+                                    ERRORF | STALLED | CRCERR | RAMACERR);
     }
 
     /// Set a client to receive data from the USBC
@@ -337,11 +339,33 @@ impl<'a> Usbc<'a> {
             let status = UESTAn.n(endpoint).read();
             debug!("UESTA{}={:08x}", endpoint, status);
 
+            // UESTA0=00021015
+            //   CTLDIR=1 (next is IN)
+            //   NBUSYBANK=1
+            //
+            //   NAKINI=1 (NAK was sent)
+            //   RXSTPI
+            //   TXINI
+            // D(0) TXINI
+            // D(0) RXSTPI
+
+            if status & RXSTP != 0 {
+                debug!("D({}) RXSTPI/ERRORFI", endpoint);
+                // client.received_setup(bank)
+                self.debug_show_d0();
+
+                // Acknowledge
+                UESTAnCLR.n(endpoint).write(RXSTP);
+            }
+
             if status & TXIN != 0 {
                 debug!("D({}) TXINI", endpoint);
-                // if outbound data waiting, bank it for transmission
+
+                // If outbound data waiting, bank it for transmission
+                self.descriptors[0][0].packet_size.set(PacketSize::single(0));
                 
-                // UESTAnCLR.n(endpoint).write(TXINI);
+                // Signal to the controller that the OUT payload is ready to send
+                UESTAnCLR.n(endpoint).write(TXIN);
 
                 // For non-control endpoints:
                 // clear FIFOCON to allow send
@@ -350,6 +374,7 @@ impl<'a> Usbc<'a> {
             if status & RXOUT != 0 {
                 debug!("D({}) RXOUTI", endpoint);
                 // client.received_out(bank)
+                self.debug_show_d0();
 
                 // Acknowledge
                 UESTAnCLR.n(endpoint).write(RXOUT);
@@ -358,24 +383,15 @@ impl<'a> Usbc<'a> {
                 // clear FIFOCON to free bank
             }
 
-            if status & RXSTP != 0 {
-                debug!("D({}) RXSTPI/ERRORFI", endpoint);
-                // check error?
-                // client.received_setup(bank)
-
-                // Acknowledge
-                UESTAnCLR.n(endpoint).write(RXSTP);
-            }
-
             if status & NAKOUT != 0 {
-                // debug!("D({}) NAKOUTI", endpoint);
+                debug!("D({}) NAKOUTI", endpoint);
 
                 // Acknowledge
                 UESTAnCLR.n(endpoint).write(NAKOUT);
             }
 
             if status & NAKIN != 0 {
-                // debug!("D({}) NAKINI", endpoint);
+                debug!("D({}) NAKINI", endpoint);
 
                 // Acknowledge
                 UESTAnCLR.n(endpoint).write(NAKIN);
@@ -392,8 +408,28 @@ impl<'a> Usbc<'a> {
         // debug!("Handled interrupt");
     }
 
+    fn debug_show_d0(&self) {
+        for bi in 0..2 {
+            let b = &self.descriptors[0][bi];
+
+            debug!("B_0_{}: \
+                   \n     packet_size={:?}\
+                   \n     control_status={:?}",
+                   bi, b.packet_size.get(), b.ctrl_status.get());
+
+            let addr = b.addr.get().0;
+            if bi == 0 && addr != 0 {
+                if b.packet_size.get().byte_count() == 8 {
+                    let buf: &[u8] = unsafe { slice::from_raw_parts(addr as *const u8, 8) };
+                    debug!("B_0_{}: \
+                           \n     {:?}", bi, buf);
+                }
+            }
+        }
+    }
+
     fn reset(&mut self) {
-        // debug!("USB Bus Reset");
+        debug!("USB Bus Reset");
 
         match self.state.get() {
             State::Reset => {
