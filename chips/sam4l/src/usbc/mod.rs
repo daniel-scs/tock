@@ -1,5 +1,8 @@
 //! SAM4L USB controller
 
+// See below for how to force linux usb ports to use Full/Low speed instead of High:
+//   https://www.kernel.org/doc/Documentation/ABI/testing/sysfs-bus-pci-drivers-ehci_hcd
+
 #![allow(dead_code)]
 
 use nvic;
