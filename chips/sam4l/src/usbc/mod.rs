@@ -407,8 +407,11 @@ impl<'a> Usbc<'a> {
                             ptr::write_volatile(b.offset(0), 0xb0);
                             ptr::write_volatile(b.offset(1), 0xb1);
                             ptr::write_volatile(b.offset(2), 0xb2);
+                            ptr::write_volatile(b.offset(3), 0xb3);
+                            ptr::write_volatile(b.offset(4), 0xb4);
+                            ptr::write_volatile(b.offset(5), 0xb5);
                         }
-                        self.descriptors[0][0].packet_size.set(PacketSize::single(3));
+                        self.descriptors[0][0].packet_size.set(PacketSize::single(5));
 
                         // XXX
                         let b = self.descriptors[0][1].addr.get().0;
@@ -416,13 +419,19 @@ impl<'a> Usbc<'a> {
                             ptr::write_volatile(b.offset(0), 0xc0);
                             ptr::write_volatile(b.offset(1), 0xc1);
                             ptr::write_volatile(b.offset(2), 0xc2);
+                            ptr::write_volatile(b.offset(3), 0xc3);
+                            ptr::write_volatile(b.offset(4), 0xc4);
+                            ptr::write_volatile(b.offset(5), 0xc5);
+                            ptr::write_volatile(b.offset(6), 0xc6);
                         }
-                        self.descriptors[0][1].packet_size.set(PacketSize::single(3));
+                        self.descriptors[0][1].packet_size.set(PacketSize::single(6));
+
+                        self.debug_show_d0();
 
                         // Signal to the controller that the IN payload is ready to send
                         UESTAnCLR.n(endpoint).write(TXIN);
 
-                        // (Continue awaiting TXIN and NAKIN)
+                        // (Continue awaiting TXIN and NAKIN if we have more to send)
                     }
                     else {
                         // Nothing to send: ignore
@@ -504,16 +513,16 @@ impl<'a> Usbc<'a> {
 
             debug!("B_0_{}: \
                    \n     packet_size={:?}\
-                   \n     control_status={:?}",
-                   bi, b.packet_size.get(), b.ctrl_status.get());
+                   \n     control_status={:?}\
+                   \n     addr={:?}",
+                   bi, b.packet_size.get(), b.ctrl_status.get(), b.addr.get().0);
 
             let addr = b.addr.get().0;
-            if bi == 0 && !addr.is_null() {
-                if b.packet_size.get().byte_count() == 8 {
-                    let buf: &[u8] = unsafe { slice::from_raw_parts(addr as *const u8, 8) };
-                    debug!("B_0_{}: \
-                           \n     {:?}", bi, buf);
-                }
+            if !addr.is_null() {
+                // let blen = b.packet_size.get().byte_count();
+                let buf: &[u8] = unsafe { slice::from_raw_parts(addr, 8) };
+                debug!("B_0_{} buf: \
+                       \n     {:?}", bi, buf);
             }
         }
     }
