@@ -22,13 +22,13 @@ static DUMMY: Dummy = Dummy {};
 pub unsafe fn test() {
     USBC.set_client(&DUMMY);
 
-    USBC.enable(Mode::Device(Speed::Low, None));
+    USBC.enable(Mode::device_at_speed(Speed::Low));
 
     {
-        USBC.descriptors[0][0].set_addr(Buffer(&CFG0_BUF0 as *const [u8] as *const u32 as u32));
+        USBC.descriptors[0][0].set_addr(Buffer(&CFG0_BUF0 as *const u8 as *mut u8));
         USBC.descriptors[0][0].set_packet_size(PacketSize::single(0));
 
-        USBC.descriptors[0][1].set_addr(Buffer(&CFG0_BUF1 as *const [u8] as *const u32 as u32));
+        USBC.descriptors[0][1].set_addr(Buffer(&CFG0_BUF1 as *const u8 as *mut u8));
         USBC.descriptors[0][1].set_packet_size(PacketSize::single(0));
 
         let cfg0 = EndpointConfig::new(BankCount::Single,

@@ -1,11 +1,28 @@
 use core::cell::Cell;
 use core::fmt;
+use core::ptr;
 use usbc::common_register::*;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Mode {
     Host,
-    Device(Speed, Option<EndpointConfig>),
+    Device { speed: Speed,
+             config: Option<EndpointConfig>,
+             state: DeviceState,
+           },
+}
+
+impl Mode {
+    pub fn device_at_speed(speed: Speed) -> Mode {
+        Mode::Device{ speed: speed, config: None, state: DeviceState::Init }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum DeviceState {
+    Init,
+    SetupIn,
+    SetupOut,
 }
 
 // value for USBCON.UIMOD
@@ -13,7 +30,7 @@ impl ToWord for Mode {
     fn to_word(self) -> u32 {
         match self {
             Mode::Host => 0,
-            Mode::Device(_, _) => 1,
+            Mode::Device{ .. } => 1,
         }
     }
 }
@@ -55,7 +72,7 @@ pub struct Bank {
 
 impl Bank {
     pub const fn new() -> Bank {
-        Bank { addr: Cell::new(Buffer(0)),
+        Bank { addr: Cell::new(Buffer(ptr::null_mut())),
                packet_size: Cell::new(PacketSize(0)),
                ctrl_status: Cell::new(ControlStatus(0)) }
     }
@@ -71,7 +88,7 @@ impl Bank {
 
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
-pub struct Buffer(pub u32);
+pub struct Buffer(pub *mut u8);
 
 #[derive(Copy, Clone)]
 #[repr(C, packed)]

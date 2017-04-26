@@ -9,6 +9,7 @@ use nvic;
 use kernel::hil;
 use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
 use core::slice;
+use core::ptr;
 use scif;
 use kernel::common::take_cell::MapCell;
 
@@ -76,7 +77,7 @@ impl<'a> Usbc<'a> {
                         // the values USBCON.FRZCLK, USBCON.UIMOD, UDCON.LS have *not* been reset to
                         // their default values.
 
-                        if let Mode::Device(speed, _) = mode {
+                        if let Mode::Device{ speed, .. } = mode {
                             UDCON_LS.write(speed)
                         }
 
@@ -213,17 +214,16 @@ impl<'a> Usbc<'a> {
     /// XXX: include addr and packetsize?
     pub fn endpoint_enable(&self, endpoint: u32, cfg: EndpointConfig) {
         self.state.map(|state| {
-
             // Record config in case of later reset
             match *state {
                 State::Reset => {
                     client_err!("Not enabled");
                 }
-                State::Idle(Mode::Device(_, ref mut cfgp)) => {
-                    *cfgp = Some(cfg);
+                State::Idle(Mode::Device{ ref mut config, .. }) => {
+                    *config = Some(cfg);
                 }
-                State::Active(Mode::Device(_, ref mut cfgp)) => {
-                    *cfgp = Some(cfg);
+                State::Active(Mode::Device{ ref mut config, .. }) => {
+                    *config = Some(cfg);
                 }
                 _ => {
                     client_err!("Not in Device mode");
@@ -257,7 +257,7 @@ impl<'a> Usbc<'a> {
         // Specify which endpoint interrupts we want
         // UECONnSET.n(endpoint).write(TXIN | RXOUT | RXSTP | ERRORF | NAKOUT |
         //                             NAKIN | STALLED | CRCERR | RAMACERR);
-        UECONnSET.n(endpoint).write(RXSTP | RXOUT | TXIN |
+        UECONnSET.n(endpoint).write(RXSTP | RXOUT |
                                     ERRORF | STALLED | CRCERR | RAMACERR);
     }
 
@@ -273,6 +273,8 @@ impl<'a> Usbc<'a> {
 
     /// Handle an interrupt from the USBC
     pub fn handle_interrupt(&mut self) {
+
+        let mut state = self.state.take().unwrap_or(State::Reset);
 
         // Handle host-mode interrupt
         // XXX TODO
@@ -338,80 +340,117 @@ impl<'a> Usbc<'a> {
             debug!("UDINT UPRSM");
         }
 
-        for endpoint in 0..9 {
-            if udint & (1 << (12 + endpoint)) == 0 {
-                // No interrupts for this endpoint
-                continue;
+        if let State::Active(Mode::Device{ state: ref mut dstate, .. }) = state {
+
+            for endpoint in 0..9 {
+                if udint & (1 << (12 + endpoint)) == 0 {
+                    // No interrupts for this endpoint
+                    continue;
+                }
+
+                let status = UESTAn.n(endpoint).read();
+                debug!("UESTA{}={:08x}", endpoint, status);
+
+                // UESTA0=00021015
+                //   CTLDIR=1 (next is IN)
+                //   NBUSYBANK=1
+                //
+                //   NAKINI=1 (NAK was sent)
+                //   RXSTPI
+                //   TXINI
+                // D(0) TXINI
+                // D(0) RXSTPI
+
+                if status & RXSTP != 0 {
+                    debug!("D({}) RXSTPI/ERRORFI", endpoint);
+                    if *dstate == DeviceState::Init {
+
+                        // client.received_setup(bank)
+                        self.debug_show_d0();
+
+                        // Read data to learn which direction?
+                        *dstate = DeviceState::SetupIn; // XX just assume this is GET DESCRIPTOR
+
+                        // Acknowledge
+                        UESTAnCLR.n(endpoint).write(RXSTP);
+
+                        // Wait until bank is clear to send
+                        UECONnSET.n(endpoint).write(RXSTP | RXOUT | TXIN |
+                                                    ERRORF | STALLED | CRCERR | RAMACERR);
+                    }
+                    else {
+                        debug!("** RXSTP unexpected in dstate {:?}", *dstate);
+                    }
+                }
+
+                if status & TXIN != 0 {
+                    if *dstate == DeviceState::SetupIn {
+                        debug!("D({}) TXINI", endpoint);
+
+                        // Ignore TXIN, wait for NAKIN
+                        UECONnSET.n(endpoint).write(RXSTP | RXOUT | NAKIN |
+                                                    ERRORF | STALLED | CRCERR | RAMACERR);
+
+                        // If IN data waiting, bank it for transmission
+                        let b = self.descriptors[0][0].addr.get().0;
+                        unsafe { ptr::write_bytes(b, 0xb4, 8); }
+                        self.descriptors[0][0].packet_size.set(PacketSize::single(8));
+
+                        // Signal to the controller that the OUT payload is ready to send
+                        UESTAnCLR.n(endpoint).write(TXIN);
+                    }
+
+                    // For non-control endpoints:
+                    // clear FIFOCON to allow send
+                }
+
+                if status & RXOUT != 0 {
+                    if *dstate == DeviceState::SetupOut {
+                        debug!("D({}) RXOUTI", endpoint);
+                        // client.received_out(bank)
+                        self.debug_show_d0();
+
+                        // Acknowledge
+                        UESTAnCLR.n(endpoint).write(RXOUT);
+                    }
+
+                    // For non-control endpoints:
+                    // clear FIFOCON to free bank
+                }
+
+                if status & NAKOUT != 0 {
+                    debug!("D({}) NAKOUTI", endpoint);
+
+                    // Acknowledge
+                    UESTAnCLR.n(endpoint).write(NAKOUT);
+                }
+
+                if status & NAKIN != 0 {
+                    if *dstate == DeviceState::SetupIn {
+                        debug!("D({}) NAKINI", endpoint);
+
+                        *dstate == DeviceState::SetupOut;
+
+                        // Acknowledge
+                        UESTAnCLR.n(endpoint).write(NAKIN);
+
+                        // Ignore NAKIN
+                        UECONnSET.n(endpoint).write(RXSTP | RXOUT |
+                                                    ERRORF | STALLED | CRCERR | RAMACERR);
+                    }
+                }
+
+                if status & STALLED != 0 {
+                    debug!("D({}) STALLEDI/CRCERRI", endpoint);
+
+                    // Acknowledge
+                    UESTAnCLR.n(endpoint).write(STALLED);
+                }
             }
 
-            let status = UESTAn.n(endpoint).read();
-            debug!("UESTA{}={:08x}", endpoint, status);
+        } // if Device
 
-            // UESTA0=00021015
-            //   CTLDIR=1 (next is IN)
-            //   NBUSYBANK=1
-            //
-            //   NAKINI=1 (NAK was sent)
-            //   RXSTPI
-            //   TXINI
-            // D(0) TXINI
-            // D(0) RXSTPI
-
-            if status & RXSTP != 0 {
-                debug!("D({}) RXSTPI/ERRORFI", endpoint);
-                // client.received_setup(bank)
-                self.debug_show_d0();
-
-                // Acknowledge
-                UESTAnCLR.n(endpoint).write(RXSTP);
-            }
-
-            if status & TXIN != 0 {
-                debug!("D({}) TXINI", endpoint);
-
-                // If outbound data waiting, bank it for transmission
-                self.descriptors[0][0].packet_size.set(PacketSize::single(0));
-                
-                // Signal to the controller that the OUT payload is ready to send
-                UESTAnCLR.n(endpoint).write(TXIN);
-
-                // For non-control endpoints:
-                // clear FIFOCON to allow send
-            }
-
-            if status & RXOUT != 0 {
-                debug!("D({}) RXOUTI", endpoint);
-                // client.received_out(bank)
-                self.debug_show_d0();
-
-                // Acknowledge
-                UESTAnCLR.n(endpoint).write(RXOUT);
-
-                // For non-control endpoints:
-                // clear FIFOCON to free bank
-            }
-
-            if status & NAKOUT != 0 {
-                debug!("D({}) NAKOUTI", endpoint);
-
-                // Acknowledge
-                UESTAnCLR.n(endpoint).write(NAKOUT);
-            }
-
-            if status & NAKIN != 0 {
-                debug!("D({}) NAKINI", endpoint);
-
-                // Acknowledge
-                UESTAnCLR.n(endpoint).write(NAKIN);
-            }
-
-            if status & STALLED != 0 {
-                debug!("D({}) STALLEDI/CRCERRI", endpoint);
-
-                // Acknowledge
-                UESTAnCLR.n(endpoint).write(STALLED);
-            }
-        }
+        self.state.replace(state);
 
         // debug!("Handled interrupt");
     }
@@ -426,7 +465,7 @@ impl<'a> Usbc<'a> {
                    bi, b.packet_size.get(), b.ctrl_status.get());
 
             let addr = b.addr.get().0;
-            if bi == 0 && addr != 0 {
+            if bi == 0 && !addr.is_null() {
                 if b.packet_size.get().byte_count() == 8 {
                     let buf: &[u8] = unsafe { slice::from_raw_parts(addr as *const u8, 8) };
                     debug!("B_0_{}: \
@@ -437,6 +476,8 @@ impl<'a> Usbc<'a> {
     }
 
     fn reset(&mut self) {
+        // XXX: What do we really need to do here?  Re-enable, reattach, etc.?
+
         debug!("USB Bus Reset");
 
         let must_reconfigure = self.state.map_or(false, |state| {
@@ -462,11 +503,11 @@ impl<'a> Usbc<'a> {
     }
 
     fn reconfigure(&mut self) {
-        if let Some(Mode::Device(speed, cfg)) = self.mode() {
+        if let Some(Mode::Device{ speed, config, .. }) = self.mode() {
             UDCON_LS.write(speed);
 
-            if let Some(cfg) = cfg {
-                self.endpoint_configure(0, cfg);
+            if let Some(config) = config {
+                self.endpoint_configure(0, config);
             }
         }
     }
@@ -490,7 +531,7 @@ impl<'a> Usbc<'a> {
     pub fn speed(&self) -> Option<Speed> {
         match self.mode() {
             Some(mode) => match mode {
-                Mode::Device(speed, _) => Some(speed),
+                Mode::Device{ speed, .. } => Some(speed),
                 Mode::Host => {
                     None // XXX USBSTA.SPEED
                 }
