@@ -35,6 +35,13 @@ impl Reg<u32> {
         let bit = 1 << bit_index;
         self.write(w | bit);
     }
+
+    #[inline]
+    pub fn clr_bit(self, bit_index: u32) {
+        let w = self.read();
+        let bit = 1 << bit_index;
+        self.write(w & (!bit));
+    }
 }
 
 /// A write-only memory-mapped register, where any zero bits written have no effect

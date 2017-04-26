@@ -1,7 +1,7 @@
-use core::cell::Cell;
 use core::fmt;
 use core::ptr;
 use usbc::common_register::*;
+use kernel::common::volatile_cell::VolatileCell;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Mode {
@@ -65,16 +65,16 @@ pub const fn new_endpoint() -> Endpoint {
 
 #[repr(C, packed)]
 pub struct Bank {
-    pub addr: Cell<Buffer>,
-    pub packet_size: Cell<PacketSize>,
-    pub ctrl_status: Cell<ControlStatus>,
+    pub addr: VolatileCell<Buffer>,
+    pub packet_size: VolatileCell<PacketSize>,
+    pub ctrl_status: VolatileCell<ControlStatus>,
 }
 
 impl Bank {
     pub const fn new() -> Bank {
-        Bank { addr: Cell::new(Buffer(ptr::null_mut())),
-               packet_size: Cell::new(PacketSize(0)),
-               ctrl_status: Cell::new(ControlStatus(0)) }
+        Bank { addr: VolatileCell::new(Buffer(ptr::null_mut())),
+               packet_size: VolatileCell::new(PacketSize(0)),
+               ctrl_status: VolatileCell::new(ControlStatus(0)) }
     }
 
     pub fn set_addr(&self, addr: Buffer) {

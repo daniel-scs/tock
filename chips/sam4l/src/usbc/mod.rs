@@ -81,7 +81,7 @@ impl<'a> Usbc<'a> {
                             UDCON_LS.write(speed)
                         }
 
-                        USBCON_UIMOD.write(mode);
+                        USBCON_UIMOD.write(mode);   // see registers.rs: maybe wrong bit?
                         USBCON_FRZCLK.write(false);
                         USBCON_USBE.write(true);
 
@@ -148,11 +148,6 @@ impl<'a> Usbc<'a> {
                 }
             }
         });
-    }
-
-    pub fn stimulate_interrupts(&self) {
-        UDINTSET.write(UDINT_WAKEUP | UDINT_EORST | UDINT_SOF);
-        // UHINTSET.write(0x7f);
     }
 
     /// Detach from the USB bus.  Also disable USB clock to save energy.
@@ -251,14 +246,15 @@ impl<'a> Usbc<'a> {
     }
 
     fn endpoint_configure(&self, endpoint: u32, cfg: EndpointConfig) {
+        debug!("Config endpoint {}", endpoint);
+
         // Configure the endpoint
         UECFGn.n(endpoint).write(cfg);
 
-        // Specify which endpoint interrupts we want
-        // UECONnSET.n(endpoint).write(TXIN | RXOUT | RXSTP | ERRORF | NAKOUT |
-        //                             NAKIN | STALLED | CRCERR | RAMACERR);
-        UECONnSET.n(endpoint).write(RXSTP | RXOUT |
-                                    ERRORF | STALLED | CRCERR | RAMACERR);
+        // Specify which endpoint interrupts we want, among:
+        //      TXIN | RXOUT | RXSTP | NAKOUT | NAKIN |
+        //      ERRORF | STALLED | CRCERR | RAMACERR
+        endpoint_enable_only_interrupts(endpoint, RXSTP | ERRORF | STALLED | CRCERR | RAMACERR);
     }
 
     /// Set a client to receive data from the USBC
@@ -276,21 +272,28 @@ impl<'a> Usbc<'a> {
 
         let mut state = self.state.take().unwrap_or(State::Reset);
 
-        // Handle host-mode interrupt
-        // XXX TODO
+        // Handle host-mode interrupt TODO
 
         // Handle device-mode interrupt
 
         let udint: u32 = UDINT.read();
-
         // debug!("USB interrupt! UDINT={:08x}", udint);
 
         if udint & UDINT_EORST != 0 {
+            self.state.replace(state);
+
             // USB bus reset
-            self.reset();
+            self.bus_reset();
+            if let State::Active(Mode::Device{ state: ref mut dstate, .. }) = state {
+                *dstate = DeviceState::Init;
+            }
+
+            debug_regs();
 
             // Acknowledge the interrupt
             UDINTCLR.write(UDINT_EORST);
+
+            return;
         }
 
         if udint & UDINT_SUSP != 0 {
@@ -362,53 +365,99 @@ impl<'a> Usbc<'a> {
                 // D(0) RXSTPI
 
                 if status & RXSTP != 0 {
-                    debug!("D({}) RXSTPI/ERRORFI", endpoint);
                     if *dstate == DeviceState::Init {
+                        // We received a SETUP transaction
+                        debug!("D({}) RXSTPI/ERRORFI", endpoint);
 
                         // client.received_setup(bank)
                         self.debug_show_d0();
 
-                        // Read data to learn which direction?
-                        *dstate = DeviceState::SetupIn; // XX just assume this is GET DESCRIPTOR
+                        if status & CTRLDIR != 0 {
+                            *dstate = DeviceState::SetupIn;
+
+                            // Wait until bank is clear to send
+                            // Also, wait for NAKIN to signal end of IN stage
+                            endpoint_enable_interrupts(endpoint, TXIN | NAKIN);
+                            // endpoint_disable_interrupts(endpoint, RXSTP);
+                        }
+                        else {
+                            debug!("-> SetupOut");
+                            *dstate = DeviceState::SetupOut;
+                        }
 
                         // Acknowledge
                         UESTAnCLR.n(endpoint).write(RXSTP);
-
-                        // Wait until bank is clear to send
-                        UECONnSET.n(endpoint).write(RXSTP | RXOUT | TXIN |
-                                                    ERRORF | STALLED | CRCERR | RAMACERR);
                     }
                     else {
-                        debug!("** RXSTP unexpected in dstate {:?}", *dstate);
+                        debug!("** ignoring unexpected RXSTP in dstate {:?}", *dstate);
+
+                        // Acknowledge
+                        UESTAnCLR.n(endpoint).write(RXSTP);
                     }
                 }
 
                 if status & TXIN != 0 {
                     if *dstate == DeviceState::SetupIn {
+                        // The data bank is ready to receive another IN payload
                         debug!("D({}) TXINI", endpoint);
-
-                        // Ignore TXIN, wait for NAKIN
-                        UECONnSET.n(endpoint).write(RXSTP | RXOUT | NAKIN |
-                                                    ERRORF | STALLED | CRCERR | RAMACERR);
 
                         // If IN data waiting, bank it for transmission
                         let b = self.descriptors[0][0].addr.get().0;
-                        unsafe { ptr::write_bytes(b, 0xb4, 8); }
-                        self.descriptors[0][0].packet_size.set(PacketSize::single(8));
+                        unsafe {
+                            ptr::write_volatile(b.offset(0), 0xb0);
+                            ptr::write_volatile(b.offset(1), 0xb1);
+                            ptr::write_volatile(b.offset(2), 0xb2);
+                        }
+                        self.descriptors[0][0].packet_size.set(PacketSize::single(3));
 
-                        // Signal to the controller that the OUT payload is ready to send
+                        // XXX
+                        let b = self.descriptors[0][1].addr.get().0;
+                        unsafe {
+                            ptr::write_volatile(b.offset(0), 0xc0);
+                            ptr::write_volatile(b.offset(1), 0xc1);
+                            ptr::write_volatile(b.offset(2), 0xc2);
+                        }
+                        self.descriptors[0][1].packet_size.set(PacketSize::single(3));
+
+                        // Signal to the controller that the IN payload is ready to send
                         UESTAnCLR.n(endpoint).write(TXIN);
+
+                        // (Continue awaiting TXIN and NAKIN)
+                    }
+                    else {
+                        // Nothing to send: ignore
                     }
 
                     // For non-control endpoints:
                     // clear FIFOCON to allow send
                 }
 
+                if status & NAKIN != 0 {
+                    if *dstate == DeviceState::SetupIn {
+                        // The host has aborted the IN stage
+                        debug!("D({}) NAKINI", endpoint);
+
+                        *dstate = DeviceState::SetupOut;
+
+                        // Await end of Status stage
+                        endpoint_disable_interrupts(endpoint, TXIN | NAKIN);
+                        endpoint_enable_interrupts(endpoint, RXOUT);
+
+                        // Acknowledge
+                        UESTAnCLR.n(endpoint).write(NAKIN);
+                    }
+                }
+
                 if status & RXOUT != 0 {
                     if *dstate == DeviceState::SetupOut {
                         debug!("D({}) RXOUTI", endpoint);
-                        // client.received_out(bank)
-                        self.debug_show_d0();
+                        // self.debug_show_d0();
+
+                        *dstate = DeviceState::Init;
+
+                        // Wait for next SETUP
+                        endpoint_disable_interrupts(endpoint, RXOUT);
+                        endpoint_enable_interrupts(endpoint, RXSTP);
 
                         // Acknowledge
                         UESTAnCLR.n(endpoint).write(RXOUT);
@@ -416,6 +465,8 @@ impl<'a> Usbc<'a> {
 
                     // For non-control endpoints:
                     // clear FIFOCON to free bank
+
+                    // client.received_out(bank)
                 }
 
                 if status & NAKOUT != 0 {
@@ -425,26 +476,18 @@ impl<'a> Usbc<'a> {
                     UESTAnCLR.n(endpoint).write(NAKOUT);
                 }
 
-                if status & NAKIN != 0 {
-                    if *dstate == DeviceState::SetupIn {
-                        debug!("D({}) NAKINI", endpoint);
-
-                        *dstate == DeviceState::SetupOut;
-
-                        // Acknowledge
-                        UESTAnCLR.n(endpoint).write(NAKIN);
-
-                        // Ignore NAKIN
-                        UECONnSET.n(endpoint).write(RXSTP | RXOUT |
-                                                    ERRORF | STALLED | CRCERR | RAMACERR);
-                    }
-                }
-
                 if status & STALLED != 0 {
                     debug!("D({}) STALLEDI/CRCERRI", endpoint);
 
                     // Acknowledge
                     UESTAnCLR.n(endpoint).write(STALLED);
+                }
+
+                if status & RAMACERR != 0 {
+                    debug!("D({}) RAMACERR", endpoint);
+
+                    // Acknowledge
+                    UESTAnCLR.n(endpoint).write(RAMACERR);
                 }
             }
 
@@ -475,9 +518,7 @@ impl<'a> Usbc<'a> {
         }
     }
 
-    fn reset(&mut self) {
-        // XXX: What do we really need to do here?  Re-enable, reattach, etc.?
-
+    fn bus_reset(&mut self) {
         debug!("USB Bus Reset");
 
         let must_reconfigure = self.state.map_or(false, |state| {
@@ -512,12 +553,6 @@ impl<'a> Usbc<'a> {
         }
     }
 
-    /*
-    pub fn state(&self) -> State {
-        self.state.get()
-    }
-    */
-
     pub fn mode(&self) -> Option<Mode> {
         self.state.map_or(None, |state| {
             match *state {
@@ -541,6 +576,22 @@ impl<'a> Usbc<'a> {
     }
 
     // Remote wakeup (Device -> Host, after receiving DEVICE_REMOTE_WAKEUP)
+}
+
+#[inline]
+fn endpoint_disable_interrupts(endpoint: u32, mask: u32) {
+    UECONnCLR.n(endpoint).write(mask);
+}
+
+#[inline]
+fn endpoint_enable_interrupts(endpoint: u32, mask: u32) {
+    UECONnSET.n(endpoint).write(mask);
+}
+
+#[inline]
+fn endpoint_enable_only_interrupts(endpoint: u32, mask: u32) {
+    endpoint_disable_interrupts(endpoint, !0);
+    endpoint_enable_interrupts(endpoint, mask);
 }
 
 fn debug_regs() {

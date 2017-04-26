@@ -41,8 +41,6 @@ pub unsafe fn test() {
 
     USBC.attach();
 
-    // USBC.stimulate_interrupts();
-
     // USBC.detach();
 
     // USBC.disable();

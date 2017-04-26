@@ -60,7 +60,7 @@ reg![0x0828, "IP Name Register 2", UNAME2, "R"];
 reg![0x082C, "USB Finite State Machine Status Register", USBFSM, "R"];
 reg![0x0830, "USB Descriptor address", UDESC, "RW"];
 
-bitfield![USBCON, USBCON_UIMOD, "RW", Mode, 24, 1]; // sheet says bit 25, but maybe it's 24?
+bitfield![USBCON, USBCON_UIMOD, "RW", Mode, 25, 1]; // sheet says bit 25, but maybe it's 24?
 bitfield![USBCON, USBCON_USBE, "RW", bool, 15, 1];
 bitfield![USBCON, USBCON_FRZCLK, "RW", bool, 14, 1];
 
@@ -87,3 +87,6 @@ pub const NAKIN: u32 = 1 << 4;
 pub const STALLED: u32 = 1 << 6;
 pub const CRCERR: u32 = 1 << 6;
 pub const RAMACERR: u32 = 1 << 11;
+
+// Bitfields for UESTAn
+pub const CTRLDIR: u32 = 1 << 17;
