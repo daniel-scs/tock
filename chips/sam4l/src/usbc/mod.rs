@@ -32,7 +32,7 @@ macro_rules! client_err {
 pub struct Usbc<'a> {
     client: Option<&'a hil::usb::Client>,
     state: MapCell<State>,
-    pub descriptors: [Endpoint; 8],
+    descriptors: [Endpoint; 8],
 }
 
 impl<'a> Usbc<'a> {
@@ -203,6 +203,22 @@ impl<'a> Usbc<'a> {
             // UDCON.ADDEN.set();
         }
         */
+    }
+
+    pub fn endpoint_bank_set_buffer(&self, endpoint: EndpointIndex, bank: BankIndex,
+                                    buf: &'static [u8]) {
+        let e: usize = From::from(endpoint);
+        let b: usize = From::from(bank);
+
+        if buf.len() != 8 {
+            client_err!("Provided buffer must be 8 bytes long");
+            return;
+        }
+
+        let buffer = Buffer(buf.as_ptr() as *mut u8);
+
+        self.descriptors[e][b].set_addr(buffer);
+        self.descriptors[e][b].set_packet_size(PacketSize::single(0));
     }
 
     /// Configure and enable an endpoint

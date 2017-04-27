@@ -71,6 +71,20 @@ pub struct Bank {
     _pad: u32,
 }
 
+pub enum BankIndex {
+    Bank0,
+    Bank1,
+}
+
+impl From<BankIndex> for usize {
+    fn from(bi: BankIndex) -> usize {
+        match bi {
+            BankIndex::Bank0 => 0,
+            BankIndex::Bank1 => 1,
+        }
+    }
+}
+
 impl Bank {
     pub const fn new() -> Bank {
         Bank { addr: VolatileCell::new(Buffer(ptr::null_mut())),
@@ -216,6 +230,10 @@ impl EndpointIndex {
     pub fn new(index: u32) -> EndpointIndex {
         EndpointIndex(index & 0xf)
     }
+}
+
+impl From<EndpointIndex> for usize {
+    fn from(ei: EndpointIndex) -> usize { ei.0 as usize }
 }
 
 impl ToWord for EndpointIndex {
