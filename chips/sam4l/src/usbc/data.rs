@@ -68,13 +68,16 @@ pub struct Bank {
     pub addr: VolatileCell<Buffer>,
     pub packet_size: VolatileCell<PacketSize>,
     pub ctrl_status: VolatileCell<ControlStatus>,
+    _pad: u32,
 }
 
 impl Bank {
     pub const fn new() -> Bank {
         Bank { addr: VolatileCell::new(Buffer(ptr::null_mut())),
                packet_size: VolatileCell::new(PacketSize(0)),
-               ctrl_status: VolatileCell::new(ControlStatus(0)) }
+               ctrl_status: VolatileCell::new(ControlStatus(0)),
+               _pad: 0,
+               }
     }
 
     pub fn set_addr(&self, addr: Buffer) {
@@ -96,9 +99,9 @@ pub struct PacketSize(u32);
 
 impl PacketSize {
     pub fn new(byte_count: u32, multi_packet_size: u32, auto_zlp: bool) -> PacketSize {
-        PacketSize((byte_count & 0x7ffff) |
-                   ((multi_packet_size & 0x7ffff) << 16) |
-                   ((if auto_zlp { 1 } else { 0 }) << 31))
+        PacketSize((byte_count & 0x7fff) |
+                   ((multi_packet_size & 0x7fff) << 16) |
+                   ((if auto_zlp { 1 << 31 } else { 0 })))
     }
 
     pub fn single(byte_count: u32) -> PacketSize {
@@ -120,7 +123,7 @@ impl PacketSize {
 
 impl fmt::Debug for PacketSize {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "PacketSize {:08x} {{ byte_count: {}, multi_packet_size: {}, auto_zlp: {} }}",
+        write!(f, "PacketSize {:x} {{ byte_count: {}, multi_packet_size: {}, auto_zlp: {} }}",
                self.0, self.byte_count(), self.multi_packet_size(), self.auto_zlp())
     }
 }
@@ -130,9 +133,6 @@ impl fmt::Debug for PacketSize {
 pub struct ControlStatus(u32);
 
 impl ControlStatus {
-    // Stall request for next transfer
-    fn set_stallreq_next() { }
-
     fn get_status_underflow(&self) -> bool {
         self.0 & (1 << 18) != 0
     }
@@ -148,7 +148,7 @@ impl ControlStatus {
 
 impl fmt::Debug for ControlStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ControlStatus {:08x} {{ underflow: {}, overflow: {}, crcerror: {} }}",
+        write!(f, "ControlStatus {:x} {{ underflow: {}, overflow: {}, crcerror: {} }}",
                self.0, self.get_status_underflow(), self.get_status_overflow(), self.get_status_crcerror())
     }
 }

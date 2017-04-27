@@ -20,6 +20,8 @@ static DUMMY: Dummy = Dummy {};
 
 #[allow(unused_unsafe)]
 pub unsafe fn test() {
+    println!("Buffer at {:?}", &CFG0_BUF0 as *const u8);
+
     USBC.set_client(&DUMMY);
 
     USBC.enable(Mode::device_at_speed(Speed::Low));
@@ -28,8 +30,10 @@ pub unsafe fn test() {
         USBC.descriptors[0][0].set_addr(Buffer(&CFG0_BUF0 as *const u8 as *mut u8));
         USBC.descriptors[0][0].set_packet_size(PacketSize::single(0));
 
+        /*
         USBC.descriptors[0][1].set_addr(Buffer(&CFG0_BUF1 as *const u8 as *mut u8));
         USBC.descriptors[0][1].set_packet_size(PacketSize::single(0));
+        */
 
         let cfg0 = EndpointConfig::new(BankCount::Single,
                                        EndpointSize::Bytes8,

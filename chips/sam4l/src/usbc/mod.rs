@@ -280,13 +280,13 @@ impl<'a> Usbc<'a> {
         // debug!("USB interrupt! UDINT={:08x}", udint);
 
         if udint & UDINT_EORST != 0 {
+            if let State::Active(Mode::Device{ state: ref mut dstate, .. }) = state {
+                *dstate = DeviceState::Init;
+            }
             self.state.replace(state);
 
             // USB bus reset
             self.bus_reset();
-            if let State::Active(Mode::Device{ state: ref mut dstate, .. }) = state {
-                *dstate = DeviceState::Init;
-            }
 
             debug_regs();
 
@@ -364,6 +364,7 @@ impl<'a> Usbc<'a> {
                 // D(0) TXINI
                 // D(0) RXSTPI
 
+                let mut did_setup_in = false;
                 if status & RXSTP != 0 {
                     if *dstate == DeviceState::Init {
                         // We received a SETUP transaction
@@ -387,6 +388,8 @@ impl<'a> Usbc<'a> {
 
                         // Acknowledge
                         UESTAnCLR.n(endpoint).write(RXSTP);
+
+                        did_setup_in = true;
                     }
                     else {
                         debug!("** ignoring unexpected RXSTP in dstate {:?}", *dstate);
@@ -397,12 +400,13 @@ impl<'a> Usbc<'a> {
                 }
 
                 if status & TXIN != 0 {
-                    if *dstate == DeviceState::SetupIn {
+                    if *dstate == DeviceState::SetupIn && !did_setup_in {
                         // The data bank is ready to receive another IN payload
                         debug!("D({}) TXINI", endpoint);
 
                         // If IN data waiting, bank it for transmission
                         let b = self.descriptors[0][0].addr.get().0;
+                        debug!("Writing to {:?}", b);
                         unsafe {
                             ptr::write_volatile(b.offset(0), 0xb0);
                             ptr::write_volatile(b.offset(1), 0xb1);
@@ -410,9 +414,12 @@ impl<'a> Usbc<'a> {
                             ptr::write_volatile(b.offset(3), 0xb3);
                             ptr::write_volatile(b.offset(4), 0xb4);
                             ptr::write_volatile(b.offset(5), 0xb5);
+                            ptr::write_volatile(b.offset(6), 0xb6);
+                            ptr::write_volatile(b.offset(7), 0xb7);
                         }
-                        self.descriptors[0][0].packet_size.set(PacketSize::single(5));
+                        self.descriptors[0][0].packet_size.set(PacketSize::single(0));
 
+                        /*
                         // XXX
                         let b = self.descriptors[0][1].addr.get().0;
                         unsafe {
@@ -425,6 +432,7 @@ impl<'a> Usbc<'a> {
                             ptr::write_volatile(b.offset(6), 0xc6);
                         }
                         self.descriptors[0][1].packet_size.set(PacketSize::single(6));
+                        */
 
                         self.debug_show_d0();
 
@@ -508,14 +516,15 @@ impl<'a> Usbc<'a> {
     }
 
     fn debug_show_d0(&self) {
-        for bi in 0..2 {
+        for bi in 0..1 {
             let b = &self.descriptors[0][bi];
 
-            debug!("B_0_{}: \
-                   \n     packet_size={:?}\
-                   \n     control_status={:?}\
-                   \n     addr={:?}",
-                   bi, b.packet_size.get(), b.ctrl_status.get(), b.addr.get().0);
+            debug!("B_0_{} at addr {:?}: \
+                   \n     {:?}\
+                   \n     {:?}\
+                   \n     0:{}",
+                   bi, b.addr.get().0, b.packet_size.get(), b.ctrl_status.get(),
+                   unsafe { ptr::read_volatile(b.addr.get().0) });
 
             let addr = b.addr.get().0;
             if !addr.is_null() {
