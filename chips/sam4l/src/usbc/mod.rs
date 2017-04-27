@@ -33,6 +33,7 @@ pub struct Usbc<'a> {
     client: Option<&'a hil::usb::Client>,
     state: MapCell<State>,
     descriptors: [Endpoint; 8],
+    buf: [u8; 8],
 }
 
 impl<'a> Usbc<'a> {
@@ -48,6 +49,7 @@ impl<'a> Usbc<'a> {
                            new_endpoint(),
                            new_endpoint(),
                            new_endpoint() ],
+            buf: [0xab; 8],
         }
     }
 
@@ -148,6 +150,8 @@ impl<'a> Usbc<'a> {
                 }
             }
         });
+        let p = self.descriptors[0][0].addr.get().0;
+        debug!("AA: Buffer_{}_{} at {:?}", 0, 0, p);
     }
 
     /// Detach from the USB bus.  Also disable USB clock to save energy.
@@ -206,19 +210,25 @@ impl<'a> Usbc<'a> {
     }
 
     pub fn endpoint_bank_set_buffer(&self, endpoint: EndpointIndex, bank: BankIndex,
-                                    buf: &'static [u8]) {
+                                    buf: *mut u8) {
         let e: usize = From::from(endpoint);
         let b: usize = From::from(bank);
 
+        /*
         if buf.len() != 8 {
             client_err!("Provided buffer must be 8 bytes long");
             return;
         }
 
-        let buffer = Buffer(buf.as_ptr() as *mut u8);
+        let buffer = unsafe { Buffer(buf.get_unchecked_mut(0) as *mut u8) };
+        */
+        let buffer = Buffer(buf);
 
         self.descriptors[e][b].set_addr(buffer);
         self.descriptors[e][b].set_packet_size(PacketSize::single(0));
+
+        let p = self.descriptors[e][b].addr.get().0;
+        debug!("EBSB: Buffer_{}_{} at {:?}", e, b, p);
     }
 
     /// Configure and enable an endpoint
@@ -259,6 +269,9 @@ impl<'a> Usbc<'a> {
 
         debug!("Enabled endpoint {}", endpoint);
         // debug_regs();
+
+        let p = self.descriptors[0][0].addr.get().0;
+        debug!("AA: Buffer_{}_{} at {:?}", 0, 0, p);
     }
 
     fn endpoint_configure(&self, endpoint: u32, cfg: EndpointConfig) {
@@ -285,6 +298,11 @@ impl<'a> Usbc<'a> {
 
     /// Handle an interrupt from the USBC
     pub fn handle_interrupt(&mut self) {
+
+        let p = self.descriptors[0][0].addr.get().0;
+        if p as u32 != 0x20000000 {
+            debug!("HANDLE_INTERRUPT: p = {:?}", p);
+        }
 
         let mut state = self.state.take().unwrap_or(State::Reset);
 
@@ -361,14 +379,20 @@ impl<'a> Usbc<'a> {
 
         if let State::Active(Mode::Device{ state: ref mut dstate, .. }) = state {
 
+            let p = self.descriptors[0][0].addr.get().0;
+            debug!("INT-DEV: Buffer_{}_{} at {:?}", 0, 0, p);
+
             for endpoint in 0..9 {
                 if udint & (1 << (12 + endpoint)) == 0 {
                     // No interrupts for this endpoint
                     continue;
                 }
 
-                let status = UESTAn.n(endpoint).read();
+                let mut status = UESTAn.n(endpoint).read();
                 debug!("UESTA{}={:08x}", endpoint, status);
+
+                let p = self.descriptors[0][0].addr.get().0;
+                debug!("INT-EP{}: Buffer_{}_{} at {:?}", endpoint, 0, 0, p);
 
                 // UESTA0=00021015
                 //   CTLDIR=1 (next is IN)
@@ -394,6 +418,8 @@ impl<'a> Usbc<'a> {
 
                             // Wait until bank is clear to send
                             // Also, wait for NAKIN to signal end of IN stage
+                            UESTAnCLR.n(endpoint).write(NAKIN);
+                            status &= !NAKIN;
                             endpoint_enable_interrupts(endpoint, TXIN | NAKIN);
                             // endpoint_disable_interrupts(endpoint, RXSTP);
                         }
@@ -420,9 +446,16 @@ impl<'a> Usbc<'a> {
                         // The data bank is ready to receive another IN payload
                         debug!("D({}) TXINI", endpoint);
 
+                        let p = self.descriptors[0][0].addr.get().0;
+                        debug!("INT-TXIN: Buffer_{}_{} at {:?}", 0, 0, p);
+
+                        self.descriptors[0][0].set_addr(Buffer(&self.buf as *const u8 as *mut u8));
+
+                        let p = self.descriptors[0][0].addr.get().0;
+                        debug!("INT-TXIN-AFTER: Buffer_{}_{} at {:?}", 0, 0, p);
+
                         // If IN data waiting, bank it for transmission
                         let b = self.descriptors[0][0].addr.get().0;
-                        debug!("Writing to {:?}", b);
                         unsafe {
                             ptr::write_volatile(b.offset(0), 0xb0);
                             ptr::write_volatile(b.offset(1), 0xb1);
@@ -455,7 +488,7 @@ impl<'a> Usbc<'a> {
                         // Signal to the controller that the IN payload is ready to send
                         UESTAnCLR.n(endpoint).write(TXIN);
 
-                        // (Continue awaiting TXIN and NAKIN if we have more to send)
+                        // (Continue awaiting TXIN and NAKIN until end of IN stage)
                     }
                     else {
                         // Nothing to send: ignore
@@ -535,11 +568,11 @@ impl<'a> Usbc<'a> {
         for bi in 0..1 {
             let b = &self.descriptors[0][bi];
 
-            debug!("B_0_{} at addr {:?}: \
+            debug!("B_0_{} at addr {:x}: \
                    \n     {:?}\
                    \n     {:?}\
                    \n     0:{}",
-                   bi, b.addr.get().0, b.packet_size.get(), b.ctrl_status.get(),
+                   bi, b.addr.get().0 as u32, b.packet_size.get(), b.ctrl_status.get(),
                    unsafe { ptr::read_volatile(b.addr.get().0) });
 
             let addr = b.addr.get().0;
@@ -554,6 +587,9 @@ impl<'a> Usbc<'a> {
 
     fn bus_reset(&mut self) {
         debug!("USB Bus Reset");
+
+        let p = self.descriptors[0][0].addr.get().0;
+        debug!("BR: Buffer_{}_{} at {:?}", 0, 0, p);
 
         let must_reconfigure = self.state.map_or(false, |state| {
             match *state {
