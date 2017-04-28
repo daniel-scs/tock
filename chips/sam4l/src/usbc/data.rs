@@ -65,7 +65,7 @@ pub const fn new_endpoint() -> Endpoint {
 
 #[repr(C, packed)]
 pub struct Bank {
-    pub addr: VolatileCell<Buffer>,
+    pub addr: VolatileCell<*mut u8>,
     pub packet_size: VolatileCell<PacketSize>,
     pub ctrl_status: VolatileCell<ControlStatus>,
     _pad: u32,
@@ -87,14 +87,14 @@ impl From<BankIndex> for usize {
 
 impl Bank {
     pub const fn new() -> Bank {
-        Bank { addr: VolatileCell::new(Buffer(ptr::null_mut())),
+        Bank { addr: VolatileCell::new(ptr::null_mut()),
                packet_size: VolatileCell::new(PacketSize(0)),
                ctrl_status: VolatileCell::new(ControlStatus(0)),
                _pad: 0,
-               }
+             }
     }
 
-    pub fn set_addr(&self, addr: Buffer) {
+    pub fn set_addr(&self, addr: *mut u8) {
         self.addr.set(addr);
     }
 
@@ -102,10 +102,6 @@ impl Bank {
         self.packet_size.set(size);
     }
 }
-
-#[derive(Copy, Clone)]
-#[repr(C, packed)]
-pub struct Buffer(pub *mut u8);
 
 #[derive(Copy, Clone)]
 #[repr(C, packed)]

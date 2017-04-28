@@ -213,7 +213,7 @@ impl<'a> Usbc<'a> {
         let e: usize = From::from(endpoint);
         let b: usize = From::from(bank);
 
-        self.descriptors[e][b].set_addr(Buffer(buf));
+        self.descriptors[e][b].set_addr(buf);
         self.descriptors[e][b].set_packet_size(PacketSize::single(0));
     }
 
@@ -288,7 +288,7 @@ impl<'a> Usbc<'a> {
 
         let udint: u32 = UDINT.read();
 
-        let p = self.descriptors[0][0].addr.get().0;
+        let p = self.descriptors[0][0].addr.get();
         debug!("--> USB INT: UDINT={:08x}{:?}, B_{}_{} @ {:?}", udint, UdintFlags(udint), 0, 0, p);
 
         if udint & UDINT_EORST != 0 {
@@ -435,12 +435,12 @@ impl<'a> Usbc<'a> {
 
                         // This appears to be necessary because the address has been changed
                         // somehow (!?!)
-                        self.descriptors[0][0].set_addr(Buffer(&self.buf as *const u8 as *mut u8));
+                        self.descriptors[0][0].set_addr(&self.buf as *const u8 as *mut u8);
 
                         // If IN data waiting, bank it for transmission
 
                         // DEBUG: The first 8 bytes of a standard device descriptor
-                        let b = self.descriptors[0][0].addr.get().0;
+                        let b = self.descriptors[0][0].addr.get();
                         unsafe {
                             ptr::write_volatile(b.offset(0), 18);   // Length
                             ptr::write_volatile(b.offset(1), 1);    // DEVICE descriptor
@@ -519,15 +519,15 @@ impl<'a> Usbc<'a> {
     fn debug_show_d0(&self) {
         for bi in 0..1 {
             let b = &self.descriptors[0][bi];
-            let addr = b.addr.get().0;
+            let addr = b.addr.get();
             let buf = if addr.is_null() { None }
                       else { unsafe { Some(slice::from_raw_parts(addr, 8)) } };
 
-            debug!("B_0_{} at addr {:x}: \
+            debug!("B_0_{} at addr {:?}: \
                    \n     {:?}\
                    \n     {:?}\
                    \n     {:?}",
-                   bi, b.addr.get().0 as u32, b.packet_size.get(), b.ctrl_status.get(),
+                   bi, b.addr.get(), b.packet_size.get(), b.ctrl_status.get(),
                    buf);
         }
     }
@@ -555,7 +555,7 @@ impl<'a> Usbc<'a> {
         }
 
         // XXX DEBUG
-        self.descriptors[0][0].set_addr(Buffer(&self.buf as *const u8 as *mut u8));
+        self.descriptors[0][0].set_addr(&self.buf as *const u8 as *mut u8);
         self.descriptors[0][0].set_packet_size(PacketSize::single(0));
 
         // alert client?
