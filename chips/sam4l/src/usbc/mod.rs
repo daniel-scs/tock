@@ -8,6 +8,7 @@
 use nvic;
 use kernel::hil;
 use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
+use core::fmt;
 use core::slice;
 use core::ptr;
 use scif;
@@ -286,10 +287,9 @@ impl<'a> Usbc<'a> {
         // Handle device-mode interrupt
 
         let udint: u32 = UDINT.read();
-        // debug!("USB interrupt! UDINT={:08x}", udint);
 
         let p = self.descriptors[0][0].addr.get().0;
-        debug!("INTERRUPT: UDINT={:08x}, Buffer_{}_{} at {:?}", udint, 0, 0, p);
+        debug!("--> USB INT: UDINT={:08x}{:?}, B_{}_{} @ {:?}", udint, UdintFlags(udint), 0, 0, p);
 
         if udint & UDINT_EORST != 0 {
             if let State::Active(Mode::Device{ state: ref mut dstate, .. }) = state {
@@ -364,7 +364,7 @@ impl<'a> Usbc<'a> {
                 }
 
                 let mut status = UESTAn.n(endpoint).read();
-                debug!("UESTA{}={:08x}", endpoint, status);
+                debug!("UESTA{}={:08x}{:?}", endpoint, status, UestaFlags(status));
 
                 // e.g., UESTA0=00021015 means:
                 //   CTLDIR=1 (next is IN)
@@ -377,7 +377,7 @@ impl<'a> Usbc<'a> {
                 if status & RXSTP != 0 {
                     if *dstate == DeviceState::Init {
                         // We received a SETUP transaction
-                        debug!("D({}) RXSTPI/ERRORFI", endpoint);
+                        debug!("D({}) RXSTP", endpoint);
 
                         // client.received_setup(bank)
                         self.debug_show_d0();
@@ -415,7 +415,7 @@ impl<'a> Usbc<'a> {
                 if status & NAKIN != 0 {
                     if *dstate == DeviceState::SetupIn {
                         // The host has aborted the IN stage
-                        debug!("D({}) NAKINI", endpoint);
+                        debug!("D({}) NAKIN", endpoint);
 
                         *dstate = DeviceState::SetupOut;
 
@@ -431,7 +431,7 @@ impl<'a> Usbc<'a> {
                 if status & TXIN != 0 {
                     if *dstate == DeviceState::SetupIn {
                         // The data bank is ready to receive another IN payload
-                        debug!("D({}) TXINI", endpoint);
+                        debug!("D({}) TXIN", endpoint);
 
                         // This appears to be necessary because the address has been changed
                         // somehow (!?!)
@@ -470,7 +470,7 @@ impl<'a> Usbc<'a> {
 
                 if status & RXOUT != 0 {
                     if *dstate == DeviceState::SetupOut {
-                        debug!("D({}) RXOUTI", endpoint);
+                        debug!("D({}) RXOUT", endpoint);
                         // self.debug_show_d0();
 
                         *dstate = DeviceState::Init;
@@ -490,14 +490,14 @@ impl<'a> Usbc<'a> {
                 }
 
                 if status & NAKOUT != 0 {
-                    debug!("D({}) NAKOUTI", endpoint);
+                    debug!("D({}) NAKOUT", endpoint);
 
                     // Acknowledge
                     UESTAnCLR.n(endpoint).write(NAKOUT);
                 }
 
                 if status & STALLED != 0 {
-                    debug!("D({}) STALLEDI/CRCERRI", endpoint);
+                    debug!("D({}) STALLED/CRCERR", endpoint);
 
                     // Acknowledge
                     UESTAnCLR.n(endpoint).write(STALLED);
@@ -636,6 +636,85 @@ fn debug_regs() {
 
     // debug!("    UHINTE={:08x}", UHINTE.read());
     // debug!("     UHINT={:08x}", UDINT.read());
+}
+
+struct UdintFlags(u32);
+
+impl fmt::Debug for UdintFlags {
+    #[allow(unused_must_use)]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let w: u32 = self.0;
+
+        write!(f, "{{");
+        if w & UDINT_WAKEUP != 0 {
+            write!(f, "w");
+        }
+        if w & UDINT_SOF != 0 {
+            write!(f, "s");
+        }
+
+        if w & UDINT_SUSP != 0 {
+            write!(f, " SUSP");
+        }
+        if w & UDINT_EORST != 0 {
+            write!(f, " EORST");
+        }
+        if w & UDINT_EORSM != 0 {
+            write!(f, " EORSM");
+        }
+        if w & UDINT_UPRSM != 0 {
+            write!(f, " UPRSM");
+        }
+
+        for i in 0..9 {
+            if w & (1 << (12 + i)) != 0 {
+                write!(f, " EP{}", i);
+            }
+        }
+        write!(f, "}}")
+    }
+}
+
+struct UestaFlags(u32);
+
+impl fmt::Debug for UestaFlags {
+    #[allow(unused_must_use)]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let w: u32 = self.0;
+
+        write!(f, "{{");
+        if w & TXIN != 0 {
+            write!(f, "TXIN ");
+        }
+        if w & RXOUT != 0 {
+            write!(f, "RXOUT ");
+        }
+        if w & RXSTP != 0 {
+            write!(f, "RXSTP");
+        }
+        if w & ERRORF != 0 {
+            write!(f, "/ERRORF ");
+        }
+        if w & NAKOUT != 0 {
+            write!(f, "NAKOUT ");
+        }
+        if w & NAKIN != 0 {
+            write!(f, "NAKIN ");
+        }
+        if w & STALLED != 0 {
+            write!(f, "STALLED ");
+        }
+        if w & CRCERR != 0 {
+            write!(f, "CRCERR");
+        }
+        if w & RAMACERR != 0 {
+            write!(f, "/RAMACERR ");
+        }
+        write!(f, "NBUSYBK={} ", (w >> 12) & 0x3);
+        write!(f, "CURBK={} ", (w >> 14) & 0x3);
+        write!(f, "CTRLDIR={}", if w & CTRLDIR != 0 { "IN" } else { "OUT" });
+        write!(f, "}}")
+    }
 }
 
 /// Static state to manage the USBC
