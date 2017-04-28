@@ -150,8 +150,6 @@ impl<'a> Usbc<'a> {
                 }
             }
         });
-        let p = self.descriptors[0][0].addr.get().0;
-        debug!("AA: Buffer_{}_{} at {:?}", 0, 0, p);
     }
 
     /// Detach from the USB bus.  Also disable USB clock to save energy.
@@ -214,21 +212,8 @@ impl<'a> Usbc<'a> {
         let e: usize = From::from(endpoint);
         let b: usize = From::from(bank);
 
-        /*
-        if buf.len() != 8 {
-            client_err!("Provided buffer must be 8 bytes long");
-            return;
-        }
-
-        let buffer = unsafe { Buffer(buf.get_unchecked_mut(0) as *mut u8) };
-        */
-        let buffer = Buffer(buf);
-
-        self.descriptors[e][b].set_addr(buffer);
+        self.descriptors[e][b].set_addr(Buffer(buf));
         self.descriptors[e][b].set_packet_size(PacketSize::single(0));
-
-        let p = self.descriptors[e][b].addr.get().0;
-        debug!("EBSB: Buffer_{}_{} at {:?}", e, b, p);
     }
 
     /// Configure and enable an endpoint
@@ -269,14 +254,9 @@ impl<'a> Usbc<'a> {
 
         debug!("Enabled endpoint {}", endpoint);
         // debug_regs();
-
-        let p = self.descriptors[0][0].addr.get().0;
-        debug!("AA: Buffer_{}_{} at {:?}", 0, 0, p);
     }
 
     fn endpoint_configure(&self, endpoint: u32, cfg: EndpointConfig) {
-        debug!("Config endpoint {}", endpoint);
-
         // Configure the endpoint
         UECFGn.n(endpoint).write(cfg);
 
@@ -299,11 +279,6 @@ impl<'a> Usbc<'a> {
     /// Handle an interrupt from the USBC
     pub fn handle_interrupt(&mut self) {
 
-        let p = self.descriptors[0][0].addr.get().0;
-        if p as u32 != 0x20000000 {
-            debug!("HANDLE_INTERRUPT: p = {:?}", p);
-        }
-
         let mut state = self.state.take().unwrap_or(State::Reset);
 
         // Handle host-mode interrupt TODO
@@ -312,6 +287,9 @@ impl<'a> Usbc<'a> {
 
         let udint: u32 = UDINT.read();
         // debug!("USB interrupt! UDINT={:08x}", udint);
+
+        let p = self.descriptors[0][0].addr.get().0;
+        debug!("INTERRUPT: UDINT={:08x}, Buffer_{}_{} at {:?}", udint, 0, 0, p);
 
         if udint & UDINT_EORST != 0 {
             if let State::Active(Mode::Device{ state: ref mut dstate, .. }) = state {
@@ -379,9 +357,6 @@ impl<'a> Usbc<'a> {
 
         if let State::Active(Mode::Device{ state: ref mut dstate, .. }) = state {
 
-            let p = self.descriptors[0][0].addr.get().0;
-            debug!("INT-DEV: Buffer_{}_{} at {:?}", 0, 0, p);
-
             for endpoint in 0..9 {
                 if udint & (1 << (12 + endpoint)) == 0 {
                     // No interrupts for this endpoint
@@ -391,20 +366,14 @@ impl<'a> Usbc<'a> {
                 let mut status = UESTAn.n(endpoint).read();
                 debug!("UESTA{}={:08x}", endpoint, status);
 
-                let p = self.descriptors[0][0].addr.get().0;
-                debug!("INT-EP{}: Buffer_{}_{} at {:?}", endpoint, 0, 0, p);
-
-                // UESTA0=00021015
+                // e.g., UESTA0=00021015 means:
                 //   CTLDIR=1 (next is IN)
                 //   NBUSYBANK=1
                 //
                 //   NAKINI=1 (NAK was sent)
                 //   RXSTPI
                 //   TXINI
-                // D(0) TXINI
-                // D(0) RXSTPI
 
-                let mut did_setup_in = false;
                 if status & RXSTP != 0 {
                     if *dstate == DeviceState::Init {
                         // We received a SETUP transaction
@@ -422,16 +391,18 @@ impl<'a> Usbc<'a> {
                             status &= !NAKIN;
                             endpoint_enable_interrupts(endpoint, TXIN | NAKIN);
                             // endpoint_disable_interrupts(endpoint, RXSTP);
+
+                            // Don't handle TXIN, if any, until next interrupt (for ease of debugging)
+                            status &= !TXIN;
                         }
                         else {
-                            debug!("-> SetupOut");
                             *dstate = DeviceState::SetupOut;
+
+                            debug!("-> SetupOut (UNIMPLEMENTED)");
                         }
 
                         // Acknowledge
                         UESTAnCLR.n(endpoint).write(RXSTP);
-
-                        did_setup_in = true;
                     }
                     else {
                         debug!("** ignoring unexpected RXSTP in dstate {:?}", *dstate);
@@ -439,63 +410,6 @@ impl<'a> Usbc<'a> {
                         // Acknowledge
                         UESTAnCLR.n(endpoint).write(RXSTP);
                     }
-                }
-
-                if status & TXIN != 0 {
-                    if *dstate == DeviceState::SetupIn && !did_setup_in {
-                        // The data bank is ready to receive another IN payload
-                        debug!("D({}) TXINI", endpoint);
-
-                        let p = self.descriptors[0][0].addr.get().0;
-                        debug!("INT-TXIN: Buffer_{}_{} at {:?}", 0, 0, p);
-
-                        self.descriptors[0][0].set_addr(Buffer(&self.buf as *const u8 as *mut u8));
-
-                        let p = self.descriptors[0][0].addr.get().0;
-                        debug!("INT-TXIN-AFTER: Buffer_{}_{} at {:?}", 0, 0, p);
-
-                        // If IN data waiting, bank it for transmission
-                        let b = self.descriptors[0][0].addr.get().0;
-                        unsafe {
-                            ptr::write_volatile(b.offset(0), 0xb0);
-                            ptr::write_volatile(b.offset(1), 0xb1);
-                            ptr::write_volatile(b.offset(2), 0xb2);
-                            ptr::write_volatile(b.offset(3), 0xb3);
-                            ptr::write_volatile(b.offset(4), 0xb4);
-                            ptr::write_volatile(b.offset(5), 0xb5);
-                            ptr::write_volatile(b.offset(6), 0xb6);
-                            ptr::write_volatile(b.offset(7), 0xb7);
-                        }
-                        self.descriptors[0][0].packet_size.set(PacketSize::single(0));
-
-                        /*
-                        // XXX
-                        let b = self.descriptors[0][1].addr.get().0;
-                        unsafe {
-                            ptr::write_volatile(b.offset(0), 0xc0);
-                            ptr::write_volatile(b.offset(1), 0xc1);
-                            ptr::write_volatile(b.offset(2), 0xc2);
-                            ptr::write_volatile(b.offset(3), 0xc3);
-                            ptr::write_volatile(b.offset(4), 0xc4);
-                            ptr::write_volatile(b.offset(5), 0xc5);
-                            ptr::write_volatile(b.offset(6), 0xc6);
-                        }
-                        self.descriptors[0][1].packet_size.set(PacketSize::single(6));
-                        */
-
-                        self.debug_show_d0();
-
-                        // Signal to the controller that the IN payload is ready to send
-                        UESTAnCLR.n(endpoint).write(TXIN);
-
-                        // (Continue awaiting TXIN and NAKIN until end of IN stage)
-                    }
-                    else {
-                        // Nothing to send: ignore
-                    }
-
-                    // For non-control endpoints:
-                    // clear FIFOCON to allow send
                 }
 
                 if status & NAKIN != 0 {
@@ -512,6 +426,46 @@ impl<'a> Usbc<'a> {
                         // Acknowledge
                         UESTAnCLR.n(endpoint).write(NAKIN);
                     }
+                }
+
+                if status & TXIN != 0 {
+                    if *dstate == DeviceState::SetupIn {
+                        // The data bank is ready to receive another IN payload
+                        debug!("D({}) TXINI", endpoint);
+
+                        // This appears to be necessary because the address has been changed
+                        // somehow (!?!)
+                        self.descriptors[0][0].set_addr(Buffer(&self.buf as *const u8 as *mut u8));
+
+                        // If IN data waiting, bank it for transmission
+
+                        // DEBUG: The first 8 bytes of a standard device descriptor
+                        let b = self.descriptors[0][0].addr.get().0;
+                        unsafe {
+                            ptr::write_volatile(b.offset(0), 18);   // Length
+                            ptr::write_volatile(b.offset(1), 1);    // DEVICE descriptor
+                            ptr::write_volatile(b.offset(2), 2); //
+                            ptr::write_volatile(b.offset(3), 0); // USB 2.0
+                            ptr::write_volatile(b.offset(4), 0); // Class
+                            ptr::write_volatile(b.offset(5), 0); // Subclass
+                            ptr::write_volatile(b.offset(6), 0); // Protocol
+                            ptr::write_volatile(b.offset(7), 8); // Max packet size
+                        }
+                        self.descriptors[0][0].packet_size.set(PacketSize::single(8));
+
+                        self.debug_show_d0();
+
+                        // Signal to the controller that the IN payload is ready to send
+                        UESTAnCLR.n(endpoint).write(TXIN);
+
+                        // (Continue awaiting TXIN and NAKIN until end of IN stage)
+                    }
+                    else {
+                        // Nothing to send: ignore
+                    }
+
+                    // For non-control endpoints:
+                    // clear FIFOCON to allow send
                 }
 
                 if status & RXOUT != 0 {
@@ -560,36 +514,26 @@ impl<'a> Usbc<'a> {
         } // if Device
 
         self.state.replace(state);
-
-        // debug!("Handled interrupt");
     }
 
     fn debug_show_d0(&self) {
         for bi in 0..1 {
             let b = &self.descriptors[0][bi];
+            let addr = b.addr.get().0;
+            let buf = if addr.is_null() { None }
+                      else { unsafe { Some(slice::from_raw_parts(addr, 8)) } };
 
             debug!("B_0_{} at addr {:x}: \
                    \n     {:?}\
                    \n     {:?}\
-                   \n     0:{}",
+                   \n     {:?}",
                    bi, b.addr.get().0 as u32, b.packet_size.get(), b.ctrl_status.get(),
-                   unsafe { ptr::read_volatile(b.addr.get().0) });
-
-            let addr = b.addr.get().0;
-            if !addr.is_null() {
-                // let blen = b.packet_size.get().byte_count();
-                let buf: &[u8] = unsafe { slice::from_raw_parts(addr, 8) };
-                debug!("B_0_{} buf: \
-                       \n     {:?}", bi, buf);
-            }
+                   buf);
         }
     }
 
     fn bus_reset(&mut self) {
         debug!("USB Bus Reset");
-
-        let p = self.descriptors[0][0].addr.get().0;
-        debug!("BR: Buffer_{}_{} at {:?}", 0, 0, p);
 
         let must_reconfigure = self.state.map_or(false, |state| {
             match *state {
@@ -609,6 +553,10 @@ impl<'a> Usbc<'a> {
         if must_reconfigure {
             self.reconfigure();
         }
+
+        // XXX DEBUG
+        self.descriptors[0][0].set_addr(Buffer(&self.buf as *const u8 as *mut u8));
+        self.descriptors[0][0].set_packet_size(PacketSize::single(0));
 
         // alert client?
     }
