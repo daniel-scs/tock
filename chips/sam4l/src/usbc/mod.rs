@@ -423,10 +423,13 @@ impl<'a> Usbc<'a> {
                         *dstate = DeviceState::CtrlIn{ bytes_sent: 0 };
 
                         // Wait until bank is clear to send
+                        /*
                         // Also, wait for NAKIN to signal end of IN stage
                         UESTAnCLR.n(endpoint).write(NAKIN);
                         status &= !NAKIN; // Don't process previous NAKIN
                         endpoint_enable_interrupts(endpoint, TXIN | NAKIN);
+                        */
+                        endpoint_enable_interrupts(endpoint, TXIN);
                         // endpoint_disable_interrupts(endpoint, RXSTP);
                     }
                     else {
@@ -471,11 +474,12 @@ impl<'a> Usbc<'a> {
                             }
                         }
 
+                        let bytes_rem = device_descriptor.len() as u32 - *bytes_sent;
                         self.descriptors[0][0].packet_size.set(
-                            if bytes_packet == 8 {
-                                PacketSize::complete_with_zlp(8)
+                            if bytes_packet == 8 && bytes_rem == 0 {
+                                PacketSize::single_with_zlp(8)
                             } else {
-                                PacketSize::short(bytes_packet)
+                                PacketSize::single(bytes_packet)
                             }
                         );
 
@@ -487,7 +491,6 @@ impl<'a> Usbc<'a> {
                         // Signal to the controller that the IN payload is ready to send
                         UESTAnCLR.n(endpoint).write(TXIN);
 
-                        let bytes_rem = device_descriptor.len() as u32 - *bytes_sent;
                         if bytes_rem > 0 {
                             // Continue waiting for next TXIN
                         }
@@ -495,9 +498,14 @@ impl<'a> Usbc<'a> {
                             // IN data completely sent.  Unsubscribe from TXIN
                             endpoint_disable_interrupts(endpoint, TXIN);
 
+                            /*
                             // Await NAKIN to indicate end of Data stage
                             UESTAnCLR.n(endpoint).write(NAKIN);
                             endpoint_enable_interrupts(endpoint, NAKIN);
+                            */
+
+                            // XXX: Also await RXOUT
+                            endpoint_enable_interrupts(endpoint, RXOUT);
                         }
                     }
                     else {
@@ -512,6 +520,7 @@ impl<'a> Usbc<'a> {
                 // clear FIFOCON to allow send
             }
 
+            /*
             if status & NAKIN != 0 {
                 if let DeviceState::CtrlIn{ bytes_sent } = *dstate {
                     // The host has aborted the IN stage
@@ -531,9 +540,10 @@ impl<'a> Usbc<'a> {
                     UESTAnCLR.n(endpoint).write(NAKIN);
                 }
             }
+            */
 
             if status & RXOUT != 0 {
-                if *dstate == DeviceState::CtrlOut {
+                if *dstate == DeviceState::CtrlOut || true {
                     debug!("D({}) RXOUT", endpoint);
                     // self.debug_show_d0();
 

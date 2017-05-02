@@ -118,12 +118,12 @@ impl PacketSize {
         PacketSize::new(0, 0, false)
     }
 
-    pub fn complete_with_zlp(byte_count: u32) -> PacketSize {
-        PacketSize::new(byte_count, 0, true)
+    pub fn single(byte_count: u32) -> PacketSize {
+        PacketSize::new(byte_count, 0, false)
     }
 
-    pub fn short(byte_count: u32) -> PacketSize {
-        PacketSize::new(byte_count, 0, false)
+    pub fn single_with_zlp(byte_count: u32) -> PacketSize {
+        PacketSize::new(byte_count, 0, true)
     }
 
     pub fn byte_count(&self) -> u32 {
