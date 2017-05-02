@@ -37,6 +37,24 @@ pub struct Usbc<'a> {
     buf: [u8; 8],
 }
 
+const DEVICE_DESCRIPTOR: [u8; 18] =
+    [ 18, // Length
+       1, // DEVICE descriptor code
+       2, // USB 2
+       0, //      .0
+       0, // Class
+       0, // Subclass
+       0, // Protocol
+       8, // Max packet size
+       0x66, 0x67,   // Vendor id
+       0xab, 0xcd,   // Product id
+       0x00, 0x01,   // Device release
+       0, 0, 0,      // String indexes
+       1  // Number of configurations
+    ];
+#[allow(non_upper_case_globals)]
+static device_descriptor: &'static [u8] = &DEVICE_DESCRIPTOR;
+
 impl<'a> Usbc<'a> {
     const fn new() -> Self {
         Usbc {
@@ -214,7 +232,7 @@ impl<'a> Usbc<'a> {
         let b: usize = From::from(bank);
 
         self.descriptors[e][b].set_addr(buf);
-        self.descriptors[e][b].set_packet_size(PacketSize::single(0));
+        self.descriptors[e][b].set_packet_size(PacketSize::default());
     }
 
     /// Configure and enable an endpoint
@@ -301,6 +319,7 @@ impl<'a> Usbc<'a> {
         self.state.replace(state);
     }
 
+    #[allow(unused_assignments)]    // for updating status value, even though we don't presently use it
     fn handle_device_interrupt(&mut self, speed: Speed, config: &Option<EndpointConfig>, dstate: &mut DeviceState) {
         let udint: u32 = UDINT.read();
 
@@ -318,7 +337,7 @@ impl<'a> Usbc<'a> {
 
             // Configure default control endpoint (Shouldn't be necessary?)
             self.descriptors[0][0].set_addr(&self.buf as *const u8 as *mut u8);
-            self.descriptors[0][0].set_packet_size(PacketSize::single(0));
+            self.descriptors[0][0].set_packet_size(PacketSize::default());
 
             debug!("USB Bus Reset");
             debug_regs();
@@ -389,7 +408,7 @@ impl<'a> Usbc<'a> {
                 continue;
             }
 
-            let status = UESTAn.n(endpoint).read();
+            let mut status = UESTAn.n(endpoint).read();
             debug!("UESTA{}={:08x}{:?}", endpoint, status, UestaFlags(status));
 
             if status & RXSTP != 0 {
@@ -401,18 +420,18 @@ impl<'a> Usbc<'a> {
                     self.debug_show_d0();
 
                     if status & CTRLDIR != 0 {
-                        *dstate = DeviceState::SetupIn;
+                        *dstate = DeviceState::CtrlIn{ bytes_sent: 0 };
 
                         // Wait until bank is clear to send
                         // Also, wait for NAKIN to signal end of IN stage
                         UESTAnCLR.n(endpoint).write(NAKIN);
-                        // status &= !NAKIN; // Don't process previous NAKIN
+                        status &= !NAKIN; // Don't process previous NAKIN
                         endpoint_enable_interrupts(endpoint, TXIN | NAKIN);
                         // endpoint_disable_interrupts(endpoint, RXSTP);
                     }
                     else {
-                        *dstate = DeviceState::SetupOut;
-                        debug!("-> SetupOut (UNIMPLEMENTED)");
+                        *dstate = DeviceState::CtrlOut;
+                        debug!("-> Ctrl OUT (UNIMPLEMENTED)");
                     }
 
                     // Acknowledge
@@ -429,53 +448,61 @@ impl<'a> Usbc<'a> {
                 return;
             }
 
-            if status & NAKIN != 0 {
-                if *dstate == DeviceState::SetupIn {
-                    // The host has aborted the IN stage
-                    debug!("D({}) NAKIN", endpoint);
-
-                    *dstate = DeviceState::SetupOut;
-
-                    // Await end of Status stage
-                    endpoint_disable_interrupts(endpoint, TXIN | NAKIN);
-                    endpoint_enable_interrupts(endpoint, RXOUT);
-
-                    // Acknowledge
-                    UESTAnCLR.n(endpoint).write(NAKIN);
-                }
-            }
-
             if status & TXIN != 0 {
-                if *dstate == DeviceState::SetupIn {
+                if let DeviceState::CtrlIn{ ref mut bytes_sent } = *dstate {
                     // The data bank is ready to receive another IN payload
-                    debug!("D({}) TXIN", endpoint);
+                    debug!("D({}) TXIN ({} sent so far this tx)", endpoint, *bytes_sent);
 
                     // This appears to be necessary because the address has been changed
                     // somehow (!?!)
                     self.descriptors[0][0].set_addr(&self.buf as *const u8 as *mut u8);
 
                     // If IN data waiting, bank it for transmission
+                    let bytes_rem = device_descriptor.len() as u32 - *bytes_sent;
 
-                    // DEBUG: The first 8 bytes of a standard device descriptor
-                    let b = self.descriptors[0][0].addr.get();
-                    unsafe {
-                        ptr::write_volatile(b.offset(0), 18);   // Length
-                        ptr::write_volatile(b.offset(1), 1);    // DEVICE descriptor
-                        ptr::write_volatile(b.offset(2), 2); //
-                        ptr::write_volatile(b.offset(3), 0); // USB 2.0
-                        ptr::write_volatile(b.offset(4), 0); // Class
-                        ptr::write_volatile(b.offset(5), 0); // Subclass
-                        ptr::write_volatile(b.offset(6), 0); // Protocol
-                        ptr::write_volatile(b.offset(7), 8); // Max packet size
+                    if bytes_rem > 0 {
+                        let bytes_packet = if bytes_rem > 8 { 8 } else { bytes_rem };
+
+                        let b = self.descriptors[0][0].addr.get();
+                        for i in 0 .. bytes_packet {
+                            unsafe {
+                                ptr::write_volatile(b.offset(i as isize),
+                                    device_descriptor[(*bytes_sent + i) as usize]);
+                            }
+                        }
+
+                        self.descriptors[0][0].packet_size.set(
+                            if bytes_packet == 8 {
+                                PacketSize::complete_with_zlp(8)
+                            } else {
+                                PacketSize::short(bytes_packet)
+                            }
+                        );
+
+                        *bytes_sent += bytes_packet;
+
+                        debug!("D({}) Send CTRL IN {}", endpoint, bytes_packet);
+                        self.debug_show_d0();
+
+                        // Signal to the controller that the IN payload is ready to send
+                        UESTAnCLR.n(endpoint).write(TXIN);
+
+                        let bytes_rem = device_descriptor.len() as u32 - *bytes_sent;
+                        if bytes_rem > 0 {
+                            // Continue waiting for next TXIN
+                        }
+                        else {
+                            // IN data completely sent.  Unsubscribe from TXIN
+                            endpoint_disable_interrupts(endpoint, TXIN);
+
+                            // Await NAKIN to indicate end of Data stage
+                            UESTAnCLR.n(endpoint).write(NAKIN);
+                            endpoint_enable_interrupts(endpoint, NAKIN);
+                        }
                     }
-                    self.descriptors[0][0].packet_size.set(PacketSize::single(8));
-
-                    self.debug_show_d0();
-
-                    // Signal to the controller that the IN payload is ready to send
-                    UESTAnCLR.n(endpoint).write(TXIN);
-
-                    // (Continue awaiting TXIN and NAKIN until end of IN stage)
+                    else {
+                        // Nothing more to send: Continue waiting for NAKIN
+                    }
                 }
                 else {
                     // Nothing to send: ignore
@@ -485,8 +512,28 @@ impl<'a> Usbc<'a> {
                 // clear FIFOCON to allow send
             }
 
+            if status & NAKIN != 0 {
+                if let DeviceState::CtrlIn{ bytes_sent } = *dstate {
+                    // The host has aborted the IN stage
+                    debug!("D({}) NAKIN ({} bytes sent so far this tx)", endpoint, bytes_sent);
+
+                    let bytes_rem = device_descriptor.len() as u32 - bytes_sent;
+                    if bytes_rem > 0 {
+                        debug!("** Host aborted Control Data stage before complete packet sent");
+                    }
+                    *dstate = DeviceState::CtrlOut;
+
+                    // Await end of Status stage
+                    endpoint_disable_interrupts(endpoint, NAKIN);
+                    endpoint_enable_interrupts(endpoint, RXOUT);
+
+                    // Acknowledge
+                    UESTAnCLR.n(endpoint).write(NAKIN);
+                }
+            }
+
             if status & RXOUT != 0 {
-                if *dstate == DeviceState::SetupOut {
+                if *dstate == DeviceState::CtrlOut {
                     debug!("D({}) RXOUT", endpoint);
                     // self.debug_show_d0();
 
@@ -536,12 +583,12 @@ impl<'a> Usbc<'a> {
             let buf = if addr.is_null() { None }
                       else { unsafe { Some(slice::from_raw_parts(addr, 8)) } };
 
-            debug!("B_0_{} at addr {:?}: \
+            debug!("B_0_{} @ {:?}: \
                    \n     {:?}\
                    \n     {:?}\
                    \n     {:?}",
                    bi, b.addr.get(), b.packet_size.get(), b.ctrl_status.get(),
-                   buf);
+                   buf.map(HexBuf));
         }
     }
 

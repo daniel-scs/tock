@@ -21,8 +21,8 @@ impl Mode {
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum DeviceState {
     Init,
-    SetupIn,
-    SetupOut,
+    CtrlIn{ bytes_sent: u32 },
+    CtrlOut,
 }
 
 // value for USBCON.UIMOD
@@ -114,7 +114,15 @@ impl PacketSize {
                    ((if auto_zlp { 1 << 31 } else { 0 })))
     }
 
-    pub fn single(byte_count: u32) -> PacketSize {
+    pub fn default() -> PacketSize {
+        PacketSize::new(0, 0, false)
+    }
+
+    pub fn complete_with_zlp(byte_count: u32) -> PacketSize {
+        PacketSize::new(byte_count, 0, true)
+    }
+
+    pub fn short(byte_count: u32) -> PacketSize {
         PacketSize::new(byte_count, 0, false)
     }
 
@@ -133,8 +141,8 @@ impl PacketSize {
 
 impl fmt::Debug for PacketSize {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "PacketSize {:x} {{ byte_count: {}, multi_packet_size: {}, auto_zlp: {} }}",
-               self.0, self.byte_count(), self.multi_packet_size(), self.auto_zlp())
+        write!(f, "PacketSize {:x} {{ byte_count: {}, multi_packet_size: {}, {}auto_zlp }}",
+               self.0, self.byte_count(), self.multi_packet_size(), bang(self.auto_zlp()))
     }
 }
 
@@ -158,9 +166,15 @@ impl ControlStatus {
 
 impl fmt::Debug for ControlStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ControlStatus {:x} {{ underflow: {}, overflow: {}, crcerror: {} }}",
-               self.0, self.get_status_underflow(), self.get_status_overflow(), self.get_status_crcerror())
+        write!(f, "ControlStatus {:x} {{ {}underflow {}overflow {}crcerror }}",
+               self.0, bang(self.get_status_underflow()),
+                       bang(self.get_status_overflow()),
+                       bang(self.get_status_crcerror()))
     }
+}
+
+fn bang(b: bool) -> &'static str {
+    if b { "" } else { "!" }
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -234,4 +248,19 @@ impl From<EndpointIndex> for usize {
 
 impl ToWord for EndpointIndex {
     fn to_word(self) -> u32 { self.0 }
+}
+
+pub struct HexBuf<'a>(pub &'a [u8]);
+
+impl<'a> fmt::Debug for HexBuf<'a> {
+    #[allow(unused_must_use)]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[");
+        let mut i: usize = 0;
+        for b in self.0 {
+            write!(f, "{}{:.02x}", if i > 0 { " " } else { "" }, b);
+            i += 1;
+        }
+        write!(f, "]")
+    }
 }
