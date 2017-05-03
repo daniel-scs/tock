@@ -34,7 +34,6 @@ pub struct Usbc<'a> {
     client: Option<&'a hil::usb::Client>,
     state: MapCell<State>,
     descriptors: [Endpoint; 8],
-    buf: [u8; 8],
 }
 
 const DEVICE_DESCRIPTOR: [u8; 18] =
@@ -68,7 +67,6 @@ impl<'a> Usbc<'a> {
                            new_endpoint(),
                            new_endpoint(),
                            new_endpoint() ],
-            buf: [0xab; 8],
         }
     }
 
@@ -335,10 +333,6 @@ impl<'a> Usbc<'a> {
                 self.endpoint_configure(0, *config);
             }
 
-            // Configure default control endpoint (Shouldn't be necessary?)
-            self.descriptors[0][0].set_addr(&self.buf as *const u8 as *mut u8);
-            self.descriptors[0][0].set_packet_size(PacketSize::default());
-
             debug!("USB Bus Reset");
             debug_regs();
 
@@ -458,7 +452,7 @@ impl<'a> Usbc<'a> {
 
                     // This appears to be necessary because the address has been changed
                     // somehow (!?!)
-                    self.descriptors[0][0].set_addr(&self.buf as *const u8 as *mut u8);
+                    // self.descriptors[0][0].set_addr(&self.buf as *const u8 as *mut u8);
 
                     // If IN data waiting, bank it for transmission
                     let bytes_rem = device_descriptor.len() as u32 - *bytes_sent;
