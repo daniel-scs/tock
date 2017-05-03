@@ -131,7 +131,6 @@ impl<'a> Usbc<'a> {
                         */
 
                         debug!("Enabled.");
-                        // debug_regs();
                     }
                     *state = State::Idle(mode);
                 }
@@ -162,7 +161,6 @@ impl<'a> Usbc<'a> {
 
                     UDCON_DETACH.write(false);
                     debug!("Attached.");
-                    debug_regs();
                     *state = State::Active(mode);
                 }
             }
@@ -270,7 +268,6 @@ impl<'a> Usbc<'a> {
         UDINTESET.set_bit(12 + endpoint);
 
         debug!("Enabled endpoint {}", endpoint);
-        // debug_regs();
     }
 
     fn endpoint_configure(&self, endpoint: u32, cfg: EndpointConfig) {
@@ -317,7 +314,6 @@ impl<'a> Usbc<'a> {
         self.state.replace(state);
     }
 
-    #[allow(unused_assignments)]    // for updating status value, even though we don't presently use it
     fn handle_device_interrupt(&mut self, speed: Speed, config: &Option<EndpointConfig>, dstate: &mut DeviceState) {
         let udint: u32 = UDINT.read();
 
@@ -327,21 +323,22 @@ impl<'a> Usbc<'a> {
         if udint & UDINT_EORST != 0 {
             // Bus reset
 
+            // Reconfigure what has been reset in the USBC
             UDCON_LS.write(speed);
-
             if let Some(ref config) = *config {
                 self.endpoint_configure(0, *config);
             }
 
-            debug!("USB Bus Reset");
-            debug_regs();
-
-            // alert client?
-
+            // Re-initialize our record of the controller state
             *dstate = DeviceState::Init;
 
             // Acknowledge the interrupt
             UDINTCLR.write(UDINT_EORST);
+
+            // Alert the client
+            self.client.map(|client| { client.bus_reset() });
+            debug!("USB Bus Reset");
+            debug_regs();
 
             // Don't process any more interrupt flags right now
             return;
@@ -402,7 +399,7 @@ impl<'a> Usbc<'a> {
                 continue;
             }
 
-            let mut status = UESTAn.n(endpoint).read();
+            let status = UESTAn.n(endpoint).read();
             debug!("UESTA{}={:08x}{:?}", endpoint, status, UestaFlags(status));
 
             if status & RXSTP != 0 {
@@ -417,14 +414,8 @@ impl<'a> Usbc<'a> {
                         *dstate = DeviceState::CtrlIn{ bytes_sent: 0 };
 
                         // Wait until bank is clear to send
-                        /*
-                        // Also, wait for NAKIN to signal end of IN stage
-                        UESTAnCLR.n(endpoint).write(NAKIN);
-                        status &= !NAKIN; // Don't process previous NAKIN
-                        endpoint_enable_interrupts(endpoint, TXIN | NAKIN);
-                        */
-                        endpoint_enable_interrupts(endpoint, TXIN);
-                        // endpoint_disable_interrupts(endpoint, RXSTP);
+                        // Also, wait for NAKOUT to signal end of IN stage
+                        endpoint_enable_interrupts(endpoint, TXIN | NAKOUT);
                     }
                     else {
                         *dstate = DeviceState::CtrlOut;
@@ -450,10 +441,6 @@ impl<'a> Usbc<'a> {
                     // The data bank is ready to receive another IN payload
                     debug!("D({}) TXIN ({} sent so far this tx)", endpoint, *bytes_sent);
 
-                    // This appears to be necessary because the address has been changed
-                    // somehow (!?!)
-                    // self.descriptors[0][0].set_addr(&self.buf as *const u8 as *mut u8);
-
                     // If IN data waiting, bank it for transmission
                     let bytes_rem = device_descriptor.len() as u32 - *bytes_sent;
 
@@ -471,15 +458,19 @@ impl<'a> Usbc<'a> {
                         let bytes_rem = device_descriptor.len() as u32 - *bytes_sent;
                         self.descriptors[0][0].packet_size.set(
                             if bytes_packet == 8 && bytes_rem == 0 {
+                                // Send a complete final packet, and request that the controller
+                                // also send a zero-length packet to signal the end of transfer
                                 PacketSize::single_with_zlp(8)
                             } else {
+                                // Send either a complete but not-final packet, or a
+                                // short, final packet (which itself signals end of transfer)
                                 PacketSize::single(bytes_packet)
                             }
                         );
 
                         *bytes_sent += bytes_packet;
 
-                        debug!("D({}) Send CTRL IN {}", endpoint, bytes_packet);
+                        debug!("D({}) Send CTRL IN packet ({} bytes)", endpoint, bytes_packet);
                         self.debug_show_d0();
 
                         // Signal to the controller that the IN payload is ready to send
@@ -489,21 +480,13 @@ impl<'a> Usbc<'a> {
                             // Continue waiting for next TXIN
                         }
                         else {
-                            // IN data completely sent.  Unsubscribe from TXIN
+                            // IN data completely sent.  Unsubscribe from TXIN.
+                            // (Continue awaiting NAKOUT to indicate end of Data stage)
                             endpoint_disable_interrupts(endpoint, TXIN);
-
-                            /*
-                            // Await NAKIN to indicate end of Data stage
-                            UESTAnCLR.n(endpoint).write(NAKIN);
-                            endpoint_enable_interrupts(endpoint, NAKIN);
-                            */
-
-                            // XXX: Also await RXOUT
-                            endpoint_enable_interrupts(endpoint, RXOUT);
                         }
                     }
                     else {
-                        // Nothing more to send: Continue waiting for NAKIN
+                        // Nothing more to send: Continue awaiting NAKOUT
                     }
                 }
                 else {
@@ -514,11 +497,10 @@ impl<'a> Usbc<'a> {
                 // clear FIFOCON to allow send
             }
 
-            /*
-            if status & NAKIN != 0 {
+            if status & NAKOUT != 0 {
                 if let DeviceState::CtrlIn{ bytes_sent } = *dstate {
                     // The host has aborted the IN stage
-                    debug!("D({}) NAKIN ({} bytes sent so far this tx)", endpoint, bytes_sent);
+                    debug!("D({}) NAKOUT ({} bytes sent so far this tx)", endpoint, bytes_sent);
 
                     let bytes_rem = device_descriptor.len() as u32 - bytes_sent;
                     if bytes_rem > 0 {
@@ -527,17 +509,16 @@ impl<'a> Usbc<'a> {
                     *dstate = DeviceState::CtrlOut;
 
                     // Await end of Status stage
-                    endpoint_disable_interrupts(endpoint, NAKIN);
+                    endpoint_disable_interrupts(endpoint, NAKOUT);
                     endpoint_enable_interrupts(endpoint, RXOUT);
 
                     // Acknowledge
-                    UESTAnCLR.n(endpoint).write(NAKIN);
+                    UESTAnCLR.n(endpoint).write(NAKOUT);
                 }
             }
-            */
 
             if status & RXOUT != 0 {
-                if *dstate == DeviceState::CtrlOut || true {
+                if *dstate == DeviceState::CtrlOut {
                     debug!("D({}) RXOUT", endpoint);
                     // self.debug_show_d0();
 
@@ -545,6 +526,7 @@ impl<'a> Usbc<'a> {
 
                     // Wait for next SETUP
                     endpoint_disable_interrupts(endpoint, RXOUT);
+                    // (Unnecessary as always enabled)
                     endpoint_enable_interrupts(endpoint, RXSTP);
 
                     // Acknowledge
@@ -555,13 +537,6 @@ impl<'a> Usbc<'a> {
                 // clear FIFOCON to free bank
 
                 // client.received_out(bank)
-            }
-
-            if status & NAKOUT != 0 {
-                debug!("D({}) NAKOUT", endpoint);
-
-                // Acknowledge
-                UESTAnCLR.n(endpoint).write(NAKOUT);
             }
 
             if status & STALLED != 0 {
