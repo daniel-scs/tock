@@ -415,6 +415,7 @@ impl<'a> Usbc<'a> {
 
                         // Wait until bank is clear to send
                         // Also, wait for NAKOUT to signal end of IN stage
+                        // (The datasheet incorrectly says NAKIN)
                         UESTAnCLR.n(endpoint).write(NAKOUT);
                         endpoint_enable_interrupts(endpoint, TXIN | NAKOUT);
                     }
