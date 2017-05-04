@@ -11,9 +11,16 @@ static mut EP0_BUF0: [u8; 8] = [99; 8];
 struct Dummy { }
 
 impl hil::usb::Client for Dummy {
-    fn bus_reset(&self) {}
+    fn bus_reset(&self) {
+        /* Ignore */
+    }
 
-    fn received_setup(&self /* , descriptor/bank */) {}
+    fn received_setup(&self) {
+        let s = &EP0_BUF0 as &SetupData;
+
+
+    }
+
     fn received_out(&self /* , descriptor/bank */) {}
 }
 

@@ -432,7 +432,7 @@ impl<'a> Usbc<'a> {
 
                         debug!("D({}) RXSTP", endpoint);
                         self.debug_show_d0();
-                        // client.received_setup(bank)
+                        client.received_setup();
 
                         // Acknowledge
                         UESTAnCLR.n(endpoint).write(RXSTP);
