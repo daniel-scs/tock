@@ -292,6 +292,7 @@ impl<'a> Usbc<'a> {
 
     /// Handle an interrupt from the USBC
     pub fn handle_interrupt(&mut self) {
+        // TODO: Use a cell type with get_mut() so we don't have to copy the state value around
         let mut state = self.state.take().unwrap_or(State::Reset);
 
         match state {
@@ -329,16 +330,16 @@ impl<'a> Usbc<'a> {
                 self.endpoint_configure(0, *config);
             }
 
-            // Re-initialize our record of the controller state
-            *dstate = DeviceState::Init;
-
-            // Acknowledge the interrupt
-            UDINTCLR.write(UDINT_EORST);
-
             // Alert the client
             self.client.map(|client| { client.bus_reset() });
             debug!("USB Bus Reset");
             debug_regs();
+
+            // Acknowledge the interrupt
+            UDINTCLR.write(UDINT_EORST);
+
+            // Re-initialize our record of the controller state
+            *dstate = DeviceState::Init;
 
             // Don't process any more interrupt flags right now
             return;
@@ -376,6 +377,8 @@ impl<'a> Usbc<'a> {
 
             // Acknowledge the interrupt
             UDINTCLR.write(UDINT_WAKEUP);
+
+            // Continue processing, as WAKEUP is usually set
         }
 
         if udint & UDINT_SOF != 0 {
@@ -399,180 +402,12 @@ impl<'a> Usbc<'a> {
                 continue;
             }
 
+            // Set to true to process more flags without waiting for another interrupt
+            // (Ignoring `again` should not lead to incorrect behavior)
+            // let mut again = false;
+
             let status = UESTAn.n(endpoint).read();
             debug!("UESTA{}={:08x}{:?}", endpoint, status, UestaFlags(status));
-
-            if status & RXSTP != 0 {
-                if *dstate == DeviceState::Init {
-                    // We received a SETUP transaction
-                    debug!("D({}) RXSTP", endpoint);
-
-                    // client.received_setup(bank)
-                    self.debug_show_d0();
-
-                    if status & CTRLDIR != 0 {
-                        *dstate = DeviceState::CtrlIn{ bytes_sent: 0 };
-
-                        // Wait until bank is clear to send
-                        // Also, wait for NAKOUT to signal end of IN stage
-                        // (The datasheet incorrectly says NAKIN)
-                        UESTAnCLR.n(endpoint).write(NAKOUT);
-                        endpoint_enable_interrupts(endpoint, TXIN | NAKOUT);
-                    }
-                    else {
-                        *dstate = DeviceState::CtrlOut;
-
-                        // Wait for OUT packets
-                        // Also, wait for NAKIN to signal end of OUT stage
-                        UESTAnCLR.n(endpoint).write(NAKIN);
-                        endpoint_enable_interrupts(endpoint, RXOUT | NAKIN);
-                    }
-
-                    // Acknowledge
-                    UESTAnCLR.n(endpoint).write(RXSTP);
-                }
-                else {
-                    debug!("** ignoring unexpected RXSTP in dstate {:?}", *dstate);
-
-                    // Acknowledge
-                    UESTAnCLR.n(endpoint).write(RXSTP);
-                }
-
-                // Don't handle other flags for now (for ease of debugging)
-                return;
-            }
-
-            if status & TXIN != 0 {
-                if *dstate == DeviceState::CtrlWriteStatus {
-                    debug!("D({}) TXIN for Control Write Status (will send ZLP)", endpoint);
-
-                    // Send zero-length packet to acknowledge transaction
-                    self.descriptors[0][0].packet_size.set(PacketSize::single(0));
-
-                    endpoint_disable_interrupts(endpoint, TXIN);
-
-                    // Signal to the controller that the IN payload is ready to send
-                    UESTAnCLR.n(endpoint).write(TXIN);
-
-                    *dstate = DeviceState::Init;
-                }
-                if let DeviceState::CtrlIn{ ref mut bytes_sent } = *dstate {
-                    // The data bank is ready to receive another IN payload
-                    debug!("D({}) TXIN ({} sent so far this tx)", endpoint, *bytes_sent);
-
-                    // If IN data waiting, bank it for transmission
-                    let bytes_rem = device_descriptor.len() as u32 - *bytes_sent;
-
-                    if bytes_rem > 0 {
-                        let bytes_packet = if bytes_rem > 8 { 8 } else { bytes_rem };
-
-                        let b = self.descriptors[0][0].addr.get();
-                        for i in 0 .. bytes_packet {
-                            unsafe {
-                                ptr::write_volatile(b.offset(i as isize),
-                                    device_descriptor[(*bytes_sent + i) as usize]);
-                            }
-                        }
-
-                        let bytes_rem = device_descriptor.len() as u32 - *bytes_sent;
-                        self.descriptors[0][0].packet_size.set(
-                            if bytes_packet == 8 && bytes_rem == 0 {
-                                // Send a complete final packet, and request that the controller
-                                // also send a zero-length packet to signal the end of transfer
-                                PacketSize::single_with_zlp(8)
-                            } else {
-                                // Send either a complete but not-final packet, or a
-                                // short, final packet (which itself signals end of transfer)
-                                PacketSize::single(bytes_packet)
-                            }
-                        );
-
-                        *bytes_sent += bytes_packet;
-
-                        debug!("D({}) Send CTRL IN packet ({} bytes)", endpoint, bytes_packet);
-                        self.debug_show_d0();
-
-                        // Signal to the controller that the IN payload is ready to send
-                        UESTAnCLR.n(endpoint).write(TXIN);
-
-                        if bytes_rem > 0 {
-                            // Continue waiting for next TXIN
-                        }
-                        else {
-                            // IN data completely sent.  Unsubscribe from TXIN.
-                            // (Continue awaiting NAKOUT to indicate end of Data stage)
-                            endpoint_disable_interrupts(endpoint, TXIN);
-                        }
-                    }
-                    else {
-                        // Nothing more to send: Continue awaiting NAKOUT
-                    }
-                }
-                else {
-                    // Nothing to send: ignore
-                }
-
-                // For non-control endpoints:
-                // clear FIFOCON to allow send
-            }
-
-            if status & NAKOUT != 0 {
-                if let DeviceState::CtrlIn{ bytes_sent } = *dstate {
-                    // The host has completed the IN stage by sending an OUT token
-                    debug!("D({}) NAKOUT ({} bytes sent so far this tx)", endpoint, bytes_sent);
-
-                    let bytes_rem = device_descriptor.len() as u32 - bytes_sent;
-                    if bytes_rem > 0 {
-                        debug!("** Host aborted Control Data stage before complete packet sent");
-                    }
-                    *dstate = DeviceState::CtrlOut;
-
-                    // Await end of Status stage
-                    endpoint_disable_interrupts(endpoint, NAKOUT);
-                    endpoint_enable_interrupts(endpoint, RXOUT);
-
-                    // Acknowledge
-                    UESTAnCLR.n(endpoint).write(NAKOUT);
-                }
-            }
-
-            if status & RXOUT != 0 {
-                if *dstate == DeviceState::CtrlOut {
-                    debug!("D({}) RXOUT", endpoint);
-                    self.debug_show_d0();
-
-                    *dstate = DeviceState::Init;
-
-                    // Wait for next SETUP
-                    endpoint_disable_interrupts(endpoint, RXOUT);
-                    // (Unnecessary as always enabled)
-                    endpoint_enable_interrupts(endpoint, RXSTP);
-
-                    // Acknowledge
-                    UESTAnCLR.n(endpoint).write(RXOUT);
-                }
-
-                // For non-control endpoints:
-                // clear FIFOCON to free bank
-
-                // client.received_out(bank)
-            }
-
-            if status & NAKIN != 0 {
-                if let DeviceState::CtrlOut = *dstate {
-                    // The host has completed the OUT stage by sending an IN token
-                    debug!("D({}) NAKIN: Control Write -> Status stage", endpoint);
-
-                    *dstate = DeviceState::CtrlWriteStatus;
-
-                    // Wait for bank to be free so we can write ZLP to acknowledge transfer
-                    endpoint_enable_interrupts(endpoint, TXIN);
-                    endpoint_disable_interrupts(endpoint, NAKIN);
-
-                    // Acknowledge
-                    UESTAnCLR.n(endpoint).write(NAKIN);
-                }
-            }
 
             if status & STALLED != 0 {
                 debug!("D({}) STALLED/CRCERR", endpoint);
@@ -587,8 +422,188 @@ impl<'a> Usbc<'a> {
                 // Acknowledge
                 UESTAnCLR.n(endpoint).write(RAMACERR);
             }
-        }
-    }
+
+            match *dstate {
+                DeviceState::Init => {
+                    if status & RXSTP != 0 {
+                        // We received a SETUP transaction
+
+                        endpoint_disable_interrupts(endpoint, RXSTP);
+
+                        debug!("D({}) RXSTP", endpoint);
+                        self.debug_show_d0();
+                        // client.received_setup(bank)
+
+                        // Acknowledge
+                        UESTAnCLR.n(endpoint).write(RXSTP);
+
+                        if status & CTRLDIR != 0 {
+                            *dstate = DeviceState::CtrlReadIn{ bytes_sent: 0 };
+
+                            // Wait until bank is clear to send
+                            // Also, wait for NAKOUT to signal end of IN stage
+                            // (The datasheet incorrectly says NAKIN)
+                            UESTAnCLR.n(endpoint).write(NAKOUT);
+                            endpoint_enable_interrupts(endpoint, TXIN | NAKOUT);
+                        }
+                        else {
+                            *dstate = DeviceState::CtrlWriteOut;
+
+                            // Wait for OUT packets
+                            // Also, wait for NAKIN to signal end of OUT stage
+                            UESTAnCLR.n(endpoint).write(NAKIN);
+                            endpoint_enable_interrupts(endpoint, RXOUT | NAKIN);
+                        }
+                    }
+                }
+                DeviceState::CtrlReadIn{ bytes_sent } => {
+                    if status & NAKOUT != 0 {
+                        // The host has completed the IN stage by sending an OUT token
+
+                        endpoint_disable_interrupts(endpoint, TXIN | NAKOUT);
+
+                        debug!("D({}) NAKOUT ({} bytes sent so far this tx)", endpoint, bytes_sent);
+                        let bytes_rem = device_descriptor.len() as u32 - bytes_sent;
+                        if bytes_rem > 0 {
+                            debug!("** Host aborted Control Data stage before complete packet sent");
+                        }
+
+                        // Acknowledge
+                        UESTAnCLR.n(endpoint).write(NAKOUT);
+
+                        *dstate = DeviceState::CtrlReadStatus;
+
+                        // Await end of Status stage
+                        endpoint_enable_interrupts(endpoint, RXOUT);
+
+                        // Run handler again in case the RXOUT has already arrived
+                        // again = true;
+                    }
+                    else if status & TXIN != 0 {
+                        // The data bank is ready to receive another IN payload
+                        debug!("D({}) TXIN ({} sent so far this tx)", endpoint, bytes_sent);
+
+                        // If IN data waiting, bank it for transmission
+                        let bytes_rem = device_descriptor.len() as u32 - bytes_sent;
+
+                        if bytes_rem > 0 {
+                            let bytes_packet = if bytes_rem > 8 { 8 } else { bytes_rem };
+
+                            let b = self.descriptors[0][0].addr.get();
+                            for i in 0 .. bytes_packet {
+                                unsafe {
+                                    ptr::write_volatile(b.offset(i as isize),
+                                        device_descriptor[(bytes_sent + i) as usize]);
+                                }
+                            }
+
+                            let bytes_rem = device_descriptor.len() as u32 - bytes_sent;
+                            self.descriptors[0][0].packet_size.set(
+                                if bytes_packet == 8 && bytes_rem == 0 {
+                                    // Send a complete final packet, and request that the controller
+                                    // also send a zero-length packet to signal the end of transfer
+                                    PacketSize::single_with_zlp(8)
+                                } else {
+                                    // Send either a complete but not-final packet, or a
+                                    // short, final packet (which itself signals end of transfer)
+                                    PacketSize::single(bytes_packet)
+                                }
+                            );
+
+                            *dstate = DeviceState::CtrlReadIn{ bytes_sent: bytes_sent + bytes_packet };
+
+                            debug!("D({}) Send CTRL IN packet ({} bytes)", endpoint, bytes_packet);
+                            self.debug_show_d0();
+
+                            // Signal to the controller that the IN payload is ready to send
+                            UESTAnCLR.n(endpoint).write(TXIN);
+
+                            if bytes_rem > 0 {
+                                // Continue waiting for next TXIN
+                            }
+                            else {
+                                // IN data completely sent.  Unsubscribe from TXIN.
+                                // (Continue awaiting NAKOUT to indicate end of Data stage)
+                                endpoint_disable_interrupts(endpoint, TXIN);
+                            }
+                        }
+                        else {
+                            // Nothing more to send: Continue awaiting NAKOUT
+                            // (Probably this is unnecessary:)
+                            endpoint_disable_interrupts(endpoint, TXIN);
+                        }
+                    }
+                }
+                DeviceState::CtrlReadStatus => {
+                    if status & RXOUT != 0 {
+                        // Host has completed Status stage by sending an OUT packet
+
+                        endpoint_disable_interrupts(endpoint, RXOUT);
+
+                        debug!("D({}) RXOUT: End of Control Read transaction", endpoint);
+                        self.debug_show_d0();
+
+                        // Acknowledge
+                        UESTAnCLR.n(endpoint).write(RXOUT);
+
+                        *dstate = DeviceState::Init;
+
+                        // Wait for next SETUP
+                        endpoint_enable_interrupts(endpoint, RXSTP);
+                    }
+                }
+                DeviceState::CtrlWriteOut => {
+                    if status & RXOUT != 0 {
+                        // Received data
+
+                        debug!("D({}) RXOUT: Received Control Write data", endpoint);
+                        self.debug_show_d0();
+                        // client.received_out(bank)
+
+                        // Acknowledge
+                        UESTAnCLR.n(endpoint).write(RXOUT);
+
+                        // Continue awaiting RXOUT and NAKIN
+                    }
+                    if status & NAKIN != 0 {
+                        // The host has completed the Data stage by sending an IN token
+                        debug!("D({}) NAKIN: Control Write -> Status stage", endpoint);
+
+                        endpoint_disable_interrupts(endpoint, RXOUT | NAKIN);
+
+                        // Acknowledge
+                        UESTAnCLR.n(endpoint).write(NAKIN);
+
+                        *dstate = DeviceState::CtrlWriteStatus;
+
+                        // Wait for bank to be free so we can write ZLP to acknowledge transfer
+                        endpoint_enable_interrupts(endpoint, TXIN);
+
+                        // Can probably send the ZLP immediately
+                        // again = true;
+                    }
+                }
+                DeviceState::CtrlWriteStatus => {
+                    if status & TXIN != 0 {
+                        debug!("D({}) TXIN for Control Write Status (will send ZLP)", endpoint);
+
+                        endpoint_disable_interrupts(endpoint, TXIN);
+
+                        // Send zero-length packet to acknowledge transaction
+                        self.descriptors[0][0].packet_size.set(PacketSize::single(0));
+
+                        // Signal to the controller that the IN payload is ready to send
+                        UESTAnCLR.n(endpoint).write(TXIN);
+
+                        *dstate = DeviceState::Init;
+
+                        // Wait for next SETUP
+                        endpoint_enable_interrupts(endpoint, RXSTP);
+                    }
+                }
+            } // match dstate
+        } // for endpoint
+    } // handle_device_interrupt
 
     fn debug_show_d0(&self) {
         for bi in 0..1 {

@@ -21,8 +21,9 @@ impl Mode {
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum DeviceState {
     Init,
-    CtrlIn{ bytes_sent: u32 },
-    CtrlOut,
+    CtrlReadIn{ bytes_sent: u32 },
+    CtrlReadStatus,
+    CtrlWriteOut,
     CtrlWriteStatus,
 }
 
