@@ -23,6 +23,7 @@ pub enum DeviceState {
     Init,
     CtrlIn{ bytes_sent: u32 },
     CtrlOut,
+    CtrlWriteStatus,
 }
 
 // value for USBCON.UIMOD

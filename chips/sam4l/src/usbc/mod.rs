@@ -415,11 +415,16 @@ impl<'a> Usbc<'a> {
 
                         // Wait until bank is clear to send
                         // Also, wait for NAKOUT to signal end of IN stage
+                        UESTAnCLR.n(endpoint).write(NAKOUT);
                         endpoint_enable_interrupts(endpoint, TXIN | NAKOUT);
                     }
                     else {
                         *dstate = DeviceState::CtrlOut;
-                        debug!("-> Ctrl OUT (UNIMPLEMENTED)");
+
+                        // Wait for OUT packets
+                        // Also, wait for NAKIN to signal end of OUT stage
+                        UESTAnCLR.n(endpoint).write(NAKIN);
+                        endpoint_enable_interrupts(endpoint, RXOUT | NAKIN);
                     }
 
                     // Acknowledge
@@ -437,6 +442,19 @@ impl<'a> Usbc<'a> {
             }
 
             if status & TXIN != 0 {
+                if *dstate == DeviceState::CtrlWriteStatus {
+                    debug!("D({}) TXIN for Control Write Status (will send ZLP)", endpoint);
+
+                    // Send zero-length packet to acknowledge transaction
+                    self.descriptors[0][0].packet_size.set(PacketSize::single(0));
+
+                    endpoint_disable_interrupts(endpoint, TXIN);
+
+                    // Signal to the controller that the IN payload is ready to send
+                    UESTAnCLR.n(endpoint).write(TXIN);
+
+                    *dstate = DeviceState::Init;
+                }
                 if let DeviceState::CtrlIn{ ref mut bytes_sent } = *dstate {
                     // The data bank is ready to receive another IN payload
                     debug!("D({}) TXIN ({} sent so far this tx)", endpoint, *bytes_sent);
@@ -499,7 +517,7 @@ impl<'a> Usbc<'a> {
 
             if status & NAKOUT != 0 {
                 if let DeviceState::CtrlIn{ bytes_sent } = *dstate {
-                    // The host has aborted the IN stage
+                    // The host has completed the IN stage by sending an OUT token
                     debug!("D({}) NAKOUT ({} bytes sent so far this tx)", endpoint, bytes_sent);
 
                     let bytes_rem = device_descriptor.len() as u32 - bytes_sent;
@@ -520,7 +538,7 @@ impl<'a> Usbc<'a> {
             if status & RXOUT != 0 {
                 if *dstate == DeviceState::CtrlOut {
                     debug!("D({}) RXOUT", endpoint);
-                    // self.debug_show_d0();
+                    self.debug_show_d0();
 
                     *dstate = DeviceState::Init;
 
@@ -537,6 +555,22 @@ impl<'a> Usbc<'a> {
                 // clear FIFOCON to free bank
 
                 // client.received_out(bank)
+            }
+
+            if status & NAKIN != 0 {
+                if let DeviceState::CtrlOut = *dstate {
+                    // The host has completed the OUT stage by sending an IN token
+                    debug!("D({}) NAKIN: Control Write -> Status stage", endpoint);
+
+                    *dstate = DeviceState::CtrlWriteStatus;
+
+                    // Wait for bank to be free so we can write ZLP to acknowledge transfer
+                    endpoint_enable_interrupts(endpoint, TXIN);
+                    endpoint_disable_interrupts(endpoint, NAKIN);
+
+                    // Acknowledge
+                    UESTAnCLR.n(endpoint).write(NAKIN);
+                }
             }
 
             if status & STALLED != 0 {
