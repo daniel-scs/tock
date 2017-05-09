@@ -424,7 +424,7 @@ impl<'a> Usbc<'a> {
                         endpoint_disable_interrupts(endpoint, RXSTP);
 
                         debug!("D({}) RXSTP", endpoint);
-                        self.debug_show_d0();
+                        self.debug_show_d0_setup_data();
                         self.client.map(|client| { client.received_setup(); });
 
                         // Acknowledge
@@ -613,6 +613,32 @@ impl<'a> Usbc<'a> {
                    buf.map(HexBuf));
         }
     }
+
+    fn debug_show_d0_setup_data(&self) {
+        let b = &self.descriptors[0][0];
+        let addr = b.addr.get();
+        let buf = if addr.is_null() { None }
+                  else { unsafe { Some(slice::from_raw_parts(addr, 8)) } };
+
+        match buf {
+            Some(buf) => {
+                let s = hil::usb::SetupData::get(buf);
+                match s {
+                    None => debug!("SETUP: Couldn't parse SetupData"),
+                    Some(sd) => {
+                        match sd.standard_request_type() {
+                            None => debug!("SETUP: Unrecognized device request"),
+                            Some(r) => debug!("SETUP: {:?}", r),
+                        }
+                    }
+                }
+            }
+            None => {
+                debug!("SETUP: no data");
+            }
+        }
+    }
+
 
     pub fn mode(&self) -> Option<Mode> {
         self.state.map_or(None, |state| {
