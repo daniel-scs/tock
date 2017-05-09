@@ -172,9 +172,18 @@ impl<'a> Usbc<'a> {
         });
     }
 
+    fn active(&self) -> bool {
+        self.state.map_or(false, |state| {
+            match *state {
+                State::Active(_) => true,
+                _ => false,
+            }
+        })
+    }
+
     /// Disable the controller, its interrupt, and its clocks
     pub fn disable(&self) {
-        if self.state.map_or(false, state_is_active) {
+        if self.active() {
             self.detach();
         }
 
@@ -416,7 +425,7 @@ impl<'a> Usbc<'a> {
 
                         debug!("D({}) RXSTP", endpoint);
                         self.debug_show_d0();
-                        client.received_setup();
+                        self.client.map(|client| { client.received_setup(); });
 
                         // Acknowledge
                         UESTAnCLR.n(endpoint).write(RXSTP);

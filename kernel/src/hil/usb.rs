@@ -16,22 +16,57 @@ pub struct SetupData {
 }
 
 impl SetupData {
-    pub fn standard_request_type(self) -> Option<StandardDeviceRequest> {
-        if self.request_type.request_type() != RequestType::Standard {
+    /// Create a `SetupData` structure from a buffer received from the wire
+    pub fn get(buf: &[u8]) -> Option<Self> {
+        if buf.len() != 8 {
             return None;
         }
-        match self.request_code {
-            0b10000000 =>
-                Some(StandardDeviceRequest::GetDescriptor{
-                        descriptor_type: From::from(self.value >> 8 as u8),
-                        descriptor_index: self.value & 0xff as u8,
-                        lang_id: self.index,
-                     }),
+        let (rt, buf) = buf.split_at(1);
+        let (rc, buf) = buf.split_at(1);
+        let (vl, buf) = buf.split_at(2);
+        let (ix, buf) = buf.split_at(2);
+        let ln = buf;
+        Some(SetupData {
+            request_type: DeviceRequestType(rt[0]),
+            request_code: rc[0],
+            value: get_u16(vl).unwrap(),
+            index: get_u16(ix).unwrap(),
+            length: get_u16(ln).unwrap(),
+        })
+    }
+
+    /// If the `SetupData` represents a standard device request, return it
+    pub fn standard_request_type(&self) -> Option<StandardDeviceRequest> {
+        match self.request_type.request_type() {
+            RequestType::Standard =>
+                match self.request_code {
+                    0b10000000 => {
+                        if let Some(dt) = get_descriptor_type((self.value >> 8) as u8) {
+                            Some(StandardDeviceRequest::GetDescriptor{
+                                    descriptor_type: dt,
+                                    descriptor_index: (self.value & 0xff) as u8,
+                                    lang_id: self.index,
+                                 })
+                        }
+                        else {
+                            None
+                        }
+                    }
+                    _ => None,
+                },
             _ => None,
         }
     }
 }
 
+pub fn get_u16(buf: &[u8]) -> Option<u16> {
+    if buf.len() != 2 {
+        return None;
+    }
+    Some ((buf[0] as u16) | ((buf[1] as u16) << 8))
+}
+
+#[derive(Debug)]
 pub enum StandardDeviceRequest {
     GetDescriptor{
         descriptor_type: DescriptorType,
@@ -40,6 +75,7 @@ pub enum StandardDeviceRequest {
     }
 }
 
+#[derive(Debug)]
 pub enum DescriptorType {
     Device,
     Configuration,
@@ -51,33 +87,33 @@ pub enum DescriptorType {
     InterfacePower,
 }
 
-impl From<u8> for DescriptorType {
-    fn from(byte: u8) -> Self {
-        match byte {
-            0 => DescriptorType::Device,
-            1 => DescriptorType::Configuration,
-            2 => DescriptorType::String,
-            3 => DescriptorType::Interface,
-            4 => DescriptorType::Endpoint,
-            5 => DescriptorType::DeviceQualifier,
-            6 => DescriptorType::OtherSpeedConfiguration,
-            7 => DescriptorType::InterfacePower,
-        }
+fn get_descriptor_type(byte: u8) -> Option<DescriptorType> {
+    match byte {
+        0 => Some(DescriptorType::Device),
+        1 => Some(DescriptorType::Configuration),
+        2 => Some(DescriptorType::String),
+        3 => Some(DescriptorType::Interface),
+        4 => Some(DescriptorType::Endpoint),
+        5 => Some(DescriptorType::DeviceQualifier),
+        6 => Some(DescriptorType::OtherSpeedConfiguration),
+        7 => Some(DescriptorType::InterfacePower),
+        _ => None
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct DeviceRequestType(u8);
 
 impl DeviceRequestType {
     pub fn transfer_direction(self) -> TransferDirection {
-        match self & (1 << 7) {
-            0 => TransferDirection:HostToDevice,
-            _ => TransferDirection:DeviceToHost,
+        match self.0 & (1 << 7) {
+            0 => TransferDirection::HostToDevice,
+            _ => TransferDirection::DeviceToHost,
         }
     }
 
     pub fn request_type(self) -> RequestType {
-        match (self & (0b11 << 5)) >> 5 {
+        match (self.0 & (0b11 << 5)) >> 5 {
             0 => RequestType::Standard,
             1 => RequestType::Class,
             2 => RequestType::Vendor,
@@ -86,7 +122,7 @@ impl DeviceRequestType {
     }
 
     pub fn recipient(self) -> Recipient {
-        match self & 0b11111 {
+        match self.0 & 0b11111 {
             0 => Recipient::Device,
             1 => Recipient::Interface,
             2 => Recipient::Endpoint,
@@ -105,5 +141,13 @@ pub enum RequestType {
     Standard,
     Class,
     Vendor,
+    Reserved,
+}
+
+pub enum Recipient {
+    Device,
+    Interface,
+    Endpoint,
+    Other,
     Reserved,
 }

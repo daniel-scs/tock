@@ -16,7 +16,16 @@ impl hil::usb::Client for Dummy {
     }
 
     fn received_setup(&self) {
-        let s = &EP0_BUF0 as &SetupData;
+        let s = unsafe { hil::usb::SetupData::get(&EP0_BUF0) };
+        match s {
+            None => println!("SETUP: Couldn't parse SetupData"),
+            Some(sd) => {
+                match sd.standard_request_type() {
+                    None => println!("SETUP: Unrecognized device request"),
+                    Some(r) => println!("SETUP: {:?}", r),
+                }
+            }
+        }
     }
 
     fn received_out(&self /* , descriptor/bank */) {}

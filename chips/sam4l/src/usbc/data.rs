@@ -59,13 +59,6 @@ pub enum State {
     Active(Mode),
 }
 
-pub fun state_is_active(s: &State) => bool {
-    match *s {
-        State::Active(_) => true,
-        _ => false,
-    }
-}
-
 pub type Endpoint = [Bank; 2];
 
 pub const fn new_endpoint() -> Endpoint {
