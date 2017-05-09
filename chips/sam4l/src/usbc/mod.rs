@@ -1,10 +1,5 @@
 //! SAM4L USB controller
 
-// See below for how to force linux usb ports to use Full/Low speed instead of High:
-//   https://www.kernel.org/doc/Documentation/ABI/testing/sysfs-bus-pci-drivers-ehci_hcd
-
-#![allow(dead_code)]
-
 use nvic;
 use kernel::hil;
 use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
@@ -119,17 +114,6 @@ impl<'a> Usbc<'a> {
                         // Enable device global interrupts
                         UDINTESET.write(udints);
 
-                        /*
-                        // Host interrupts
-                        let uhints = 0x7f;
-
-                        // Clear all pending host global interrupts
-                        UHINTCLR.write(uhints);
-
-                        // Enable all host global interrupts
-                        UHINTESET.write(uhints);
-                        */
-
                         debug!("Enabled.");
                     }
                     *state = State::Idle(mode);
@@ -155,12 +139,12 @@ impl<'a> Usbc<'a> {
                     // XXX: This setting works only because the imix configures DFLL0 to
                     // produce 48MHz
                     scif::generic_clock_enable(scif::GenericClock::GCLK7, scif::ClockSource::DFLL0);
-                    // debug!("Waiting for USB clock ...");
+
                     while !USBSTA_CLKUSABLE.read() {}
-                    // debug!("USB clock ready."); 
 
                     UDCON_DETACH.write(false);
                     debug!("Attached.");
+
                     *state = State::Active(mode);
                 }
             }
@@ -190,7 +174,7 @@ impl<'a> Usbc<'a> {
 
     /// Disable the controller, its interrupt, and its clocks
     pub fn disable(&self) {
-        if self.state.map_or(false, |state| { if let State::Active(_) = *state { true } else { false } }) {
+        if self.state.map_or(false, state_is_active) {
             self.detach();
         }
 

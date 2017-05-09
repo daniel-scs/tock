@@ -17,8 +17,6 @@ impl hil::usb::Client for Dummy {
 
     fn received_setup(&self) {
         let s = &EP0_BUF0 as &SetupData;
-
-
     }
 
     fn received_out(&self /* , descriptor/bank */) {}
