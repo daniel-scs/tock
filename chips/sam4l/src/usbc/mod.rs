@@ -1,21 +1,24 @@
 //! SAM4L USB controller
 
-use nvic;
-use kernel::hil;
-use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
+    mod common_register;
+    #[macro_use]
+    mod register_macros;
+    mod registers;
+pub mod data;
+
 use core::fmt;
 use core::slice;
 use core::ptr;
-use scif;
+
+use kernel::hil;
+use kernel::hil::usb::{InRequestResult};
 use kernel::common::take_cell::MapCell;
 
-pub mod data;
-use self::data::*;
+use nvic;
+use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
+use scif;
 
-mod common_register;
-#[macro_use]
-mod register_macros;
-mod registers;
+use self::data::*;
 use self::registers::*;
 
 macro_rules! client_err {
@@ -404,12 +407,13 @@ impl<'a> Usbc<'a> {
                         // We received a SETUP transaction
 
                         debug!("D({}) RXSTP", endpoint);
-                        self.debug_show_d0_setup_data();
+                        self.debug_show_d0();
 
                         let b = &self.descriptors[0][0];
-                        let addr = b.addr.get();
-                        let setup_data = slice::from_raw_parts(b.addr.get(),
-                                            b.packet_size.get().byte_count);
+                        let setup_data = unsafe {
+                            slice::from_raw_parts(b.addr.get(),
+                                                  b.packet_size.get().byte_count() as usize)
+                        };
 
                         if status & CTRLDIR != 0 {
                             // Data stage is IN
@@ -428,7 +432,7 @@ impl<'a> Usbc<'a> {
                                 InRequestResult::Data(buf) => {
                                     endpoint_disable_interrupts(endpoint, RXSTP);
 
-                                    *dstate = DeviceState::CtrlReadIn{ bytes_sent: 0 };
+                                    *dstate = DeviceState::CtrlReadIn{ buffer: buf, bytes_sent: 0 };
 
                                     // Wait until bank is clear to send
                                     // Also, wait for NAKOUT to signal end of IN stage
@@ -454,14 +458,14 @@ impl<'a> Usbc<'a> {
 
                     }
                 }
-                DeviceState::CtrlReadIn{ bytes_sent } => {
+                DeviceState::CtrlReadIn{ buffer, bytes_sent } => {
                     if status & NAKOUT != 0 {
                         // The host has completed the IN stage by sending an OUT token
 
                         endpoint_disable_interrupts(endpoint, TXIN | NAKOUT);
 
                         debug!("D({}) NAKOUT ({} bytes sent so far this tx)", endpoint, bytes_sent);
-                        let bytes_rem = device_descriptor.len() as u32 - bytes_sent;
+                        let bytes_rem = buffer.len() as u32 - bytes_sent;
                         if bytes_rem > 0 {
                             debug!("** Host aborted Control Data stage before complete packet sent");
                         }
@@ -481,9 +485,7 @@ impl<'a> Usbc<'a> {
                         // The data bank is ready to receive another IN payload
                         debug!("D({}) TXIN ({} sent so far this tx)", endpoint, bytes_sent);
 
-                        // If IN data waiting, bank it for transmission
-                        let bytes_rem = device_descriptor.len() as u32 - bytes_sent;
-
+                        let bytes_rem = buffer.len() as u32 - bytes_sent;
                         if bytes_rem > 0 {
                             let bytes_packet = if bytes_rem > 8 { 8 } else { bytes_rem };
 
@@ -491,11 +493,11 @@ impl<'a> Usbc<'a> {
                             for i in 0 .. bytes_packet {
                                 unsafe {
                                     ptr::write_volatile(b.offset(i as isize),
-                                        device_descriptor[(bytes_sent + i) as usize]);
+                                        buffer[(bytes_sent + i) as usize]);
                                 }
                             }
 
-                            let bytes_rem = device_descriptor.len() as u32 - bytes_sent;
+                            let bytes_rem = buffer.len() as u32 - bytes_sent;
                             self.descriptors[0][0].packet_size.set(
                                 if bytes_packet == 8 && bytes_rem == 0 {
                                     // Send a complete final packet, and request that the controller
@@ -508,7 +510,9 @@ impl<'a> Usbc<'a> {
                                 }
                             );
 
-                            *dstate = DeviceState::CtrlReadIn{ bytes_sent: bytes_sent + bytes_packet };
+                            if let DeviceState::CtrlReadIn{ ref mut bytes_sent, .. } = *dstate {
+                                *bytes_sent += bytes_packet;
+                            }
 
                             debug!("D({}) Send CTRL IN packet ({} bytes)", endpoint, bytes_packet);
                             self.debug_show_d0();
@@ -607,8 +611,13 @@ impl<'a> Usbc<'a> {
         for bi in 0..1 {
             let b = &self.descriptors[0][bi];
             let addr = b.addr.get();
-            let buf = if addr.is_null() { None }
-                      else { unsafe { Some(slice::from_raw_parts(addr, b.packet_size.get().byte_count)) } };
+            let buf = if addr.is_null() {
+                        None
+                      }
+                      else {
+                        unsafe { Some(slice::from_raw_parts(addr,
+                                        b.packet_size.get().byte_count() as usize)) }
+                      };
 
             debug!("B_0_{} @ {:?}: \
                    \n     {:?}\
@@ -616,34 +625,6 @@ impl<'a> Usbc<'a> {
                    \n     {:?}",
                    bi, b.addr.get(), b.packet_size.get(), b.ctrl_status.get(),
                    buf.map(HexBuf));
-        }
-    }
-
-    fn debug_show_d0_setup_data(&self) {
-        let b = &self.descriptors[0][0];
-        let addr = b.addr.get();
-        let buf = if addr.is_null() { None }
-                  else { unsafe { Some(slice::from_raw_parts(addr, 8)) } };
-
-        match buf {
-            Some(buf) => {
-                let s = hil::usb::SetupData::get(buf);
-                match s {
-                    None => debug!("SETUP: Couldn't parse SetupData"),
-                    Some(sd) => {
-                        match sd.standard_request_type() {
-                            None => {
-                                debug!("SETUP: Unrecognized device request: {:?}", sd);
-                                self.debug_show_d0();
-                            }
-                            Some(r) => debug!("SETUP: {:?}", r),
-                        }
-                    }
-                }
-            }
-            None => {
-                debug!("SETUP: no data");
-            }
         }
     }
 
