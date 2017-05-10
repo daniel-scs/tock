@@ -31,24 +31,6 @@ pub struct Usbc<'a> {
     descriptors: [Endpoint; 8],
 }
 
-const DEVICE_DESCRIPTOR: [u8; 18] =
-    [ 18, // Length
-       1, // DEVICE descriptor code
-       2, // USB 2
-       0, //      .0
-       0, // Class
-       0, // Subclass
-       0, // Protocol
-       8, // Max packet size
-       0x66, 0x67,   // Vendor id
-       0xab, 0xcd,   // Product id
-       0x00, 0x01,   // Device release
-       0, 0, 0,      // String indexes
-       1  // Number of configurations
-    ];
-#[allow(non_upper_case_globals)]
-static device_descriptor: &'static [u8] = &DEVICE_DESCRIPTOR;
-
 impl<'a> Usbc<'a> {
     const fn new() -> Self {
         Usbc {
@@ -421,25 +403,44 @@ impl<'a> Usbc<'a> {
                     if status & RXSTP != 0 {
                         // We received a SETUP transaction
 
-                        endpoint_disable_interrupts(endpoint, RXSTP);
-
                         debug!("D({}) RXSTP", endpoint);
                         self.debug_show_d0_setup_data();
-                        self.client.map(|client| { client.received_setup(); });
 
-                        // Acknowledge
-                        UESTAnCLR.n(endpoint).write(RXSTP);
+                        let b = &self.descriptors[0][0];
+                        let addr = b.addr.get();
+                        let setup_data = slice::from_raw_parts(b.addr.get(),
+                                            b.packet_size.get().byte_count);
 
                         if status & CTRLDIR != 0 {
-                            *dstate = DeviceState::CtrlReadIn{ bytes_sent: 0 };
+                            // Data stage is IN
 
-                            // Wait until bank is clear to send
-                            // Also, wait for NAKOUT to signal end of IN stage
-                            // (The datasheet incorrectly says NAKIN)
-                            UESTAnCLR.n(endpoint).write(NAKOUT);
-                            endpoint_enable_interrupts(endpoint, TXIN | NAKOUT);
+                            let result = self.client.map_or(InRequestResult::Error, |client| {
+                                client.received_setup_in(setup_data)
+                            });
+
+                            match result {
+                                InRequestResult::Error => {
+                                    // Respond with STALL
+                                    UECONnSET.n(endpoint).write(STALLRQ);
+
+                                    // Remain in DeviceState::Init for next SETUP
+                                }
+                                InRequestResult::Data(buf) => {
+                                    endpoint_disable_interrupts(endpoint, RXSTP);
+
+                                    *dstate = DeviceState::CtrlReadIn{ bytes_sent: 0 };
+
+                                    // Wait until bank is clear to send
+                                    // Also, wait for NAKOUT to signal end of IN stage
+                                    // (The datasheet incorrectly says NAKIN)
+                                    UESTAnCLR.n(endpoint).write(NAKOUT);
+                                    endpoint_enable_interrupts(endpoint, TXIN | NAKOUT);
+                                }
+                            }
                         }
                         else {
+                            // Data stage is OUT
+
                             *dstate = DeviceState::CtrlWriteOut;
 
                             // Wait for OUT packets
@@ -447,6 +448,10 @@ impl<'a> Usbc<'a> {
                             UESTAnCLR.n(endpoint).write(NAKIN);
                             endpoint_enable_interrupts(endpoint, RXOUT | NAKIN);
                         }
+
+                        // Acknowledge
+                        UESTAnCLR.n(endpoint).write(RXSTP);
+
                     }
                 }
                 DeviceState::CtrlReadIn{ bytes_sent } => {
@@ -603,7 +608,7 @@ impl<'a> Usbc<'a> {
             let b = &self.descriptors[0][bi];
             let addr = b.addr.get();
             let buf = if addr.is_null() { None }
-                      else { unsafe { Some(slice::from_raw_parts(addr, 8)) } };
+                      else { unsafe { Some(slice::from_raw_parts(addr, b.packet_size.get().byte_count)) } };
 
             debug!("B_0_{} @ {:?}: \
                    \n     {:?}\
@@ -641,7 +646,6 @@ impl<'a> Usbc<'a> {
             }
         }
     }
-
 
     pub fn mode(&self) -> Option<Mode> {
         self.state.map_or(None, |state| {
@@ -705,9 +709,6 @@ fn debug_regs() {
            UERST.read(),
            UECFG0.read_word(),
            UECON0.read());
-
-    // debug!("    UHINTE={:08x}", UHINTE.read());
-    // debug!("     UHINT={:08x}", UDINT.read());
 }
 
 struct UdintFlags(u32);

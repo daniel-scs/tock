@@ -87,6 +87,7 @@ pub const NAKIN: u32 = 1 << 4;
 pub const STALLED: u32 = 1 << 6;
 pub const CRCERR: u32 = 1 << 6;
 pub const RAMACERR: u32 = 1 << 11;
+pub const STALLRQ: u32 = 1 << 19;
 
 // Bitfields for UESTAn
 pub const CTRLDIR: u32 = 1 << 17;

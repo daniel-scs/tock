@@ -3,9 +3,15 @@ use core::fmt;
 pub trait Client {
     fn bus_reset(&self);
 
-    fn received_setup(&self /* , descriptor/bank */);
+    fn received_setup(&self /* , descriptor/bank */) -> RequestResult;
 
     fn received_out(&self /* , descriptor/bank */);
+}
+
+pub struct RequestResult {
+    Error,
+    Data(&'static [u8]),
+    // Delay,
 }
 
 #[derive(Debug)]
