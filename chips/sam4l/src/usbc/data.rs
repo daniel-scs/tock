@@ -1,3 +1,5 @@
+//! Datastructures for manipulating the SAM4L USB Controller
+
 use core::fmt;
 use core::ptr;
 use usbc::common_register::*;

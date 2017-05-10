@@ -3,8 +3,6 @@
 //! Creates a `SimpleClient` and sets it as the client
 //! of the USB hardware interface.
 
-extern crate kernel;
-
 use capsules::usb_simple::{SimpleClient};
 use sam4l::usbc::{USBC};
 use sam4l::usbc::data::*;
@@ -13,7 +11,6 @@ static CLIENT: SimpleClient = SimpleClient::new();
 
 static mut EP0_BUF0: [u8; 8] = [99; 8];
 
-// #[allow(unused_unsafe)]
 pub fn test() {
     unsafe {
         USBC.set_client(&CLIENT);

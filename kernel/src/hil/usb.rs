@@ -1,3 +1,5 @@
+//! Interface to USB controller hardware
+
 pub trait Client {
     fn bus_reset(&self);
 

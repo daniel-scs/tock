@@ -1,4 +1,4 @@
-/// Platform-independent USB 2.1 protocol library
+//! Platform-independent USB 2.1 protocol library
 
 use core::fmt;
 
