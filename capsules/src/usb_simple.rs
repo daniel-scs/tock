@@ -1,11 +1,19 @@
-//! A bare-bones client of the USB hardware interface.
+//! A bare-bones client of the USB hardware interface
 //!
 //! It responds to standard device requests and can be enumerated.
 
 use usb::*;
 use kernel::hil::usb::*;
 
-pub struct SimpleClient { }
+use core::cell::{RefCell};
+
+pub struct SimpleClient {
+    state: RefCell<State>
+}
+
+enum State {
+
+}
 
 impl SimpleClient {
     pub const fn new() -> Self {
@@ -20,14 +28,31 @@ impl Client for SimpleClient {
 
     fn received_setup_in(&self, buf: &[u8]) -> InRequestResult {
         SetupData::get(buf).map_or(InRequestResult::Error, |setup_data| {
-            setup_data.standard_request_type().map_or(InRequestResult::Error, |request| {
+            setup_data.get_standard_request().map_or(InRequestResult::Error, |request| {
                 match request {
                     StandardDeviceRequest::GetDescriptor{
                         descriptor_type: DescriptorType::Device,
                         descriptor_index: 0,
                         ..
-                    } => InRequestResult::Data(device_descriptor),
+                    } => {
+                        self.map_state(|state| { *state = State::CtrlIn(device_descriptor) });
+                        InRequestResult::Ok;
+                    }
                     _ => InRequestResult::Error,
+                }
+            })
+        })
+    }
+
+    fn need_in_data(&self, 
+
+    fn received_setup_out(&self, buf: &[u8]) -> OutRequestResult {
+        SetupData::get(buf).map_or(OutRequestResult::Error, |setup_data| {
+            setup_data.get_standard_request().map_or(OutRequestResult::Error, |request| {
+                match request {
+                    StandardDeviceRequest::SetAddress{device_address} => {
+                    }
+                    => OutRequestResult::Error,
                 }
             })
         })

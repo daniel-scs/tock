@@ -33,7 +33,7 @@ impl SetupData {
     }
 
     /// If the `SetupData` represents a standard device request, return it
-    pub fn standard_request_type(&self) -> Option<StandardDeviceRequest> {
+    pub fn get_standard_request(&self) -> Option<StandardDeviceRequest> {
         match self.request_type.request_type() {
             RequestType::Standard =>
                 match self.request_code {
