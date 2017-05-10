@@ -292,9 +292,12 @@ pub unsafe fn reset_handler() {
     let fx0_i2c = static_init!(I2CDevice, I2CDevice::new(mux_i2c, 0x1e), 32);
     let fx0 = static_init!(
         capsules::fxos8700_cq::Fxos8700cq<'static>,
-        capsules::fxos8700_cq::Fxos8700cq::new(fx0_i2c, &mut capsules::fxos8700_cq::BUF),
-        352/8);
+        capsules::fxos8700_cq::Fxos8700cq::new(fx0_i2c,
+                                               &sam4l::gpio::PC[13],
+                                               &mut capsules::fxos8700_cq::BUF),
+        416/8);
     fx0_i2c.set_client(fx0);
+    sam4l::gpio::PC[13].set_client(fx0);
 
     // Clear sensors enable pin to enable sensor rail
     // sam4l::gpio::PC[16].enable_output();

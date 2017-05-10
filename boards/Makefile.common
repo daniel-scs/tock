@@ -33,6 +33,8 @@ Q=@
 VERBOSE =
 endif
 
+export TOCK_KERNEL_VERSION := $(shell git describe --always || echo notgit)
+
 # Check that rustc is the right nightly - warn not error if wrong, sometimes useful to test others
 RUSTC_VERSION_STRING := rustc 1.16.0-nightly (83c2d9523 2017-01-24)
 ifneq ($(shell RUSTUP_TOOLCHAIN=$(RUSTUP_TOOLCHAIN) rustc --version), $(RUSTC_VERSION_STRING))
@@ -43,6 +45,28 @@ ifneq ($(shell RUSTUP_TOOLCHAIN=$(RUSTUP_TOOLCHAIN) rustc --version), $(RUSTC_VE
     $(warning You may experience unexpected compilation warnings or errors)
     $(warning To fix, install `rustup` from https://rustup.rs/, then run: `rustup install $(RUSTUP_TOOLCHAIN)`)
   endif
+endif
+
+# Dump configuration for verbose builds
+ifneq ($(V),)
+  $(info )
+  $(info **************************************************)
+  $(info TOCK KERNEL BUILD SYSTEM -- VERBOSE BUILD)
+  $(info **************************************************)
+  $(info Config:)
+  $(info CHIP=$(CHIP))
+  $(info MAKEFLAGS=$(MAKEFLAGS))
+  $(info OBJCOPY=$(OBJCOPY))
+  $(info PLATFORM=$(PLATFORM))
+  $(info RUSTUP_TOOLCHAIN=$(RUSTUP_TOOLCHAIN))
+  $(info TARGET=$(TARGET))
+  $(info TOCK_KERNEL_VERSION=$(TOCK_KERNEL_VERSION))
+  $(info TOOLCHAIN=$(TOOLCHAIN))
+  $(info )
+  $(info $(OBJCOPY) --version = $(shell $(OBJCOPY) --version))
+  $(info rustc --version = $(shell rustc --version))
+  $(info **************************************************)
+  $(info )
 endif
 
 .PHONY: all

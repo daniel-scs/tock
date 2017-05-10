@@ -4,7 +4,7 @@
 
 extern crate capsules;
 extern crate cortexm4;
-#[macro_use(debug, static_init)]
+#[macro_use(static_init)]
 extern crate kernel;
 extern crate sam4l;
 
@@ -261,9 +261,12 @@ pub unsafe fn reset_handler() {
     let fxos8700_i2c = static_init!(I2CDevice, I2CDevice::new(sensors_i2c, 0x1e), 32);
     let fxos8700 = static_init!(
         capsules::fxos8700_cq::Fxos8700cq<'static>,
-        capsules::fxos8700_cq::Fxos8700cq::new(fxos8700_i2c, &mut capsules::fxos8700_cq::BUF),
-        352/8);
+        capsules::fxos8700_cq::Fxos8700cq::new(fxos8700_i2c,
+                                               &sam4l::gpio::PA[9],
+                                               &mut capsules::fxos8700_cq::BUF),
+        416/8);
     fxos8700_i2c.set_client(fxos8700);
+    sam4l::gpio::PA[9].set_client(fxos8700);
 
     // Initialize and enable SPI HAL
     // Set up an SPI MUX, so there can be multiple clients
@@ -396,6 +399,6 @@ pub unsafe fn reset_handler() {
     // Uncomment to measure overheads for TakeCell and MapCell:
     // test_take_map_cell::test_take_map_cell();
 
-    debug!("Initialization complete. Entering main loop");
+    // debug!("Initialization complete. Entering main loop");
     kernel::main(&hail, &mut chip, load_processes(), &hail.ipc);
 }
