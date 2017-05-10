@@ -1,3 +1,5 @@
+use core::fmt;
+
 pub trait Client {
     fn bus_reset(&self);
 
@@ -6,6 +8,7 @@ pub trait Client {
     fn received_out(&self /* , descriptor/bank */);
 }
 
+#[derive(Debug)]
 #[repr(C, packed)]
 pub struct SetupData {
     pub request_type: DeviceRequestType,
@@ -40,7 +43,10 @@ impl SetupData {
         match self.request_type.request_type() {
             RequestType::Standard =>
                 match self.request_code {
-                    0b10000000 => {
+                    5 => Some(StandardDeviceRequest::SetAddress{
+                            device_address: self.value
+                         }),
+                    6 => {
                         if let Some(dt) = get_descriptor_type((self.value >> 8) as u8) {
                             Some(StandardDeviceRequest::GetDescriptor{
                                     descriptor_type: dt,
@@ -68,10 +74,13 @@ pub fn get_u16(buf: &[u8]) -> Option<u16> {
 
 #[derive(Debug)]
 pub enum StandardDeviceRequest {
+    SetAddress{
+        device_address: u16,
+    },
     GetDescriptor{
         descriptor_type: DescriptorType,
         descriptor_index: u8,
-        lang_id: u16
+        lang_id: u16,
     }
 }
 
@@ -89,15 +98,15 @@ pub enum DescriptorType {
 
 fn get_descriptor_type(byte: u8) -> Option<DescriptorType> {
     match byte {
-        0 => Some(DescriptorType::Device),
-        1 => Some(DescriptorType::Configuration),
-        2 => Some(DescriptorType::String),
-        3 => Some(DescriptorType::Interface),
-        4 => Some(DescriptorType::Endpoint),
-        5 => Some(DescriptorType::DeviceQualifier),
-        6 => Some(DescriptorType::OtherSpeedConfiguration),
-        7 => Some(DescriptorType::InterfacePower),
-        _ => None
+        1 => Some(DescriptorType::Device),
+        2 => Some(DescriptorType::Configuration),
+        3 => Some(DescriptorType::String),
+        4 => Some(DescriptorType::Interface),
+        5 => Some(DescriptorType::Endpoint),
+        6 => Some(DescriptorType::DeviceQualifier),
+        7 => Some(DescriptorType::OtherSpeedConfiguration),
+        8 => Some(DescriptorType::InterfacePower),
+        _ => None,
     }
 }
 
@@ -132,11 +141,20 @@ impl DeviceRequestType {
     }
 }
 
+impl fmt::Debug for DeviceRequestType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{{{:?}, {:?}, {:?}}}",
+               self.transfer_direction(), self.request_type(), self.recipient())
+    }
+}
+
+#[derive(Debug)]
 pub enum TransferDirection {
     DeviceToHost,
     HostToDevice,
 }
 
+#[derive(Debug)]
 pub enum RequestType {
     Standard,
     Class,
@@ -144,6 +162,7 @@ pub enum RequestType {
     Reserved,
 }
 
+#[derive(Debug)]
 pub enum Recipient {
     Device,
     Interface,

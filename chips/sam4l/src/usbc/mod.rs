@@ -627,7 +627,10 @@ impl<'a> Usbc<'a> {
                     None => debug!("SETUP: Couldn't parse SetupData"),
                     Some(sd) => {
                         match sd.standard_request_type() {
-                            None => debug!("SETUP: Unrecognized device request"),
+                            None => {
+                                debug!("SETUP: Unrecognized device request: {:?}", sd);
+                                self.debug_show_d0();
+                            }
                             Some(r) => debug!("SETUP: {:?}", r),
                         }
                     }
