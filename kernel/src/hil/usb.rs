@@ -5,11 +5,18 @@ pub trait Client {
 
     fn received_setup_in(&self, setup_data: &[u8]) -> InRequestResult;
 
+    fn ctrl_in(&self, packet_buf: &mut [u8]) -> CtrlInResult;
+
     fn received_out(&self /* , descriptor/bank */);
 }
 
 pub enum InRequestResult {
+    Ok,
     Error,
-    Data(&'static [u8]),
     // Delay,
+}
+
+pub enum CtrlInResult {
+    Filled(usize),
+    Error,
 }

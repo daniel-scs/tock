@@ -6,18 +6,25 @@ use usb::*;
 use kernel::hil::usb::*;
 
 use core::cell::{RefCell};
+use core::cmp::max;
 
 pub struct SimpleClient {
     state: RefCell<State>
 }
 
 enum State {
-
+    Init,
+    CtrlIn{
+        buf: &'static [u8],
+        remaining_to_send: usize,
+    }
 }
 
 impl SimpleClient {
     pub const fn new() -> Self {
-        SimpleClient{}
+        SimpleClient{
+            state: RefCell::new(State::Init),
+        }
     }
 }
 
@@ -35,7 +42,12 @@ impl Client for SimpleClient {
                         descriptor_index: 0,
                         ..
                     } => {
-                        self.map_state(|state| { *state = State::CtrlIn(device_descriptor) });
+                        self.map_state(|state| {
+                            *state = State::CtrlIn{
+                                buf: device_descriptor,
+                                remaining_to_send: device_descriptor.len(),
+                            }
+                        });
                         InRequestResult::Ok;
                     }
                     _ => InRequestResult::Error,
@@ -44,13 +56,36 @@ impl Client for SimpleClient {
         })
     }
 
-    fn need_in_data(&self, 
+    fn ctrl_in(&self, packet_buf: &mut [u8]) -> CtrlInResult {
+        self.map_state(|state| {
+            match *state {
+                State::CtrlIn{ buf, remaining_to_send } => {
+                    if remaining_to_send > 0 {
+                        let packet_bytes = max(packet_buf.size(), remaining_to_send);
+                        let buf_start = buf.len() - remaining_to_send;
+                        let buf_to_send = buf[buf_start .. buf_start + packet_bytes];
+                        packet_buf.copy_from_slice(buf_to_send);
+
+                        if let State::CtrlIn{ ref mut remaining_to_send } = *state {
+                            *remaining_to_send -= packet_bytes;
+                        }
+                        CtrlInResult::Filled(packet_bytes)
+                    }
+                    else {
+                        CtrlInResult::Error;
+                    }
+                }
+                _ => CtrlInResult::Error;
+            }
+        }
+    }
 
     fn received_setup_out(&self, buf: &[u8]) -> OutRequestResult {
         SetupData::get(buf).map_or(OutRequestResult::Error, |setup_data| {
             setup_data.get_standard_request().map_or(OutRequestResult::Error, |request| {
                 match request {
                     StandardDeviceRequest::SetAddress{device_address} => {
+                        OutRequestResult::Ok
                     }
                     => OutRequestResult::Error,
                 }
