@@ -1,5 +1,17 @@
 //! Interface to USB controller hardware
 
+/// USB controller interface
+pub trait Usbc {
+    fn enable();
+
+    fn attach();
+
+    fn endpoint_set_buffer(e: u32, &'static [u8]);
+
+    fn endpoint_ctrl_out_enable(e: u32);
+}
+
+/// USB controller client interface
 pub trait Client {
     fn bus_reset(&self);
 

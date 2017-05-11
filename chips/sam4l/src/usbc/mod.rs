@@ -34,6 +34,34 @@ pub struct Usbc<'a> {
     descriptors: [Endpoint; 8],
 }
 
+impl<'a> USB for Usbc<'a> {
+    fn attach() {
+        self._attach();
+    }
+
+    fn enable_device(full_speed: bool) {
+        let speed = if full_speed { Speed::Full } else { Speed::Low };
+        self._enable(Mode::device_at_speed(speed));
+    }
+
+    fn endpoint_set_buffer(e: u32, buf: &'static [u8]) {
+        if buf.len() != 8 {
+            panic!("Bad endpoint buffer size");
+        }
+        let p = buf.as_ptr() as *mut u8;
+        self.endpoint_bank_set_buffer(EndpointIndex::new(0), BankIndex::Bank0, p);
+    }
+
+    fn endpoint_ctrl_out_enable(e: u32) {
+        let cfg = EndpointConfig::new(BankCount::Single,
+                                      EndpointSize::Bytes8,
+                                      EndpointDirection::Out,
+                                      EndpointType::Control,
+                                      EndpointIndex::new(e));
+        endpoint_enable(e, cfg);
+    }
+}
+
 impl<'a> Usbc<'a> {
     const fn new() -> Self {
         Usbc {
@@ -50,9 +78,57 @@ impl<'a> Usbc<'a> {
         }
     }
 
+    /// Attach to the USB bus after enabling USB clock
+    fn _attach(&self) {
+        self.state.map(|state| {
+            match *state {
+                State::Reset => {
+                    client_err!("Not enabled");
+                }
+                State::Active(_) => {
+                    client_err!("Already attached");
+                }
+                State::Idle(mode) => {
+                    // XXX: This setting works only because the imix configures DFLL0 to
+                    // produce 48MHz
+                    scif::generic_clock_enable(scif::GenericClock::GCLK7, scif::ClockSource::DFLL0);
+
+                    while !USBSTA_CLKUSABLE.read() {}
+
+                    UDCON_DETACH.write(false);
+                    debug!("Attached.");
+
+                    *state = State::Active(mode);
+                }
+            }
+        });
+    }
+
+    /// Detach from the USB bus.  Also disable USB clock to save energy.
+    fn _detach(&self) {
+        self.state.map(|state| {
+            match *state {
+                State::Reset => {
+                    client_err!("Not enabled");
+                }
+                State::Idle(_) => {
+                    client_err!("Not attached");
+                }
+                State::Active(mode) => {
+                    UDCON_DETACH.write(true);
+
+                    scif::generic_clock_disable(scif::GenericClock::GCLK7);
+
+                    *state = State::Idle(mode);
+                }
+            }
+        });
+    }
+
+
     /// Enable the controller's clocks and interrupt and transition to Idle state
     /// (No effect if current state is not Reset)
-    pub fn enable(&self, mode: Mode) {
+    pub fn _enable(&self, mode: Mode) {
         self.state.map(|state| {
             match *state {
                 State::Reset => {
@@ -110,53 +186,6 @@ impl<'a> Usbc<'a> {
         });
     }
 
-    /// Attach to the USB bus after enabling USB clock
-    pub fn attach(&self) {
-        self.state.map(|state| {
-            match *state {
-                State::Reset => {
-                    client_err!("Not enabled");
-                }
-                State::Active(_) => {
-                    client_err!("Already attached");
-                }
-                State::Idle(mode) => {
-                    // XXX: This setting works only because the imix configures DFLL0 to
-                    // produce 48MHz
-                    scif::generic_clock_enable(scif::GenericClock::GCLK7, scif::ClockSource::DFLL0);
-
-                    while !USBSTA_CLKUSABLE.read() {}
-
-                    UDCON_DETACH.write(false);
-                    debug!("Attached.");
-
-                    *state = State::Active(mode);
-                }
-            }
-        });
-    }
-
-    /// Detach from the USB bus.  Also disable USB clock to save energy.
-    pub fn detach(&self) {
-        self.state.map(|state| {
-            match *state {
-                State::Reset => {
-                    client_err!("Not enabled");
-                }
-                State::Idle(_) => {
-                    client_err!("Not attached");
-                }
-                State::Active(mode) => {
-                    UDCON_DETACH.write(true);
-
-                    scif::generic_clock_disable(scif::GenericClock::GCLK7);
-
-                    *state = State::Idle(mode);
-                }
-            }
-        });
-    }
-
     fn active(&self) -> bool {
         self.state.map_or(false, |state| {
             match *state {
@@ -167,7 +196,7 @@ impl<'a> Usbc<'a> {
     }
 
     /// Disable the controller, its interrupt, and its clocks
-    pub fn disable(&self) {
+    fn _disable(&self) {
         if self.active() {
             self.detach();
         }
@@ -261,11 +290,6 @@ impl<'a> Usbc<'a> {
     /// Set a client to receive data from the USBC
     pub fn set_client(&mut self, client: &'a hil::usb::Client) {
         self.client = Some(client);
-    }
-
-    /// Get the client
-    pub fn get_client(&self) -> Option<&'a hil::usb::Client> {
-        self.client
     }
 
     /// Handle an interrupt from the USBC
@@ -409,74 +433,72 @@ impl<'a> Usbc<'a> {
                         debug!("D({}) RXSTP", endpoint);
                         self.debug_show_d0();
 
-                        let b = &self.descriptors[0][0];
-                        let setup_data = unsafe {
-                            slice::from_raw_parts(b.addr.get(),
-                                                  b.packet_size.get().byte_count() as usize)
-                        };
+                        let ok = self.client.map(|c| {
+                            c.ctrl_setup()
+                        });
 
-                        if status & CTRLDIR != 0 {
-                            // Data stage is IN
+                        if ok {
+                            endpoint_disable_interrupts(endpoint, RXSTP);
 
-                            let result = self.client.map_or(InRequestResult::Error, |client| {
-                                client.received_setup_in(setup_data)
-                            });
+                            if status & CTRLDIR != 0 {
+                                // The following Data stage will be IN
 
-                            match result {
-                                InRequestResult::Error => {
-                                    // Respond with STALL
-                                    UECONnSET.n(endpoint).write(STALLRQ);
+                                *dstate = DeviceState::CtrlReadIn;
 
-                                    // Remain in DeviceState::Init for next SETUP
-                                }
-                                InRequestResult::Data(buf) => {
-                                    endpoint_disable_interrupts(endpoint, RXSTP);
+                                // Wait until bank is clear to send
+                                // Also, wait for NAKOUT to signal end of IN stage
+                                // (The datasheet incorrectly says NAKIN)
+                                UESTAnCLR.n(endpoint).write(NAKOUT);
+                                endpoint_enable_interrupts(endpoint, TXIN | NAKOUT);
+                            }
+                            else {
+                                // The following Data stage will be OUT
 
-                                    *dstate = DeviceState::CtrlReadIn{ buffer: buf, bytes_sent: 0 };
+                                *dstate = DeviceState::CtrlWriteOut;
 
-                                    // Wait until bank is clear to send
-                                    // Also, wait for NAKOUT to signal end of IN stage
-                                    // (The datasheet incorrectly says NAKIN)
-                                    UESTAnCLR.n(endpoint).write(NAKOUT);
-                                    endpoint_enable_interrupts(endpoint, TXIN | NAKOUT);
-                                }
+                                // Wait for OUT packets
+                                // Also, wait for NAKIN to signal end of OUT stage
+                                UESTAnCLR.n(endpoint).write(NAKIN);
+                                endpoint_enable_interrupts(endpoint, RXOUT | NAKIN);
                             }
                         }
                         else {
-                            // Data stage is OUT
+                            // Respond with STALL to any following IN/OUT transactions
+                            UECONnSET.n(endpoint).write(STALLRQ);
 
-                            *dstate = DeviceState::CtrlWriteOut;
-
-                            // Wait for OUT packets
-                            // Also, wait for NAKIN to signal end of OUT stage
-                            UESTAnCLR.n(endpoint).write(NAKIN);
-                            endpoint_enable_interrupts(endpoint, RXOUT | NAKIN);
+                            // Remain in DeviceState::Init for next SETUP
                         }
 
                         // Acknowledge
                         UESTAnCLR.n(endpoint).write(RXSTP);
-
                     }
                 }
-                DeviceState::CtrlReadIn{ buffer, bytes_sent } => {
+                DeviceState::CtrlReadIn => {
                     if status & NAKOUT != 0 {
                         // The host has completed the IN stage by sending an OUT token
 
                         endpoint_disable_interrupts(endpoint, TXIN | NAKOUT);
 
-                        debug!("D({}) NAKOUT ({} bytes sent so far this tx)", endpoint, bytes_sent);
-                        let bytes_rem = buffer.len() as u32 - bytes_sent;
-                        if bytes_rem > 0 {
-                            debug!("** Host aborted Control Data stage before complete packet sent");
+                        debug!("D({}) NAKOUT");
+                        let ok = self.client.map(|c| {
+                            c.ctrl_status()
+                        });
+
+                        if ok {
+                            *dstate = DeviceState::CtrlReadStatus;
+
+                            // Await end of Status stage
+                            endpoint_enable_interrupts(endpoint, RXOUT);
+                        }
+                        else {
+                            // Respond with STALL to any following IN/OUT transactions
+                            UECONnSET.n(endpoint).write(STALLRQ);
+
+                            // Remain in DeviceState::Init for next SETUP
                         }
 
                         // Acknowledge
                         UESTAnCLR.n(endpoint).write(NAKOUT);
-
-                        *dstate = DeviceState::CtrlReadStatus;
-
-                        // Await end of Status stage
-                        endpoint_enable_interrupts(endpoint, RXOUT);
 
                         // Run handler again in case the RXOUT has already arrived
                         // again = true;

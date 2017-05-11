@@ -8,8 +8,9 @@ use kernel::hil::usb::*;
 use core::cell::{RefCell};
 use core::cmp::max;
 
-pub struct SimpleClient {
-    state: RefCell<State>
+pub struct<'a, C: Usbc> SimpleClient<'a> {
+    controller: &'a C,
+    state: RefCell<State>,
 }
 
 enum State {
@@ -20,20 +21,36 @@ enum State {
     }
 }
 
-impl SimpleClient {
-    pub const fn new() -> Self {
+impl<'a, C: Usbc>  SimpleClient<'a> {
+    pub const fn new(controller: &'a C) -> Self {
         SimpleClient{
+            controller: controller,
             state: RefCell::new(State::Init),
         }
     }
 }
 
+static EP0_BUF0: VolatileSlice<'static, u8> = VolatileSlice::new(&mut [99; 8]);
+
 impl Client for SimpleClient {
+    fn enable(&self) {
+        self.controller.enable_device(false);
+        self.controller.endpoint_set_buffer(0, EP0_BUF0);
+        self.controller.endpoint_ctrl_out_enable(0);
+    }
+
+    fn attach(&self) {
+        self.controller.attach();
+    }
+
     fn bus_reset(&self) {
         /* Ignore */
     }
 
-    fn received_setup_in(&self, buf: &[u8]) -> InRequestResult {
+    fn ctrl_setup(&self) -> bool {
+        let buf: &mut [u8] = [0: 8];
+        copy_from_volatile_slice(buf, EP0_BUF0);
+
         SetupData::get(buf).map_or(InRequestResult::Error, |setup_data| {
             setup_data.get_standard_request().map_or(InRequestResult::Error, |request| {
                 match request {
