@@ -3,39 +3,46 @@
 //! It responds to standard device requests and can be enumerated.
 
 use usb::*;
+use kernel::common::volatile_slice::*;
 use kernel::hil::usb::*;
-
 use core::cell::{RefCell};
 use core::cmp::max;
 
-pub struct<'a, C: Usbc> SimpleClient<'a> {
+pub struct SimpleClient<'a, C: 'a> {
     controller: &'a C,
     state: RefCell<State>,
+    ep0_buf: VolatileSlice<'a, u8>,
 }
 
 enum State {
     Init,
     CtrlIn{
-        buf: &'static [u8],
-        remaining_to_send: usize,
-    }
+        buf: &'static [u8]
+    },
 }
 
-impl<'a, C: Usbc>  SimpleClient<'a> {
-    pub const fn new(controller: &'a C) -> Self {
+impl<'a, C: UsbController> SimpleClient<'a, C> {
+    pub fn new(controller: &'a C) -> Self {
+        let buf = static_init!(&'static [u8], &[0; 8]);
+        let buf1 = unsafe { buf as &mut [u8] };
         SimpleClient{
             controller: controller,
             state: RefCell::new(State::Init),
+            ep0_buf: VolatileSlice::new(buf1),
         }
+    }
+
+    fn map_state<F, R>(&self, f: F) -> R
+        where F: FnOnce(&mut State) -> R
+    {
+        f(self.state.get_mut())
     }
 }
 
-static EP0_BUF0: VolatileSlice<'static, u8> = VolatileSlice::new(&mut [99; 8]);
-
-impl Client for SimpleClient {
+impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     fn enable(&self) {
         self.controller.enable_device(false);
-        self.controller.endpoint_set_buffer(0, EP0_BUF0);
+        self.controller.endpoint_set_buffer(0, self.ep0_buf);
         self.controller.endpoint_ctrl_out_enable(0);
     }
 
@@ -44,78 +51,71 @@ impl Client for SimpleClient {
     }
 
     fn bus_reset(&self) {
-        /* Ignore */
+        /* Reconfigure */
     }
 
     fn ctrl_setup(&self) -> bool {
-        let buf: &mut [u8] = [0: 8];
-        copy_from_volatile_slice(buf, EP0_BUF0);
+        let buf: &mut [u8] = &mut [0; 8];
+        copy_from_volatile_slice(buf, self.ep0_buf);
 
-        SetupData::get(buf).map_or(InRequestResult::Error, |setup_data| {
-            setup_data.get_standard_request().map_or(InRequestResult::Error, |request| {
+        SetupData::get(buf).map_or(false, |setup_data| {
+            setup_data.get_standard_request().map_or(false, |request| {
                 match request {
                     StandardDeviceRequest::GetDescriptor{
                         descriptor_type: DescriptorType::Device,
-                        descriptor_index: 0,
-                        ..
-                    } => {
+                        descriptor_index: 0, ..  } => {
+
                         self.map_state(|state| {
-                            *state = State::CtrlIn{
-                                buf: device_descriptor,
-                                remaining_to_send: device_descriptor.len(),
-                            }
+                            *state = State::CtrlIn{ buf: DEVICE_DESCRIPTOR };
                         });
-                        InRequestResult::Ok;
+                        true
                     }
-                    _ => InRequestResult::Error,
+                    StandardDeviceRequest::SetAddress{device_address} => {
+                        self.controller.set_address(device_address);
+                        true
+                    }
+                    _ => false
                 }
             })
         })
     }
 
-    fn ctrl_in(&self, packet_buf: &mut [u8]) -> CtrlInResult {
+    fn ctrl_in(&self) -> CtrlInResult {
         self.map_state(|state| {
             match *state {
-                State::CtrlIn{ buf, remaining_to_send } => {
-                    if remaining_to_send > 0 {
-                        let packet_bytes = max(packet_buf.size(), remaining_to_send);
-                        let buf_start = buf.len() - remaining_to_send;
-                        let buf_to_send = buf[buf_start .. buf_start + packet_bytes];
-                        packet_buf.copy_from_slice(buf_to_send);
+                State::CtrlIn{ buf } => {
+                    if buf.len() > 0 {
+                        let packet_bytes = max(8, buf.len());
+                        let packet = &buf[.. packet_bytes];
+                        copy_volatile_from_slice(self.ep0_buf, packet);
 
-                        if let State::CtrlIn{ ref mut remaining_to_send } = *state {
-                            *remaining_to_send -= packet_bytes;
-                        }
-                        CtrlInResult::Filled(packet_bytes)
+                        let buf = &buf[packet_bytes ..];
+                        *state = State::CtrlIn{ buf: buf };
+
+                        CtrlInResult::Packet(packet_bytes, buf.len() == 0)
                     }
                     else {
-                        CtrlInResult::Error;
+                        CtrlInResult::Packet(0, true)
                     }
                 }
-                _ => CtrlInResult::Error;
+                _ => CtrlInResult::Error
             }
-        }
-    }
-
-    fn received_setup_out(&self, buf: &[u8]) -> OutRequestResult {
-        SetupData::get(buf).map_or(OutRequestResult::Error, |setup_data| {
-            setup_data.get_standard_request().map_or(OutRequestResult::Error, |request| {
-                match request {
-                    StandardDeviceRequest::SetAddress{device_address} => {
-                        OutRequestResult::Ok
-                    }
-                    => OutRequestResult::Error,
-                }
-            })
         })
     }
 
-    fn received_out(&self /* , descriptor/bank */) {
+    fn ctrl_out(&self /* , descriptor/bank */) {}
+
+    fn ctrl_status(&self) {
+        self.map_state(|state| {
+            *state = State::Init
+        })
     }
+
+    fn ctrl_status_complete(&self) {}
 }
 
-const DEVICE_DESCRIPTOR: [u8; 18] =
-    [ 18, // Length
+static DEVICE_DESCRIPTOR: &'static [u8] =
+   &[ 18, // Length
        1, // DEVICE descriptor code
        2, // USB 2
        0, //      .0
@@ -129,5 +129,3 @@ const DEVICE_DESCRIPTOR: [u8; 18] =
        0, 0, 0,      // String indexes
        1  // Number of configurations
     ];
-#[allow(non_upper_case_globals)]
-static device_descriptor: &'static [u8] = &DEVICE_DESCRIPTOR;

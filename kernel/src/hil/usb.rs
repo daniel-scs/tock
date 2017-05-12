@@ -1,34 +1,35 @@
 //! Interface to USB controller hardware
 
+use common::volatile_slice::VolatileSlice;
+
 /// USB controller interface
-pub trait Usbc {
-    fn enable();
+pub trait UsbController {
+    fn enable_device(&self, full_speed: bool);
 
-    fn attach();
+    fn attach(&self);
 
-    fn endpoint_set_buffer(e: u32, &'static [u8]);
+    fn endpoint_set_buffer<'a>(&'a self, e: u32, VolatileSlice<'a, u8>);
 
-    fn endpoint_ctrl_out_enable(e: u32);
+    fn endpoint_ctrl_out_enable(&self, e: u32);
+
+    fn set_address(&self, addr: u16);
 }
 
 /// USB controller client interface
 pub trait Client {
+    fn enable(&self);
+    fn attach(&self);
     fn bus_reset(&self);
 
-    fn received_setup_in(&self, setup_data: &[u8]) -> InRequestResult;
-
-    fn ctrl_in(&self, packet_buf: &mut [u8]) -> CtrlInResult;
-
-    fn received_out(&self /* , descriptor/bank */);
-}
-
-pub enum InRequestResult {
-    Ok,
-    Error,
-    // Delay,
+    fn ctrl_setup(&self) -> bool;
+    fn ctrl_in(&self) -> CtrlInResult;
+    fn ctrl_out(&self /* , descriptor/bank */) {}
+    fn ctrl_status(&self) {}
+    fn ctrl_status_complete(&self) {}
 }
 
 pub enum CtrlInResult {
-    Filled(usize),
+    Packet(usize, bool),
+    Delay,
     Error,
 }
