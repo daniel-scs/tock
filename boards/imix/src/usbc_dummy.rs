@@ -3,16 +3,19 @@
 //! Creates a `SimpleClient` and sets it as the client
 //! of the USB hardware interface.
 
-use capsules::usb_simple::{SimpleClient};
-use sam4l::usbc::{USBC};
-
-static CLIENT: SimpleClient = SimpleClient::new(&USBC);
+use kernel::hil::usb::Client;
+use capsules;
+use sam4l;
 
 pub fn test() {
     unsafe {
-        USBC.set_client(&CLIENT);
+        let client = static_init!(
+            capsules::usb_simple::SimpleClient<'static, sam4l::usbc::Usbc<'static>>,
+            capsules::usb_simple::SimpleClient::new(&sam4l::usbc::USBC), 192/8);
 
-        CLIENT.enable();
-        CLIENT.attach();
+        sam4l::usbc::USBC.set_client(client);
+
+        client.enable();
+        client.attach();
     }
 }

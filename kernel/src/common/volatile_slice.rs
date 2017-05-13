@@ -2,39 +2,44 @@ use core::ptr;
 
 /// A wrapper around a mutable slice that forces accesses
 /// to use volatile reads and writes
-pub struct VolatileSlice<'a, T: 'a>(&'a mut [T]);
+#[derive(Copy, Clone)]
+pub struct VolatileSlice<T>{
+    ptr: *mut T,
+    len: usize,
+}
 
-impl<'a, T> VolatileSlice<'a, T> {
-    pub fn new(slice: &'a mut [T]) -> VolatileSlice<'a, T> {
-        VolatileSlice(slice)
+impl<T: Copy> VolatileSlice<T> {
+    pub fn new(buf: &'static [T]) -> VolatileSlice<T> {
+        VolatileSlice{
+            ptr: buf.as_ptr() as *mut T,
+            len: buf.len(),
+        }
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.len
     }
 
-    pub fn as_ptr(&self) -> *const T {
-        self.0.as_ptr()
+    pub fn as_mut_ptr(&self) -> *mut T {
+        self.ptr
     }
-}
 
-pub fn copy_volatile_from_slice<'a, T: Copy>(dst: VolatileSlice<'a, T>, src: &[T]) {
-    if src.len() != dst.len() {
-        panic!("unequal lengths");
-    }
-    let p = dst.0.as_mut_ptr();
-    for (i, q) in src.iter().enumerate() {
-        unsafe {
-            ptr::write_volatile(p.offset(i as isize), *q);
+    pub fn copy_from_slice(&self, src: &[T]) {
+        if self.len != src.len() {
+            panic!("unequal lengths");
+        }
+        for (i, p) in src.iter().enumerate() {
+            unsafe {
+                ptr::write_volatile(self.ptr.offset(i as isize), *p);
+            }
         }
     }
 }
 
-pub fn copy_from_volatile_slice<'a, T: Copy>(dst: &mut [T], src: VolatileSlice<'a, T>) {
-    let p = src.0.as_ptr();
-    for (i, q) in dst.iter_mut().enumerate() {
+pub fn copy_from_volatile_slice<T: Copy>(dst: &mut [T], src: VolatileSlice<T>) {
+    for (i, p) in dst.iter_mut().enumerate() {
         unsafe {
-            *q = ptr::read_volatile(p.offset(i as isize));
+            *p = ptr::read_volatile(src.ptr.offset(i as isize));
         }
     }
 }

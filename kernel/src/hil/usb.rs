@@ -8,7 +8,7 @@ pub trait UsbController {
 
     fn attach(&self);
 
-    fn endpoint_set_buffer<'a>(&'a self, e: u32, VolatileSlice<'a, u8>);
+    fn endpoint_set_buffer(&self, e: u32, buf: VolatileSlice<u8>);
 
     fn endpoint_ctrl_out_enable(&self, e: u32);
 

@@ -44,11 +44,11 @@ impl<'a> UsbController for Usbc<'a> {
         self._enable(Mode::device_at_speed(speed));
     }
 
-    fn endpoint_set_buffer<'b>(&'b self, e: u32, buf: VolatileSlice<'b, u8>) {
+    fn endpoint_set_buffer<'b>(&'b self, e: u32, buf: VolatileSlice<u8>) {
         if buf.len() != 8 {
             panic!("Bad endpoint buffer size");
         }
-        let p = buf.as_ptr() as *mut u8;
+        let p = buf.as_mut_ptr();
         self.endpoint_bank_set_buffer(EndpointIndex::new(e), BankIndex::Bank0, p);
     }
 
@@ -61,7 +61,7 @@ impl<'a> UsbController for Usbc<'a> {
         self.endpoint_enable(e, cfg);
     }
 
-    fn set_address(&self, addr: u16) {}
+    fn set_address(&self, _addr: u16) {}
 }
 
 impl<'a> Usbc<'a> {

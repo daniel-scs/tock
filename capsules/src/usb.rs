@@ -41,8 +41,8 @@ impl SetupData {
                              recipient_index: self.index
                          }),
                     1 => Some(StandardDeviceRequest::ClearFeature{
-                            feature: self.value,
-                            recipient_index: self.index
+                            feature: FeatureSelector::get(self.value),
+                            recipient_index: self.index,
                          }),
                     3 => Some(StandardDeviceRequest::SetFeature{
                             feature: FeatureSelector::get(self.value),
@@ -53,25 +53,23 @@ impl SetupData {
                             device_address: self.value
                          }),
                     6 => {
-                        if let Some(dt) = get_descriptor_type((self.value >> 8) as u8) {
+                        get_descriptor_type((self.value >> 8) as u8).map_or(None, |dt| {
                             Some(StandardDeviceRequest::GetDescriptor{
                                     descriptor_type: dt,
                                     descriptor_index: (self.value & 0xff) as u8,
                                     lang_id: self.index,
-                                 })
-                        }
-                        else {
-                            None
-                        }
+                            })
+                        })
                     }
                     7 => {
-                        if let dt = get_set_descriptor_type((self.value >> 8) as u8) {
+                        get_set_descriptor_type((self.value >> 8) as u8).map_or(None, |dt| {
                             Some(StandardDeviceRequest::SetDescriptor{
                                 descriptor_type: dt,
                                 descriptor_index: (self.value & 0xff) as u8,
                                 lang_id: self.index,
                                 descriptor_length: self.length
                             })
+                        })
                     }
                     8 => Some(StandardDeviceRequest::GetConfiguration),
                     9 => Some(StandardDeviceRequest::SetConfiguration{
@@ -82,7 +80,6 @@ impl SetupData {
                           }),
                     11 => Some(StandardDeviceRequest::SetInterface),
                     12 => Some(StandardDeviceRequest::SynchFrame),
-
                     _ => None,
                 },
             _ => None,
@@ -103,7 +100,12 @@ pub enum StandardDeviceRequest {
         recipient_index: u16,
     },
     ClearFeature{
-        feature: u16,
+        feature: FeatureSelector,
+        recipient_index: u16,
+    },
+    SetFeature{
+        feature: FeatureSelector,
+        test_mode: u8,
         recipient_index: u16,
     },
     SetAddress{
@@ -113,14 +115,22 @@ pub enum StandardDeviceRequest {
         descriptor_type: DescriptorType,
         descriptor_index: u8,
         lang_id: u16,
-    }
+    },
+    SetDescriptor{
+        descriptor_type: DescriptorType,
+        descriptor_index: u8,
+        lang_id: u16,
+        descriptor_length: u16,
+    },
     GetConfiguration,
     SetConfiguration{
         configuration: u8,
-    }
+    },
     GetInterface{
         interface: u16,
     },
+    SetInterface,
+    SynchFrame,
 }
 
 #[derive(Debug)]
@@ -151,10 +161,10 @@ fn get_descriptor_type(byte: u8) -> Option<DescriptorType> {
 
 // Get a descriptor type that is legal in a SetDescriptor request
 fn get_set_descriptor_type(byte: u8) -> Option<DescriptorType> {
-    match dt @ get_descriptor_type(byte) {
-        Some(DescriptorType::Device) => dt,
-        Some(DescriptorType::Configuration) => dt,
-        Some(DescriptorType::String) => dt,
+    match get_descriptor_type(byte) {
+        dt @ Some(DescriptorType::Device) => dt,
+        dt @ Some(DescriptorType::Configuration) => dt,
+        dt @ Some(DescriptorType::String) => dt,
         _ => None
     }
 }
@@ -229,12 +239,12 @@ pub enum FeatureSelector {
 }
 
 impl FeatureSelector {
-    fn get(byte: u8) -> Self {
-        match byte {
-            1 => DeviceRemoteWakeup,
-            0 => EndpointHalt,
-            2 => TestMode,
-            _ => Unknown,
+    fn get(value: u16) -> Self {
+        match value {
+            1 => FeatureSelector::DeviceRemoteWakeup,
+            0 => FeatureSelector::EndpointHalt,
+            2 => FeatureSelector::TestMode,
+            _ => FeatureSelector::Unknown,
         }
     }
 }

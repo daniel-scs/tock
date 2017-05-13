@@ -6,12 +6,13 @@ use usb::*;
 use kernel::common::volatile_slice::*;
 use kernel::hil::usb::*;
 use core::cell::{RefCell};
+use core::ops::DerefMut;
 use core::cmp::max;
 
 pub struct SimpleClient<'a, C: 'a> {
     controller: &'a C,
     state: RefCell<State>,
-    ep0_buf: VolatileSlice<'a, u8>,
+    ep0_buf: VolatileSlice<u8>,
 }
 
 enum State {
@@ -21,21 +22,23 @@ enum State {
     },
 }
 
+/// Storage for endpoint 0 packets
+static EP0_BUF: &'static [u8] = &[0; 8];
+
 impl<'a, C: UsbController> SimpleClient<'a, C> {
     pub fn new(controller: &'a C) -> Self {
-        let buf = static_init!(&'static [u8], &[0; 8]);
-        let buf1 = unsafe { buf as &mut [u8] };
         SimpleClient{
             controller: controller,
             state: RefCell::new(State::Init),
-            ep0_buf: VolatileSlice::new(buf1),
+            ep0_buf: VolatileSlice::new(EP0_BUF),
         }
     }
 
     fn map_state<F, R>(&self, f: F) -> R
         where F: FnOnce(&mut State) -> R
     {
-        f(self.state.get_mut())
+        let mut s = self.state.borrow_mut();
+        f(s.deref_mut())
     }
 }
 
@@ -87,7 +90,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                     if buf.len() > 0 {
                         let packet_bytes = max(8, buf.len());
                         let packet = &buf[.. packet_bytes];
-                        copy_volatile_from_slice(self.ep0_buf, packet);
+                        self.ep0_buf.copy_from_slice(packet);
 
                         let buf = &buf[packet_bytes ..];
                         *state = State::CtrlIn{ buf: buf };
