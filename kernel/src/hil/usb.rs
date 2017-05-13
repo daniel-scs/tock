@@ -13,6 +13,8 @@ pub trait UsbController {
     fn endpoint_ctrl_out_enable(&self, e: u32);
 
     fn set_address(&self, addr: u16);
+
+    fn enable_address(&self);
 }
 
 /// USB controller client interface

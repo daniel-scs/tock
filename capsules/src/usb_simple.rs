@@ -20,6 +20,7 @@ enum State {
     CtrlIn{
         buf: &'static [u8]
     },
+    SetAddress,
 }
 
 /// Storage for endpoint 0 packets
@@ -74,7 +75,14 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                         true
                     }
                     StandardDeviceRequest::SetAddress{device_address} => {
+                        // Load the address we've been assigned ...
                         self.controller.set_address(device_address);
+
+                        // ... and when this request gets to the Status stage
+                        // we will actually enable the address.
+                        self.map_state(|state| {
+                            *state = State::SetAddress;
+                        });
                         true
                     }
                     _ => false
@@ -93,9 +101,11 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                         self.ep0_buf.copy_from_slice(packet);
 
                         let buf = &buf[packet_bytes ..];
+                        let transfer_complete = buf.len() == 0;
+
                         *state = State::CtrlIn{ buf: buf };
 
-                        CtrlInResult::Packet(packet_bytes, buf.len() == 0)
+                        CtrlInResult::Packet(packet_bytes, transfer_complete)
                     }
                     else {
                         CtrlInResult::Packet(0, true)
@@ -110,6 +120,12 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
 
     fn ctrl_status(&self) {
         self.map_state(|state| {
+            match *state {
+                State::SetAddress => {
+                    self.controller.enable_address();
+                },
+                _ => {}
+            };
             *state = State::Init
         })
     }

@@ -61,7 +61,15 @@ impl<'a> UsbController for Usbc<'a> {
         self.endpoint_enable(e, cfg);
     }
 
-    fn set_address(&self, _addr: u16) {}
+    fn set_address(&self, addr: u16) {
+        // The hardware can do only 7-bit addresses
+        UDCON_UADD.write((addr as u8) & 0b1111111);
+        UDCON_ADDEN.write(false);
+    }
+
+    fn enable_address(&self) {
+        UDCON_ADDEN.write(true);
+    }
 }
 
 impl<'a> Usbc<'a> {
@@ -216,19 +224,6 @@ impl<'a> Usbc<'a> {
                 *state = State::Reset;
             }
         });
-    }
-
-    /// Set address
-    pub fn set_address(&self /* , _addr: Address */) {
-        /*
-        if self.address == 0 && addr != 0 {
-            self.start_transaction(Tx::Setup(Request::new(SET_ADDRESS(addr))));
-            // UDCON.UADD.set(addr);
-            // UDCON.ADDEN.clear();
-            self.send(self.control_endpoint(), In::new(empty()));
-            // UDCON.ADDEN.set();
-        }
-        */
     }
 
     pub fn endpoint_bank_set_buffer(&self, endpoint: EndpointIndex, bank: BankIndex,
@@ -611,6 +606,9 @@ impl<'a> Usbc<'a> {
 
                         endpoint_disable_interrupts(endpoint, TXIN);
 
+                        // XXX: Can we still stall this request or is it too late?
+                        self.client.map(|c| { c.ctrl_status() });
+
                         // Send zero-length packet to acknowledge transaction
                         self.descriptors[0][0].packet_size.set(PacketSize::single(0));
 
@@ -624,7 +622,7 @@ impl<'a> Usbc<'a> {
                     }
                 }
                 DeviceState::CtrlInDelay => {
-                    /* Spin fruitlessly */
+                    /* XXX: Spin fruitlessly */
                 }
             } // match dstate
         } // for endpoint
