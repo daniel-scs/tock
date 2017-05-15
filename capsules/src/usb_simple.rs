@@ -130,7 +130,9 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
         })
     }
 
-    fn ctrl_status_complete(&self) {}
+    fn ctrl_status_complete(&self) {
+        // IN request acknowledged
+    }
 }
 
 static DEVICE_DESCRIPTOR: &'static [u8] =

@@ -461,7 +461,7 @@ impl<'a> Usbc<'a> {
                                 }
                             }
                             _ => {
-                                // Respond with STALL to any following IN/OUT transactions
+                                // Respond with STALL to any following transactions in this request
                                 // XXX should use per-endpoint stall, or clear STALLRQ on STALLED?
                                 UECONnSET.n(endpoint).write(STALLRQ);
 
@@ -483,7 +483,6 @@ impl<'a> Usbc<'a> {
                         self.client.map(|c| {
                             c.ctrl_status()
                         });
-                        // XXX: allow client to NAK?
 
                         *dstate = DeviceState::CtrlReadStatus;
 
@@ -575,10 +574,24 @@ impl<'a> Usbc<'a> {
 
                         debug!("D({}) RXOUT: Received Control Write data", endpoint);
                         self.debug_show_d0();
-                        self.client.map(|c| { c.ctrl_out() });
+                        let result = self.client.map(|c| {
+                            c.ctrl_out(self.descriptors[0][0].packet_size.get())
+                        });
+                        match result {
+                            ClientOutResult::Ok => {
+                                // Acknowledge
+                                UESTAnCLR.n(endpoint).write(RXOUT);
+                            }
+                            ClientOutResult::Delay => {
+                                // Don't acknowledge; hardware will have to send NAK
 
-                        // Acknowledge
-                        UESTAnCLR.n(endpoint).write(RXOUT);
+                                // XXX: unsubscribe from RXOUT until client says it is ready?
+                            }
+                            ClientOutResult::Halted => {
+                                // Respond with STALL to any following transactions in this request
+                                UECONnSET.n(endpoint).write(STALLRQ);
+                            }
+                        }
 
                         // Continue awaiting RXOUT and NAKIN
                     }

@@ -25,13 +25,28 @@ pub trait Client {
 
     fn ctrl_setup(&self) -> bool;
     fn ctrl_in(&self) -> CtrlInResult;
-    fn ctrl_out(&self /* , descriptor/bank */) {}
+    fn ctrl_out(&self, packet_bytes: u32) -> CtrlOutResult {}
     fn ctrl_status(&self) {}
     fn ctrl_status_complete(&self) {}
 }
 
 pub enum CtrlInResult {
+    /// A packet of the given size was written into the endpoint buffer
     Packet(usize, bool),
+    /// The client is not yet able to provide data to the host, but may
+    /// be able to in the future.  This result causes the controller
+    /// to send a NAK token to the host.
     Delay,
+    /// The client does not support the request.  This result causes the
+    /// controller to send a STALL token to the host.
     Error,
+}
+
+pub enum CtrlOutResult {
+    /// Data received (send ACK)
+    Ok,
+    /// Not ready yet (send NAK)
+    Delay,
+    /// In halt state (send STALL)
+    Halted,
 }
