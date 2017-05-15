@@ -153,8 +153,8 @@ static LANG0_DESCRIPTOR: &'static [u8] =
 static DEVICE_DESCRIPTOR: &'static [u8] =
    &[ 18, // Length
        DescriptorType::Device as u8, // DEVICE descriptor code
-       2, // USB 2
-       0, //      .0
+       0, // USB 2
+       2, //
        0, // Class
        0, // Subclass
        0, // Protocol

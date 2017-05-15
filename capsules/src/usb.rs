@@ -135,7 +135,7 @@ pub enum StandardDeviceRequest {
 
 #[derive(Debug)]
 pub enum DescriptorType {
-    Device,
+    Device = 1,
     Configuration,
     String,
     Interface,
