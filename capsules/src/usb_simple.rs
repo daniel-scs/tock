@@ -73,6 +73,15 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                         });
                         true
                     }
+                    StandardDeviceRequest::GetDescriptor{
+                        descriptor_type: DescriptorType::String,
+                        descriptor_index: 0, .. } => {
+
+                        self.map_state(|state| {
+                            *state = State::CtrlIn{ buf: LANG0_DESCRIPTOR };
+                        });
+                        true
+                    }
                     StandardDeviceRequest::SetAddress{device_address} => {
                         self.controller.set_address(device_address);
                         true
@@ -117,9 +126,15 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     fn ctrl_status_complete(&self) {}
 }
 
+static LANG0_DESCRIPTOR: &'static [u8] =
+    &[ 4, // Length
+       DescriptorType::String as u8, // STRING descriptor code
+       0x09, 0x04 // English (United States)
+     ];
+
 static DEVICE_DESCRIPTOR: &'static [u8] =
    &[ 18, // Length
-       1, // DEVICE descriptor code
+       DescriptorType::Device as u8, // DEVICE descriptor code
        2, // USB 2
        0, //      .0
        0, // Class
