@@ -66,6 +66,8 @@ bitfield![USBCON, USBCON_FRZCLK, "RW", bool, 14, 1];
 
 bitfield![UDCON, UDCON_DETACH, "RW", bool, 8, 1];
 bitfield![UDCON, UDCON_LS, "RW", Speed, 12, 1];
+bitfield![UDCON, UDCON_UADD, "RW", u8, 0b1111111, 0];
+bitfield![UDCON, UDCON_ADDEN, "RW", bool, 1, 7];
 
 bitfield![USBSTA, USBSTA_CLKUSABLE, "R", bool, 14, 1];
 

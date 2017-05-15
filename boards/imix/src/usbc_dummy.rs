@@ -11,7 +11,7 @@ pub fn test() {
     unsafe {
         let client = static_init!(
             capsules::usb_simple::SimpleClient<'static, sam4l::usbc::Usbc<'static>>,
-            capsules::usb_simple::SimpleClient::new(&sam4l::usbc::USBC), 192/8);
+            capsules::usb_simple::SimpleClient::new(&sam4l::usbc::USBC), 224/8);
 
         sam4l::usbc::USBC.set_client(client);
 

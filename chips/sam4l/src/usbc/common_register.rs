@@ -217,6 +217,11 @@ impl ToWord for u32 {
     fn to_word(self) -> u32 { self }
 }
 
+impl ToWord for u8 {
+    #[inline]
+    fn to_word(self) -> u32 { self as u32 }
+}
+
 impl ToWord for bool {
     #[inline]
     fn to_word(self) -> u32 { if self { 1 } else { 0 } }
