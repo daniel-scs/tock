@@ -25,9 +25,9 @@ pub trait Client {
 
     fn ctrl_setup(&self) -> bool;
     fn ctrl_in(&self) -> CtrlInResult;
-    fn ctrl_out(&self, packet_bytes: u32) -> CtrlOutResult {}
-    fn ctrl_status(&self) {}
-    fn ctrl_status_complete(&self) {}
+    fn ctrl_out(&self, packet_bytes: u32) -> CtrlOutResult;
+    fn ctrl_status(&self);
+    fn ctrl_status_complete(&self);
 }
 
 pub enum CtrlInResult {

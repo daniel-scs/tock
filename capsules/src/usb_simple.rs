@@ -65,23 +65,40 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
         SetupData::get(buf).map_or(false, |setup_data| {
             setup_data.get_standard_request().map_or(false, |request| {
                 match request {
-                    StandardDeviceRequest::GetDescriptor{
-                        descriptor_type: DescriptorType::Device,
-                        descriptor_index: 0, ..  } => {
-
-                        self.map_state(|state| {
-                            *state = State::CtrlIn{ buf: DEVICE_DESCRIPTOR };
-                        });
-                        true
-                    }
-                    StandardDeviceRequest::GetDescriptor{
-                        descriptor_type: DescriptorType::String,
-                        descriptor_index: 0, .. } => {
-
-                        self.map_state(|state| {
-                            *state = State::CtrlIn{ buf: LANG0_DESCRIPTOR };
-                        });
-                        true
+                    StandardDeviceRequest::GetDescriptor{ descriptor_type, descriptor_index, lang_id } => {
+                        match descriptor_type {
+                            DescriptorType::Device => match descriptor_index {
+                                0 => {
+                                    self.map_state(|state| {
+                                        *state = State::CtrlIn{ buf: DEVICE_DESCRIPTOR };
+                                    });
+                                    true
+                                }
+                                _ => false,
+                            },
+                            DescriptorType::String => {
+                                if let Some(buf) = match descriptor_index {
+                                                       0 => Some(LANG0_DESCRIPTOR),
+                                                       1 => if lang_id == 0x0409 {
+                                                                Some(MANUFACTURER_DESCRIPTOR)
+                                                            }
+                                                            else {
+                                                                None
+                                                            },
+                                                       _ => None,
+                                                   }
+                                {
+                                    self.map_state(|state| {
+                                        *state = State::CtrlIn{ buf: buf };
+                                    });
+                                    true
+                                }
+                                else {
+                                    false
+                                }
+                            }
+                            _ => false,
+                        }
                     }
                     StandardDeviceRequest::SetAddress{device_address} => {
                         // Load the address we've been assigned ...
@@ -125,7 +142,9 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
         })
     }
 
-    fn ctrl_out(&self /* , descriptor/bank */) {}
+    fn ctrl_out(&self, _packet_bytes: u32) -> CtrlOutResult {
+        CtrlOutResult::Halted
+    }
 
     fn ctrl_status(&self) {
         self.map_state(|state| {
@@ -150,6 +169,12 @@ static LANG0_DESCRIPTOR: &'static [u8] =
        0x09, 0x04 // English (United States)
      ];
 
+static MANUFACTURER_DESCRIPTOR: &'static [u8] =
+    &[ 5, // Length
+       DescriptorType::String as u8, // STRING descriptor code
+       b'X', b'Y', b'Z'
+     ];
+
 static DEVICE_DESCRIPTOR: &'static [u8] =
    &[ 18, // Length
        DescriptorType::Device as u8, // DEVICE descriptor code
@@ -162,6 +187,8 @@ static DEVICE_DESCRIPTOR: &'static [u8] =
        0x66, 0x67,   // Vendor id
        0xab, 0xcd,   // Product id
        0x00, 0x01,   // Device release
-       0, 0, 0,      // String indexes
+       1, // Manufacturer string index
+       0, // Product string index
+       0, // Serial Number string index
        1  // Number of configurations
     ];

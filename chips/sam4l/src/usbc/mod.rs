@@ -575,19 +575,19 @@ impl<'a> Usbc<'a> {
                         debug!("D({}) RXOUT: Received Control Write data", endpoint);
                         self.debug_show_d0();
                         let result = self.client.map(|c| {
-                            c.ctrl_out(self.descriptors[0][0].packet_size.get())
+                            c.ctrl_out(self.descriptors[0][0].packet_size.get().byte_count())
                         });
                         match result {
-                            ClientOutResult::Ok => {
+                            Some(CtrlOutResult::Ok) => {
                                 // Acknowledge
                                 UESTAnCLR.n(endpoint).write(RXOUT);
                             }
-                            ClientOutResult::Delay => {
+                            Some(CtrlOutResult::Delay) => {
                                 // Don't acknowledge; hardware will have to send NAK
 
                                 // XXX: unsubscribe from RXOUT until client says it is ready?
                             }
-                            ClientOutResult::Halted => {
+                            _ => {
                                 // Respond with STALL to any following transactions in this request
                                 UECONnSET.n(endpoint).write(STALLRQ);
                             }
