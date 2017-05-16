@@ -76,6 +76,13 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                 }
                                 _ => false,
                             },
+                            DescriptorType::Configuration => match descriptor_index {
+                                0 => {
+                                    ConfigurationDescriptor::place(DESCRIPTOR_STORAGE, ...
+                                    *state = State::CtrlIn{ buf: b };
+                                    true
+                                }
+                                _ => false,
                             DescriptorType::String => {
                                 if let Some(buf) = match descriptor_index {
                                                        0 => Some(LANG0_DESCRIPTOR),
@@ -162,6 +169,8 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
         // IN request acknowledged
     }
 }
+
+static DESCRIPTOR_STORAGE: &'static [u8] = &[0; 100];
 
 static LANG0_DESCRIPTOR: &'static [u8] =
     &[ 4, // Length

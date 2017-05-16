@@ -1,6 +1,7 @@
 //! Platform-independent USB 2.1 protocol library
 
 use core::fmt;
+use core::convert{From};
 
 #[derive(Debug)]
 #[repr(C, packed)]
@@ -135,7 +136,7 @@ pub enum StandardDeviceRequest {
 
 #[derive(Debug)]
 pub enum DescriptorType {
-    Device,
+    Device = 1,
     Configuration,
     String,
     Interface,
@@ -247,4 +248,58 @@ impl FeatureSelector {
             _ => FeatureSelector::Unknown,
         }
     }
+}
+
+pub trait Descriptor {
+    pub fn size() -> usize;
+}
+
+pub struct<'a> ConfigurationDescriptor(&'a [u8]);
+
+impl<'a> Descriptor for ConfigurationDescriptor<'a> {
+    fn size() -> usize { 9 }
+}
+
+impl<'a> ConfigurationDescriptor<'a> {
+    pub fn place(buf: &'a [u8],
+                 num_interfaces: u8,
+                 configuration_value: u8,
+                 string_index: u8,
+                 attributes: ConfigurationAttributes,
+                 max_power: u8,   // in 2mA units
+                 related_descriptor_length: usize,
+                 ) -> Self {
+
+        if buf.len() < 9 {
+            panic!("Not enough room to allocate");
+        }
+
+        // Deposit the descriptor at the end of the provided buffer
+        let b = &buf[buf.len() - 9 ..];
+
+        b[0] = 9; // Size of descriptor
+        b[1] = DescriptorType::Configuration as u8;
+        put_u16(b[2..4], 9 + related_descriptor_length); // Total length
+        b[4] = num_interfaces;
+        b[5] = configuration_value;
+        b[6] = string_index;
+        b[7] = From::from(attributes);
+        b[8] = max_power;
+
+        ConfigurationDescriptor(b)
+    }
+}
+
+pub struct ConfigurationAttributes(u8);
+
+impl ConfigurationAttributes {
+    pub fn new(is_self_powered: bool, supports_remote_wakeup: bool) -> Self {
+        ConfigurationAttributes(if is_self_powered { 1 << 6 } else { 0 }
+                                | if supports_remote_wakeup { 1 << 5 } else { 0 });
+
+    }
+}
+
+impl From(ConfigurationAttributes) for u8 {
+    fn from(ca) -> u8 { ca.0 }
 }
