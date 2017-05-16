@@ -261,7 +261,7 @@ impl<'a> Descriptor for ConfigurationDescriptor<'a> {
 }
 
 impl<'a> ConfigurationDescriptor<'a> {
-    pub fn place(buf: &'a [u8],
+    pub fn place(buf: &'a mut [u8],
                  num_interfaces: u8,
                  configuration_value: u8,
                  string_index: u8,
@@ -288,6 +288,14 @@ impl<'a> ConfigurationDescriptor<'a> {
 
         ConfigurationDescriptor(b)
     }
+}
+
+fn put_u16<'a>(buf: 'a mut [u8], n: u16) {
+    if buf.len() != 2 {
+        panic!("Wrong length");
+    }
+    buf[0] = n & 0xff;
+    buf[1] = n >> 8;
 }
 
 pub struct ConfigurationAttributes(u8);
