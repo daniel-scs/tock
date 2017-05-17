@@ -250,6 +250,59 @@ impl FeatureSelector {
     }
 }
 
+pub struct DeviceDescriptor {
+    usb_release: u16,
+    class: u8,
+    subclass: u8,
+    protocol: u8,
+    max_packet_size_ep0: u8,
+    vendor_id: u16,
+    product_id: u16,
+    device_release: u16,
+    manufacturer_string: u8,
+    product_string: u8,
+    serial_number_string: u8,
+    num_configurations: u8,
+}
+
+impl DeviceDescriptor {
+    pub fn default() -> Self {
+        DeviceDescriptor{
+            usb_release: 0x20,
+            class: 0,
+            subclass: 0,
+            protocol: 0,
+            max_packet_size_ep0: 8,
+            vendor_id: 0x6667,
+            product_id: 0xabcd,
+            device_release: 0x0001,
+            manufacturer_string: 1,
+            product_string: 0,
+            serial_number_string: 0,
+            num_configurations: 1,
+        }
+    }
+
+    pub fn write_to(&self, b: &mut [u8]) -> usize {
+        b[0] = 18;
+        b[1] = DescriptorType::Device as u8;
+        put_u16(&mut b[2..4], self.usb_release);
+        b[4] = self.class;
+        b[5] = self.subclass;
+        b[6] = self.protocol;
+        b[7] = self.max_packet_size_ep0;
+        put_u16(&mut b[8..10], self.vendor_id);
+        put_u16(&mut b[10..12], self.product_id);
+        put_u16(&mut b[12..14], self.device_release);
+        b[14] = self.manufacturer_string;
+        b[15] = self.product_string;
+        b[16] = self.serial_number_string;
+        b[17] = self.num_configurations;
+
+        18
+    }
+}
+
 pub trait Descriptor {
     /// Serialized size of Descriptor, if fixed
     fn size() -> Option<usize>;

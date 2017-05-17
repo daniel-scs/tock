@@ -35,24 +35,6 @@ static LANGUAGES: &'static [u16] = &[
 
 static MANUFACTURER_STRING: &'static str = "XYZ Corp.";
 
-static DEVICE_DESCRIPTOR: &'static [u8] =
-   &[ 18, // Length
-       DescriptorType::Device as u8, // DEVICE descriptor code
-       0, // USB 2
-       2, //
-       0, // Class
-       0, // Subclass
-       0, // Protocol
-       8, // Max packet size
-       0x66, 0x67,   // Vendor id
-       0xab, 0xcd,   // Product id
-       0x00, 0x01,   // Device release
-       1, // Manufacturer string index
-       0, // Product string index
-       0, // Serial Number string index
-       1  // Number of configurations
-    ];
-
 impl<'a, C: UsbController> SimpleClient<'a, C> {
     pub fn new(controller: &'a C) -> Self {
         SimpleClient{
@@ -97,7 +79,9 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                             DescriptorType::Device => match descriptor_index {
                                 0 => {
                                     self.map_state(|state| {
-                                        *state = State::CtrlIn{ buf: DEVICE_DESCRIPTOR };
+                                        let s = CopySlice::new(DESCRIPTOR_STORAGE);
+                                        let len = DeviceDescriptor::default().write_to(s.as_mut());
+                                        *state = State::CtrlIn{ buf: &DESCRIPTOR_STORAGE[ .. len] };
                                     });
                                     true
                                 }
