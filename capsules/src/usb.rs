@@ -251,15 +251,66 @@ impl FeatureSelector {
 }
 
 pub trait Descriptor {
-    fn size() -> usize;
+    /// Serialized size of Descriptor, if fixed
+    fn size() -> Option<usize>;
     fn as_bytes(&self) -> &[u8];
     fn len(&self) -> usize;
+}
+
+pub struct LanguagesDescriptor<'a>(&'a [u8]);
+
+impl<'a> Descriptor for LanguagesDescriptor<'a> {
+    fn size() -> Option<usize> { None }
+    fn as_bytes(&self) -> &[u8] { self.0 }
+    fn len(&self) -> usize { self.0.len() }
+}
+
+impl<'a> LanguagesDescriptor<'a> {
+    pub fn place(buf: &'a mut [u8],
+                 langs: &[u16]) -> LanguagesDescriptor<'a> {
+
+        buf[0] = (2 + (2 * langs.len())) as u8;
+        buf[1] = DescriptorType::String as u8;
+        for (i, lang) in langs.iter().enumerate() {
+            put_u16(&mut buf[2 + (2 * i) .. 4 + (2 * i)], *lang);
+        }
+
+        LanguagesDescriptor(buf)
+    }
+}
+
+pub struct StringDescriptor<'a>(&'a [u8]);
+
+impl<'a> Descriptor for StringDescriptor<'a> {
+    fn size() -> Option<usize> { None }
+    fn as_bytes(&self) -> &[u8] { self.0 }
+    fn len(&self) -> usize { self.0.len() }
+}
+
+impl<'a, 'b> StringDescriptor<'a> {
+    pub fn place(buf: &'a mut [u8],
+                 str: &'b str
+                 ) -> StringDescriptor<'a> {
+
+        // Deposit the descriptor at the end of the provided buffer
+        if buf.len() < str.len() {
+            panic!("Not enough room to allocate");
+        }
+        let len = buf.len();
+        let buf = &mut buf[len - str.len() ..];
+
+        buf[0] = (2 + str.len()) as u8;
+        buf[1] = DescriptorType::String as u8;
+        buf.copy_from_slice(str.as_bytes());
+
+        StringDescriptor(buf)
+    }
 }
 
 pub struct ConfigurationDescriptor<'a>(&'a [u8]);
 
 impl<'a> Descriptor for ConfigurationDescriptor<'a> {
-    fn size() -> usize { 9 }
+    fn size() -> Option<usize> { Some(9) }
     fn as_bytes(&self) -> &[u8] { self.0 }
     fn len(&self) -> usize { self.0.len() }
 }
@@ -312,7 +363,7 @@ impl From<ConfigurationAttributes> for u8 {
 pub struct InterfaceDescriptor<'a>(&'a [u8]);
 
 impl <'a> Descriptor for InterfaceDescriptor<'a> {
-    fn size() -> usize { 9 }
+    fn size() -> Option<usize> { Some(9) }
     fn as_bytes(&self) -> &[u8] { self.0 }
     fn len(&self) -> usize { self.0.len() }
 }

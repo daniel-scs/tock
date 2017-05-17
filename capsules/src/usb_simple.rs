@@ -29,6 +29,30 @@ static EP0_BUF: &'static [u8] = &[0; 8];
 
 static DESCRIPTOR_STORAGE: &'static [u8] = &[0; 100];
 
+static LANGUAGES: &'static [u16] = &[
+    0x0409, // English (United States)
+];
+
+static MANUFACTURER_STRING: &'static str = "XYZ Corp.";
+
+static DEVICE_DESCRIPTOR: &'static [u8] =
+   &[ 18, // Length
+       DescriptorType::Device as u8, // DEVICE descriptor code
+       0, // USB 2
+       2, //
+       0, // Class
+       0, // Subclass
+       0, // Protocol
+       8, // Max packet size
+       0x66, 0x67,   // Vendor id
+       0xab, 0xcd,   // Product id
+       0x00, 0x01,   // Device release
+       1, // Manufacturer string index
+       0, // Product string index
+       0, // Serial Number string index
+       1  // Number of configurations
+    ];
+
 impl<'a, C: UsbController> SimpleClient<'a, C> {
     pub fn new(controller: &'a C) -> Self {
         SimpleClient{
@@ -116,9 +140,19 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                             },
                             DescriptorType::String => {
                                 if let Some(buf) = match descriptor_index {
-                                                       0 => Some(LANG0_DESCRIPTOR),
-                                                       1 => if lang_id == 0x0409 {
-                                                                Some(MANUFACTURER_DESCRIPTOR)
+                                                       0 => {
+                                                            let mut storage_avail = DESCRIPTOR_STORAGE.len();
+                                                            let s = CopySlice::new(DESCRIPTOR_STORAGE);
+                                                            let d = LanguagesDescriptor::place(s.as_mut(), LANGUAGES);
+                                                            storage_avail -= d.len();
+                                                            Some(&DESCRIPTOR_STORAGE[storage_avail ..])
+                                                       }
+                                                       1 => if lang_id == LANGUAGES[0] {
+                                                                let mut storage_avail = DESCRIPTOR_STORAGE.len();
+                                                                let s = CopySlice::new(DESCRIPTOR_STORAGE);
+                                                                let d = StringDescriptor::place(s.as_mut(), MANUFACTURER_STRING);
+                                                                storage_avail -= d.len();
+                                                                Some(&DESCRIPTOR_STORAGE[storage_avail ..])
                                                             }
                                                             else {
                                                                 None
@@ -200,35 +234,3 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
         // IN request acknowledged
     }
 }
-
-// static DESCRIPTOR_STORAGE: &'static [u8] = &[0; 100];
-
-static LANG0_DESCRIPTOR: &'static [u8] =
-    &[ 4, // Length
-       DescriptorType::String as u8, // STRING descriptor code
-       0x09, 0x04 // English (United States)
-     ];
-
-static MANUFACTURER_DESCRIPTOR: &'static [u8] =
-    &[ 5, // Length
-       DescriptorType::String as u8, // STRING descriptor code
-       b'X', b'Y', b'Z'
-     ];
-
-static DEVICE_DESCRIPTOR: &'static [u8] =
-   &[ 18, // Length
-       DescriptorType::Device as u8, // DEVICE descriptor code
-       0, // USB 2
-       2, //
-       0, // Class
-       0, // Subclass
-       0, // Protocol
-       8, // Max packet size
-       0x66, 0x67,   // Vendor id
-       0xab, 0xcd,   // Product id
-       0x00, 0x01,   // Device release
-       1, // Manufacturer string index
-       0, // Product string index
-       0, // Serial Number string index
-       1  // Number of configurations
-    ];
