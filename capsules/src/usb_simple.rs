@@ -4,6 +4,7 @@
 
 use usb::*;
 use kernel::common::volatile_slice::*;
+use kernel::common::copy_slice::*;
 use kernel::hil::usb::*;
 use core::cell::{RefCell};
 use core::ops::DerefMut;
@@ -13,6 +14,7 @@ pub struct SimpleClient<'a, C: 'a> {
     controller: &'a C,
     state: RefCell<State>,
     ep0_buf: VolatileSlice<u8>,
+    descr_storage: [u8; 100],
 }
 
 enum State {
@@ -78,8 +80,18 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                             },
                             DescriptorType::Configuration => match descriptor_index {
                                 0 => {
-                                    ConfigurationDescriptor::place(DESCRIPTOR_STORAGE, ...
-                                    *state = State::CtrlIn{ buf: b };
+                                    let s = CopySlice::new(DESCRIPTOR_STORAGE);
+                                    let d = ConfigurationDescriptor::place(s.as_mut(),
+                                               1, // num interfaces
+                                               0, // config value
+                                               0, // string index
+                                               ConfigurationAttributes::new(true, false),
+                                               0, // max power
+                                               0  // length of related descriptors
+                                               );
+                                    self.map_state(|state| {
+                                        *state = State::CtrlIn{ buf: DESCRIPTOR_STORAGE.as_ref() };
+                                    });
                                     true
                                 }
                                 _ => false,

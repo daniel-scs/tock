@@ -6,6 +6,7 @@ pub mod utils;
 pub mod take_cell;
 pub mod volatile_cell;
 pub mod volatile_slice;
+pub mod copy_slice;
 pub mod list;
 pub mod math;
 

@@ -275,7 +275,7 @@ impl<'a> ConfigurationDescriptor<'a> {
         }
 
         // Deposit the descriptor at the end of the provided buffer
-        let b = &buf[buf.len() - 9 ..];
+        let b = &mut buf[buf.len() - 9 ..];
 
         b[0] = 9; // Size of descriptor
         b[1] = DescriptorType::Configuration as u8;
