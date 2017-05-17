@@ -1,15 +1,17 @@
-use core::slice;
+use core;
 
-pub struct CopySlice<'a, T: Copy>{
+pub struct CopySlice<'a, T: 'a + Copy>{
     ptr: *mut T,
     len: usize,
+    _phantom: core::marker::PhantomData<&'a T>,
 }
 
-impl<'a, T: Copy> CopySlice {
+impl<'a, T: Copy> CopySlice<'a, T> {
     pub fn new(buf: &'a [T]) -> CopySlice<'a, T> {
         CopySlice{
             ptr: buf.as_ptr() as *mut T,
             len: buf.len(),
+            _phantom: core::marker::PhantomData,
         }
     }
 
@@ -19,7 +21,7 @@ impl<'a, T: Copy> CopySlice {
 
     pub fn as_mut(&self) -> &'a mut [T] {
         unsafe {
-            slice::from_raw_parts(self.ptr, self.len)
+            core::slice::from_raw_parts_mut(self.ptr, self.len)
         }
     }
 }

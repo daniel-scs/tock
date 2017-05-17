@@ -14,7 +14,7 @@ pub struct SimpleClient<'a, C: 'a> {
     controller: &'a C,
     state: RefCell<State>,
     ep0_buf: VolatileSlice<u8>,
-    descr_storage: [u8; 100],
+    descriptor_storage: &'a [u8],
 }
 
 enum State {
@@ -34,6 +34,7 @@ impl<'a, C: UsbController> SimpleClient<'a, C> {
             controller: controller,
             state: RefCell::new(State::Init),
             ep0_buf: VolatileSlice::new(EP0_BUF),
+            descriptor_storage: &[0; 100],
         }
     }
 
@@ -80,7 +81,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                             },
                             DescriptorType::Configuration => match descriptor_index {
                                 0 => {
-                                    let s = CopySlice::new(DESCRIPTOR_STORAGE);
+                                    let s = CopySlice::new(self.descriptor_storage);
                                     let d = ConfigurationDescriptor::place(s.as_mut(),
                                                1, // num interfaces
                                                0, // config value
@@ -90,11 +91,12 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                                0  // length of related descriptors
                                                );
                                     self.map_state(|state| {
-                                        *state = State::CtrlIn{ buf: DESCRIPTOR_STORAGE.as_ref() };
+                                        *state = State::CtrlIn{ buf: d.as_bytes() };
                                     });
                                     true
                                 }
                                 _ => false,
+                            },
                             DescriptorType::String => {
                                 if let Some(buf) = match descriptor_index {
                                                        0 => Some(LANG0_DESCRIPTOR),
@@ -117,7 +119,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                 }
                             }
                             _ => false,
-                        }
+                        } // match descriptor_type
                     }
                     StandardDeviceRequest::SetAddress{device_address} => {
                         // Load the address we've been assigned ...
@@ -182,7 +184,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     }
 }
 
-static DESCRIPTOR_STORAGE: &'static [u8] = &[0; 100];
+// static DESCRIPTOR_STORAGE: &'static [u8] = &[0; 100];
 
 static LANG0_DESCRIPTOR: &'static [u8] =
     &[ 4, // Length

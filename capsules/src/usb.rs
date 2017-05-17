@@ -1,7 +1,7 @@
 //! Platform-independent USB 2.1 protocol library
 
 use core::fmt;
-use core::convert{From};
+use core::convert::From;
 
 #[derive(Debug)]
 #[repr(C, packed)]
@@ -251,16 +251,20 @@ impl FeatureSelector {
 }
 
 pub trait Descriptor {
-    pub fn size() -> usize;
+    fn size() -> usize;
 }
 
-pub struct<'a> ConfigurationDescriptor(&'a [u8]);
+pub struct ConfigurationDescriptor<'a>(&'a [u8]);
 
 impl<'a> Descriptor for ConfigurationDescriptor<'a> {
     fn size() -> usize { 9 }
 }
 
 impl<'a> ConfigurationDescriptor<'a> {
+    pub fn as_bytes(&self) -> &'a [u8] {
+        self.0
+    }
+
     pub fn place(buf: &'a mut [u8],
                  num_interfaces: u8,
                  configuration_value: u8,
@@ -279,7 +283,7 @@ impl<'a> ConfigurationDescriptor<'a> {
 
         b[0] = 9; // Size of descriptor
         b[1] = DescriptorType::Configuration as u8;
-        put_u16(b[2..4], 9 + related_descriptor_length); // Total length
+        put_u16(&mut b[2..4], (9 + related_descriptor_length) as u16);
         b[4] = num_interfaces;
         b[5] = configuration_value;
         b[6] = string_index;
@@ -290,12 +294,12 @@ impl<'a> ConfigurationDescriptor<'a> {
     }
 }
 
-fn put_u16<'a>(buf: 'a mut [u8], n: u16) {
+fn put_u16<'a>(buf: &'a mut [u8], n: u16) {
     if buf.len() != 2 {
         panic!("Wrong length");
     }
-    buf[0] = n & 0xff;
-    buf[1] = n >> 8;
+    buf[0] = (n & 0xff) as u8;
+    buf[1] = (n >> 8) as u8;
 }
 
 pub struct ConfigurationAttributes(u8);
@@ -303,11 +307,12 @@ pub struct ConfigurationAttributes(u8);
 impl ConfigurationAttributes {
     pub fn new(is_self_powered: bool, supports_remote_wakeup: bool) -> Self {
         ConfigurationAttributes(if is_self_powered { 1 << 6 } else { 0 }
-                                | if supports_remote_wakeup { 1 << 5 } else { 0 });
-
+                                | if supports_remote_wakeup { 1 << 5 } else { 0 })
     }
 }
 
-impl From(ConfigurationAttributes) for u8 {
-    fn from(ca) -> u8 { ca.0 }
+impl From<ConfigurationAttributes> for u8 {
+    fn from(ca: ConfigurationAttributes) -> u8 {
+        ca.0
+    }
 }
