@@ -81,17 +81,34 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                             },
                             DescriptorType::Configuration => match descriptor_index {
                                 0 => {
+                                    // Place all the descriptors related to this configuration
+                                    // into a buffer contiguously, starting with the last
+
+                                    let mut storage_avail = DESCRIPTOR_STORAGE.len();
+
                                     let s = CopySlice::new(DESCRIPTOR_STORAGE);
+                                    let d = InterfaceDescriptor::place(s.as_mut(),
+                                                0,    // interface_number
+                                                0,    // alternate_setting
+                                                0,    // num_endpoints (exluding default control endpoint)
+                                                0xff, // interface_class = vendor_specific
+                                                0xab, // interface_subclass
+                                                0,    // interface protocol
+                                                0);   // string index
+                                    storage_avail -= d.len();
+
+                                    let s = CopySlice::new(&DESCRIPTOR_STORAGE[.. storage_avail]);
                                     let d = ConfigurationDescriptor::place(s.as_mut(),
-                                               1, // num interfaces
-                                               0, // config value
-                                               0, // string index
+                                               1,  // num interfaces
+                                               0,  // config value
+                                               0,  // string index
                                                ConfigurationAttributes::new(true, false),
-                                               0, // max power
-                                               0  // length of related descriptors
-                                               );
+                                               0,  // max power
+                                               0); // length of related descriptors
+                                    storage_avail -= d.len();
+
                                     self.map_state(|state| {
-                                        *state = State::CtrlIn{ buf: d.as_bytes() };
+                                        *state = State::CtrlIn{ buf: &DESCRIPTOR_STORAGE[storage_avail ..] };
                                     });
                                     true
                                 }

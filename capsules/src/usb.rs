@@ -252,19 +252,19 @@ impl FeatureSelector {
 
 pub trait Descriptor {
     fn size() -> usize;
+    fn as_bytes(&self) -> &[u8];
+    fn len(&self) -> usize;
 }
 
 pub struct ConfigurationDescriptor<'a>(&'a [u8]);
 
 impl<'a> Descriptor for ConfigurationDescriptor<'a> {
     fn size() -> usize { 9 }
+    fn as_bytes(&self) -> &[u8] { self.0 }
+    fn len(&self) -> usize { self.0.len() }
 }
 
 impl<'a> ConfigurationDescriptor<'a> {
-    pub fn as_bytes(&self) -> &'a [u8] {
-        self.0
-    }
-
     pub fn place(buf: &'a mut [u8],
                  num_interfaces: u8,
                  configuration_value: u8,
@@ -294,14 +294,6 @@ impl<'a> ConfigurationDescriptor<'a> {
     }
 }
 
-fn put_u16<'a>(buf: &'a mut [u8], n: u16) {
-    if buf.len() != 2 {
-        panic!("Wrong length");
-    }
-    buf[0] = (n & 0xff) as u8;
-    buf[1] = (n >> 8) as u8;
-}
-
 pub struct ConfigurationAttributes(u8);
 
 impl ConfigurationAttributes {
@@ -315,4 +307,52 @@ impl From<ConfigurationAttributes> for u8 {
     fn from(ca: ConfigurationAttributes) -> u8 {
         ca.0
     }
+}
+
+pub struct InterfaceDescriptor<'a>(&'a [u8]);
+
+impl <'a> Descriptor for InterfaceDescriptor<'a> {
+    fn size() -> usize { 9 }
+    fn as_bytes(&self) -> &[u8] { self.0 }
+    fn len(&self) -> usize { self.0.len() }
+}
+
+impl<'a> InterfaceDescriptor<'a> {
+    pub fn place(buf: &'a mut [u8],
+                 interface_number: u8,
+                 alternate_setting: u8,
+                 num_endpoints: u8,
+                 interface_class: u8,
+                 interface_subclass: u8,
+                 interface_protocol: u8,
+                 string_index: u8
+                 ) -> Self {
+
+        // Deposit the descriptor at the end of the provided buffer
+        if buf.len() < 9 {
+            panic!("Not enough room to allocate");
+        }
+        let len = buf.len();
+        let buf = &mut buf[len - 9 ..];
+
+        buf[0] = 9; // Size of descriptor
+        buf[1] = DescriptorType::Interface as u8;
+        buf[2] = interface_number;
+        buf[3] = alternate_setting;
+        buf[4] = num_endpoints;
+        buf[5] = interface_class;
+        buf[6] = interface_subclass;
+        buf[7] = interface_protocol;
+        buf[8] = string_index;
+
+        InterfaceDescriptor(buf)
+    }
+}
+
+fn put_u16<'a>(buf: &'a mut [u8], n: u16) {
+    if buf.len() != 2 {
+        panic!("Wrong length");
+    }
+    buf[0] = (n & 0xff) as u8;
+    buf[1] = (n >> 8) as u8;
 }
