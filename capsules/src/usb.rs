@@ -274,23 +274,23 @@ impl<'a> ConfigurationDescriptor<'a> {
                  related_descriptor_length: usize,
                  ) -> Self {
 
+        // Deposit the descriptor at the end of the provided buffer
         if buf.len() < 9 {
             panic!("Not enough room to allocate");
         }
+        let len = buf.len();
+        let buf = &mut buf[len - 9 ..];
 
-        // Deposit the descriptor at the end of the provided buffer
-        let b = &mut buf[buf.len() - 9 ..];
+        buf[0] = 9; // Size of descriptor
+        buf[1] = DescriptorType::Configuration as u8;
+        put_u16(&mut buf[2..4], (9 + related_descriptor_length) as u16);
+        buf[4] = num_interfaces;
+        buf[5] = configuration_value;
+        buf[6] = string_index;
+        buf[7] = From::from(attributes);
+        buf[8] = max_power;
 
-        b[0] = 9; // Size of descriptor
-        b[1] = DescriptorType::Configuration as u8;
-        put_u16(&mut b[2..4], (9 + related_descriptor_length) as u16);
-        b[4] = num_interfaces;
-        b[5] = configuration_value;
-        b[6] = string_index;
-        b[7] = From::from(attributes);
-        b[8] = max_power;
-
-        ConfigurationDescriptor(b)
+        ConfigurationDescriptor(buf)
     }
 }
 

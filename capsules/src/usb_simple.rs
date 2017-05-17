@@ -14,7 +14,6 @@ pub struct SimpleClient<'a, C: 'a> {
     controller: &'a C,
     state: RefCell<State>,
     ep0_buf: VolatileSlice<u8>,
-    descriptor_storage: &'a [u8],
 }
 
 enum State {
@@ -28,13 +27,14 @@ enum State {
 /// Storage for endpoint 0 packets
 static EP0_BUF: &'static [u8] = &[0; 8];
 
+static DESCRIPTOR_STORAGE: &'static [u8] = &[0; 100];
+
 impl<'a, C: UsbController> SimpleClient<'a, C> {
     pub fn new(controller: &'a C) -> Self {
         SimpleClient{
             controller: controller,
             state: RefCell::new(State::Init),
             ep0_buf: VolatileSlice::new(EP0_BUF),
-            descriptor_storage: &[0; 100],
         }
     }
 
@@ -81,7 +81,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                             },
                             DescriptorType::Configuration => match descriptor_index {
                                 0 => {
-                                    let s = CopySlice::new(self.descriptor_storage);
+                                    let s = CopySlice::new(DESCRIPTOR_STORAGE);
                                     let d = ConfigurationDescriptor::place(s.as_mut(),
                                                1, // num interfaces
                                                0, // config value
