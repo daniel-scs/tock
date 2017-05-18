@@ -281,7 +281,7 @@ impl<'a> Usbc<'a> {
         // Specify which endpoint interrupts we want, among:
         //      TXIN | RXOUT | RXSTP | NAKOUT | NAKIN |
         //      ERRORF | STALLED | CRCERR | RAMACERR
-        endpoint_enable_only_interrupts(endpoint, RXSTP | ERRORF | STALLED | CRCERR | RAMACERR);
+        endpoint_enable_only_interrupts(endpoint, RXSTP | ERRORF | CRCERR | RAMACERR);
     }
 
     /// Set a client to receive data from the USBC
@@ -430,12 +430,12 @@ impl<'a> Usbc<'a> {
                         debug!("D({}) RXSTP", endpoint);
                         self.debug_show_d0();
 
-                        let ok = self.client.map(|c| {
+                        let result = self.client.map(|c| {
                             c.ctrl_setup()
                         });
 
-                        match ok {
-                            Some(true) => {
+                        match result {
+                            Some(CtrlSetupResult::Ok) => {
                                 endpoint_disable_interrupts(endpoint, RXSTP);
 
                                 if status & CTRLDIR != 0 {
@@ -460,10 +460,16 @@ impl<'a> Usbc<'a> {
                                     endpoint_enable_interrupts(endpoint, RXOUT | NAKIN);
                                 }
                             }
-                            _ => {
+                            failure => {
                                 // Respond with STALL to any following transactions in this request
-                                // XXX should use per-endpoint stall, or clear STALLRQ on STALLED?
                                 UECONnSET.n(endpoint).write(STALLRQ);
+
+                                match failure {
+                                    Some(CtrlSetupResult::Error(err)) =>
+                                        debug!("D({}) Client err on Setup: {}", endpoint, err),
+                                    _ =>
+                                        debug!("D({}) No client to handle Setup", endpoint),
+                                }
 
                                 // Remain in DeviceState::Init for next SETUP
                             }
@@ -540,8 +546,10 @@ impl<'a> Usbc<'a> {
                             }
                             _ => {
                                 // Respond with STALL to any following IN/OUT transactions
-                                // XXX should use per-endpoint stall, or clear STALLRQ on STALLED?
                                 UECONnSET.n(endpoint).write(STALLRQ);
+
+                                debug!("D({}) Client IN err => STALL", endpoint);
+
                                 *dstate = DeviceState::Init;
                             }
                         }
@@ -790,13 +798,13 @@ impl fmt::Debug for UestaFlags {
             write!(f, "NAKIN ");
         }
         if w & STALLED != 0 {
-            write!(f, "STALLED ");
+            write!(f, "STALLED");
         }
         if w & CRCERR != 0 {
-            write!(f, "CRCERR");
+            write!(f, "/CRCERR ");
         }
         if w & RAMACERR != 0 {
-            write!(f, "/RAMACERR ");
+            write!(f, "RAMACERR ");
         }
         write!(f, "NBUSYBK={} ", (w >> 12) & 0x3);
         write!(f, "CURBK={} ", (w >> 14) & 0x3);

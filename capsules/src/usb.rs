@@ -3,7 +3,7 @@
 use core::fmt;
 use core::convert::From;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct SetupData {
     pub request_type: DeviceRequestType,

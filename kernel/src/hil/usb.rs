@@ -23,11 +23,16 @@ pub trait Client {
     fn attach(&self);
     fn bus_reset(&self);
 
-    fn ctrl_setup(&self) -> bool;
+    fn ctrl_setup(&self) -> CtrlSetupResult;
     fn ctrl_in(&self) -> CtrlInResult;
     fn ctrl_out(&self, packet_bytes: u32) -> CtrlOutResult;
     fn ctrl_status(&self);
     fn ctrl_status_complete(&self);
+}
+
+pub enum CtrlSetupResult {
+    Ok,
+    Error(&'static str),
 }
 
 pub enum CtrlInResult {

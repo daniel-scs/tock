@@ -67,12 +67,14 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
         /* Reconfigure */
     }
 
-    fn ctrl_setup(&self) -> bool {
+    fn ctrl_setup(&self) -> CtrlSetupResult {
         let buf: &mut [u8] = &mut [0; 8];
         copy_from_volatile_slice(buf, self.ep0_buf);
 
-        SetupData::get(buf).map_or(false, |setup_data| {
-            setup_data.get_standard_request().map_or(false, |request| {
+        SetupData::get(buf).map_or(CtrlSetupResult::Error("Couldn't parse setup data"), |setup_data| {
+            setup_data.get_standard_request().map_or_else(
+                || { CtrlSetupResult::Error(static_fmt!("Nonstandard request: {:?}", setup_data)) },
+                |request| {
                 match request {
                     StandardDeviceRequest::GetDescriptor{ descriptor_type, descriptor_index, lang_id } => {
                         match descriptor_type {
@@ -83,9 +85,9 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                         let len = DeviceDescriptor::default().write_to(s.as_mut());
                                         *state = State::CtrlIn{ buf: &DESCRIPTOR_STORAGE[ .. len] };
                                     });
-                                    true
+                                    CtrlSetupResult::Ok
                                 }
-                                _ => false,
+                                _ => CtrlSetupResult::Error("GetDescriptor: invalid Device index"),
                             },
                             DescriptorType::Configuration => match descriptor_index {
                                 0 => {
@@ -118,42 +120,42 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                     self.map_state(|state| {
                                         *state = State::CtrlIn{ buf: &DESCRIPTOR_STORAGE[storage_avail ..] };
                                     });
-                                    true
+                                    CtrlSetupResult::Ok
                                 }
-                                _ => false,
+                                _ => CtrlSetupResult::Error("GetDescriptor: invalid Configuration index"),
                             },
                             DescriptorType::String => {
                                 if let Some(buf) = match descriptor_index {
-                                                       0 => {
-                                                            let mut storage_avail = DESCRIPTOR_STORAGE.len();
-                                                            let s = CopySlice::new(DESCRIPTOR_STORAGE);
-                                                            let d = LanguagesDescriptor::place(s.as_mut(), LANGUAGES);
-                                                            storage_avail -= d.len();
-                                                            Some(&DESCRIPTOR_STORAGE[storage_avail ..])
-                                                       }
-                                                       1 => if lang_id == LANGUAGES[0] {
-                                                                let mut storage_avail = DESCRIPTOR_STORAGE.len();
-                                                                let s = CopySlice::new(DESCRIPTOR_STORAGE);
-                                                                let d = StringDescriptor::place(s.as_mut(), MANUFACTURER_STRING);
-                                                                storage_avail -= d.len();
-                                                                Some(&DESCRIPTOR_STORAGE[storage_avail ..])
-                                                            }
-                                                            else {
-                                                                None
-                                                            },
-                                                       _ => None,
-                                                   }
+                                       0 => {
+                                            let mut storage_avail = DESCRIPTOR_STORAGE.len();
+                                            let s = CopySlice::new(DESCRIPTOR_STORAGE);
+                                            let d = LanguagesDescriptor::place(s.as_mut(), LANGUAGES);
+                                            storage_avail -= d.len();
+                                            Some(&DESCRIPTOR_STORAGE[storage_avail ..])
+                                       }
+                                       1 => if lang_id == LANGUAGES[0] {
+                                                let mut storage_avail = DESCRIPTOR_STORAGE.len();
+                                                let s = CopySlice::new(DESCRIPTOR_STORAGE);
+                                                let d = StringDescriptor::place(s.as_mut(), MANUFACTURER_STRING);
+                                                storage_avail -= d.len();
+                                                Some(&DESCRIPTOR_STORAGE[storage_avail ..])
+                                            }
+                                            else {
+                                                None
+                                            },
+                                       _ => None,
+                                   }
                                 {
                                     self.map_state(|state| {
                                         *state = State::CtrlIn{ buf: buf };
                                     });
-                                    true
+                                    CtrlSetupResult::Ok
                                 }
                                 else {
-                                    false
+                                    CtrlSetupResult::Error("GetDescriptor: invalid String index")
                                 }
                             }
-                            _ => false,
+                            _ => CtrlSetupResult::Error("GetDescriptor: unrecognized descriptor type"),
                         } // match descriptor_type
                     }
                     StandardDeviceRequest::SetAddress{device_address} => {
@@ -165,9 +167,9 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                         self.map_state(|state| {
                             *state = State::SetAddress;
                         });
-                        true
+                        CtrlSetupResult::Ok
                     }
-                    _ => false
+                    _ => CtrlSetupResult::Error(static_fmt!("Unrecognized request type: {:?}", setup_data)),
                 }
             })
         })
