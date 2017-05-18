@@ -16,6 +16,13 @@ impl<T: Copy> VolatileSlice<T> {
         }
     }
 
+    pub fn new_mut(buf: &'static mut [T]) -> VolatileSlice<T> {
+        VolatileSlice{
+            ptr: buf.as_mut_ptr(),
+            len: buf.len(),
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.len
     }

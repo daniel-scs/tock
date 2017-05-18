@@ -8,6 +8,14 @@ use capsules;
 use sam4l;
 
 pub fn test() {
+
+    let buf = unsafe {
+        static mut BUF: [u8; 8] = [0xee; 8];
+        &mut BUF
+    };
+    let p = buf.as_mut_ptr();
+    debug!("*** BUF @ {:?} / {:8x}", p, p as u32);
+
     unsafe {
         let client = static_init!(
             capsules::usb_simple::SimpleClient<'static, sam4l::usbc::Usbc<'static>>,

@@ -22,6 +22,7 @@ pub trait Client {
     fn enable(&self);
     fn attach(&self);
     fn bus_reset(&self);
+    fn set_buffers(&self);
 
     fn ctrl_setup(&self) -> CtrlSetupResult;
     fn ctrl_in(&self) -> CtrlInResult;

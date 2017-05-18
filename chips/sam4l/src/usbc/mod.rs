@@ -28,6 +28,7 @@ macro_rules! client_err {
 }
 
 /// State for managing the USB controller
+#[repr(C, packed)]
 pub struct Usbc<'a> {
     client: Option<&'a hil::usb::Client>,
     state: MapCell<State>,
@@ -48,8 +49,7 @@ impl<'a> UsbController for Usbc<'a> {
         if buf.len() != 8 {
             panic!("Bad endpoint buffer size");
         }
-        let p = buf.as_mut_ptr();
-        self.endpoint_bank_set_buffer(EndpointIndex::new(e), BankIndex::Bank0, p);
+        self.endpoint_bank_set_buffer(EndpointIndex::new(e), BankIndex::Bank0, buf);
     }
 
     fn endpoint_ctrl_out_enable(&self, e: u32) {
@@ -227,11 +227,13 @@ impl<'a> Usbc<'a> {
     }
 
     pub fn endpoint_bank_set_buffer(&self, endpoint: EndpointIndex, bank: BankIndex,
-                                    buf: *mut u8) {
+                                    buf: VolatileSlice<u8>) {
         let e: usize = From::from(endpoint);
         let b: usize = From::from(bank);
+        let p = buf.as_mut_ptr();
 
-        self.descriptors[e][b].set_addr(buf);
+        debug!("Set Endpoint{}/Bank{} addr={:8?}", e, b, p);
+        self.descriptors[e][b].set_addr(p);
         self.descriptors[e][b].set_packet_size(PacketSize::default());
     }
 
@@ -315,6 +317,7 @@ impl<'a> Usbc<'a> {
     }
 
     fn handle_device_interrupt(&mut self, speed: Speed, config: &Option<EndpointConfig>, dstate: &mut DeviceState) {
+
         let udint: u32 = UDINT.read();
 
         let p = self.descriptors[0][0].addr.get();
@@ -330,7 +333,10 @@ impl<'a> Usbc<'a> {
             }
 
             // Alert the client
-            self.client.map(|client| { client.bus_reset() });
+            self.client.map(|client| {
+                client.bus_reset();
+                client.set_buffers(); // XXX Shouldn't be necessary
+            });
             debug!("USB Bus Reset");
             debug_regs();
 
@@ -341,7 +347,7 @@ impl<'a> Usbc<'a> {
             *dstate = DeviceState::Init;
 
             // Don't process any more interrupt flags right now
-            return;
+            // return;
         }
 
         if udint & UDINT_SUSP != 0 {
@@ -359,13 +365,13 @@ impl<'a> Usbc<'a> {
             // occur regardless of whether the controller is in the suspend mode or not."
 
             // Subscribe to WAKEUP
-            UDINTSET.write(UDINT_WAKEUP);
+            UDINTESET.write(UDINT_WAKEUP);
 
             // Acknowledge the "suspend" event
             UDINTCLR.write(UDINT_SUSP);
 
             // Don't process any more interrupt flags right now
-            return;
+            // return;
         }
 
         if udint & UDINT_WAKEUP != 0 {
@@ -430,9 +436,16 @@ impl<'a> Usbc<'a> {
                         debug!("D({}) RXSTP", endpoint);
                         self.debug_show_d0();
 
-                        let result = self.client.map(|c| {
-                            c.ctrl_setup()
-                        });
+                        let packet_bytes = self.descriptors[0][0].packet_size.get().byte_count();
+                        let result =
+                            if packet_bytes == 8 {
+                                self.client.map(|c| {
+                                    c.ctrl_setup()
+                                })
+                            }
+                            else {
+                                Some(CtrlSetupResult::Error("Bad byte count"))
+                            };
 
                         match result {
                             Some(CtrlSetupResult::Ok) => {
@@ -647,6 +660,9 @@ impl<'a> Usbc<'a> {
                 }
             } // match dstate
         } // for endpoint
+
+        self.client.map(|c| { c.set_buffers() }); // XXX DEBUG
+
     } // handle_device_interrupt
 
     fn debug_show_d0(&self) {
@@ -658,7 +674,9 @@ impl<'a> Usbc<'a> {
                       }
                       else {
                         unsafe { Some(slice::from_raw_parts(addr,
-                                        b.packet_size.get().byte_count() as usize)) }
+                                        8 // XXX
+                                        // b.packet_size.get().byte_count() as usize
+                                      )) }
                       };
 
             debug!("B_0_{} @ {:?}: \
@@ -716,6 +734,7 @@ fn debug_regs() {
             \n    USBFSM={:08x}\
             \n    USBCON={:08x}\
             \n    USBSTA={:08x}\
+            \n     UDESC={:08x}\
             \n     UDCON={:08x}\
             \n    UDINTE={:08x}\
             \n     UDINT={:08x}\
@@ -726,6 +745,7 @@ fn debug_regs() {
            USBFSM.read(),
            USBCON.read(),
            USBSTA.read(),
+           UDESC.read(),
            UDCON.read(),
            UDINTE.read(),
            UDINT.read(),

@@ -8,13 +8,13 @@ build = "build.rs"
 panic = "abort"
 lto = true
 opt-level = "s"
-debug = true
+debug = false
 
 [profile.release]
 panic = "abort"
 lto = true
 opt-level = "s"
-debug = true
+debug = false
 
 [dependencies]
 rust-libcore = "*"

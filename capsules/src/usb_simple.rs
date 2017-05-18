@@ -25,7 +25,7 @@ enum State {
 }
 
 /// Storage for endpoint 0 packets
-static EP0_BUF: &'static [u8] = &[0; 8];
+// static EP0_BUF: &'static [u8] = &[0; 8];
 
 static DESCRIPTOR_STORAGE: &'static [u8] = &[0; 100];
 
@@ -37,10 +37,14 @@ static MANUFACTURER_STRING: &'static str = "XYZ Corp.";
 
 impl<'a, C: UsbController> SimpleClient<'a, C> {
     pub fn new(controller: &'a C) -> Self {
+        let storage = static_bytes_8();
+        let buf = VolatileSlice::new_mut(storage);
+        buf.copy_from_slice(&[0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7]);
+
         SimpleClient{
             controller: controller,
             state: RefCell::new(State::Init),
-            ep0_buf: VolatileSlice::new(EP0_BUF),
+            ep0_buf: buf,
         }
     }
 
@@ -64,11 +68,15 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     }
 
     fn bus_reset(&self) {
-        /* Reconfigure */
+        /* XXX: Reconfigure */
+    }
+
+    fn set_buffers(&self) {
+        self.controller.endpoint_set_buffer(0, self.ep0_buf);
     }
 
     fn ctrl_setup(&self) -> CtrlSetupResult {
-        let buf: &mut [u8] = &mut [0; 8];
+        let buf: &mut [u8] = &mut [0xff; 8];
         copy_from_volatile_slice(buf, self.ep0_buf);
 
         SetupData::get(buf).map_or(CtrlSetupResult::Error("Couldn't parse setup data"), |setup_data| {

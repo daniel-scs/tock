@@ -19,17 +19,12 @@ impl SetupData {
         if buf.len() != 8 {
             return None;
         }
-        let (rt, buf) = buf.split_at(1);
-        let (rc, buf) = buf.split_at(1);
-        let (vl, buf) = buf.split_at(2);
-        let (ix, buf) = buf.split_at(2);
-        let ln = buf;
         Some(SetupData {
-            request_type: DeviceRequestType(rt[0]),
-            request_code: rc[0],
-            value: get_u16(vl).unwrap(),
-            index: get_u16(ix).unwrap(),
-            length: get_u16(ln).unwrap(),
+            request_type: DeviceRequestType(buf[0]),
+            request_code: buf[1],
+            value: get_u16(&buf[2..4]).unwrap(),
+            index: get_u16(&buf[4..6]).unwrap(),
+            length: get_u16(&buf[6..8]).unwrap(),
         })
     }
 

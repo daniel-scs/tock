@@ -1,7 +1,7 @@
 use core;
 use core::fmt::{Write, Result};
 
-const STORAGE_SIZE: usize = 500;
+const STORAGE_SIZE: usize = 100;
 
 #[derive(Copy, Clone)]
 pub struct StaticCursor {

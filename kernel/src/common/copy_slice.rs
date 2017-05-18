@@ -25,3 +25,10 @@ impl<'a, T: Copy> CopySlice<'a, T> {
         }
     }
 }
+
+pub fn static_bytes_8() -> &'static mut [u8] {
+    unsafe {
+        static mut STORAGE: [u8; 8] = [0xee; 8];
+        &mut STORAGE
+    }
+}
