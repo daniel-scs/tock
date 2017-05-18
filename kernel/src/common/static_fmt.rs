@@ -1,30 +1,25 @@
 use core;
 use core::fmt::{Write, Result};
 
-const STORAGE_BYTES: usize = 500;
-static STORAGE_ARRAY: [u8; STORAGE_BYTES] = [b'X'; STORAGE_BYTES];
-static STORAGE: &'static [u8] = &STORAGE_ARRAY;
+const STORAGE_SIZE: usize = 500;
 
 #[derive(Copy, Clone)]
-pub struct StaticCursor { len: usize }
+pub struct StaticCursor {
+    buf: &'static [u8],
+}
 
 impl StaticCursor {
     pub fn new() -> Self {
-        StaticCursor{ len: 0 }
+        StaticCursor{
+            buf: b""
+        }
     }
 }
 
 impl StaticCursor {
     pub fn as_str(&self) -> &'static str {
         unsafe {
-            static mut BUF: &'static mut [u8; STORAGE_BYTES] = &mut [b'Y'; STORAGE_BYTES];
-            let mut sto_p = STORAGE.as_ptr();
-            for b in BUF.iter_mut() {
-                *b = core::ptr::read_volatile(sto_p);
-                sto_p = sto_p.offset(1);
-            }
-
-            core::str::from_utf8_unchecked(&BUF[ .. self.len])
+            core::str::from_utf8_unchecked(self.buf)
         }
     }
 }
@@ -32,24 +27,22 @@ impl StaticCursor {
 impl Write for StaticCursor {
     fn write_str(&mut self, s: &str) -> Result {
         unsafe {
+            static mut BUF: [u8; STORAGE_SIZE] = [b'X'; STORAGE_SIZE];
+
+            let mut len = self.buf.len();
+
             let sb = s.as_bytes();
-            if self.len + sb.len() > STORAGE_BYTES {
+            if len + sb.len() > STORAGE_SIZE {
                 panic!("static_fmt: overflow");
             }
-            let mut sto_p = STORAGE.as_ptr() as *mut u8;
 
-            sto_p = sto_p.offset(self.len as isize);
-            for b in sb.iter() {
-                core::ptr::write_volatile(sto_p, *b);
-                sto_p = sto_p.offset(1);
+            let buf = &mut BUF[ len .. ];
+            for (i, b) in sb.iter().enumerate() {
+                buf[i] = *b;
             }
-            /*
-            core::intrinsics::copy_nonoverlapping(sb.as_ptr(),
-                                                  sto_p.offset(self.len as isize),
-                                                  sb.len());
-            */
+            len += sb.len();
 
-            self.len += sb.len();
+            self.buf = &BUF[ .. len ];
         }
         Ok(())
     }
