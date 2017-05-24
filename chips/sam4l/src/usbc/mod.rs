@@ -335,7 +335,7 @@ impl<'a> Usbc<'a> {
             // Alert the client
             self.client.map(|client| {
                 client.bus_reset();
-                client.set_buffers(); // XXX Shouldn't be necessary
+                // client.set_buffers(); // XXX Shouldn't be necessary
             });
             debug!("USB Bus Reset");
             debug_regs();
@@ -661,7 +661,7 @@ impl<'a> Usbc<'a> {
             } // match dstate
         } // for endpoint
 
-        self.client.map(|c| { c.set_buffers() }); // XXX DEBUG
+        // self.client.map(|c| { c.set_buffers() }); // XXX DEBUG
 
     } // handle_device_interrupt
 
@@ -679,11 +679,12 @@ impl<'a> Usbc<'a> {
                                       )) }
                       };
 
-            debug!("B_0_{} @ {:?}: \
+            debug!("B_0_{} addr<{:?}> = {:?}: \
                    \n     {:?}\
                    \n     {:?}\
                    \n     {:?}",
-                   bi, b.addr.get(), b.packet_size.get(), b.ctrl_status.get(),
+                   bi, (&b.addr as *const _), b.addr.get(),
+                   b.packet_size.get(), b.ctrl_status.get(),
                    buf.map(HexBuf));
         }
     }

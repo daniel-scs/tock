@@ -77,20 +77,6 @@ pub struct Bank {
     _pad: u32,
 }
 
-pub enum BankIndex {
-    Bank0,
-    Bank1,
-}
-
-impl From<BankIndex> for usize {
-    fn from(bi: BankIndex) -> usize {
-        match bi {
-            BankIndex::Bank0 => 0,
-            BankIndex::Bank1 => 1,
-        }
-    }
-}
-
 impl Bank {
     pub const fn new() -> Bank {
         Bank { addr: VolatileCell::new(ptr::null_mut()),
@@ -106,6 +92,20 @@ impl Bank {
 
     pub fn set_packet_size(&self, size: PacketSize) {
         self.packet_size.set(size);
+    }
+}
+
+pub enum BankIndex {
+    Bank0,
+    Bank1,
+}
+
+impl From<BankIndex> for usize {
+    fn from(bi: BankIndex) -> usize {
+        match bi {
+            BankIndex::Bank0 => 0,
+            BankIndex::Bank1 => 1,
+        }
     }
 }
 

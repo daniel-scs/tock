@@ -14,7 +14,7 @@ debug = false
 panic = "abort"
 lto = true
 opt-level = "s"
-debug = false
+debug = true
 
 [dependencies]
 rust-libcore = "*"
