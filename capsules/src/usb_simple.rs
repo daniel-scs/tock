@@ -14,6 +14,7 @@ pub struct SimpleClient<'a, C: 'a> {
     controller: &'a C,
     state: RefCell<State>,
     ep0_buf: VolatileSlice<u8>,
+    descriptor_storage: CopySlice<'static, u8>,
 }
 
 enum State {
@@ -23,11 +24,6 @@ enum State {
     },
     SetAddress,
 }
-
-/// Storage for endpoint 0 packets
-// static EP0_BUF: &'static [u8] = &[0; 8];
-
-static DESCRIPTOR_STORAGE: &'static [u8] = &[0; 100];
 
 static LANGUAGES: &'static [u16] = &[
     0x0409, // English (United States)
@@ -39,12 +35,12 @@ impl<'a, C: UsbController> SimpleClient<'a, C> {
     pub fn new(controller: &'a C) -> Self {
         let storage = static_bytes_8();
         let buf = VolatileSlice::new_mut(storage);
-        buf.prefix_copy_from_slice(&[0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7]);
 
         SimpleClient{
             controller: controller,
             state: RefCell::new(State::Init),
             ep0_buf: buf,
+            descriptor_storage: CopySlice::new(static_bytes_100()),
         }
     }
 
@@ -85,9 +81,8 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                             DescriptorType::Device => match descriptor_index {
                                 0 => {
                                     self.map_state(|state| {
-                                        let s = CopySlice::new(DESCRIPTOR_STORAGE);
-                                        let len = DeviceDescriptor::default().write_to(s.as_mut());
-                                        *state = State::CtrlIn{ buf: &DESCRIPTOR_STORAGE[ .. len] };
+                                        let len = DeviceDescriptor::default().write_to(self.descriptor_storage.as_mut());
+                                        *state = State::CtrlIn{ buf: &(self.descriptor_storage.as_slice())[ .. len] };
                                     });
                                     CtrlSetupResult::Ok
                                 }
@@ -98,10 +93,9 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                     // Place all the descriptors related to this configuration
                                     // into a buffer contiguously, starting with the last
 
-                                    let mut storage_avail = DESCRIPTOR_STORAGE.len();
-
-                                    let s = CopySlice::new(DESCRIPTOR_STORAGE);
-                                    let d = InterfaceDescriptor::place(s.as_mut(),
+                                    let mut storage_avail = self.descriptor_storage.len();
+                                    let s = self.descriptor_storage.as_mut();
+                                    let d = InterfaceDescriptor::place(s,
                                                 0,    // interface_number
                                                 0,    // alternate_setting
                                                 0,    // num_endpoints (exluding default control endpoint)
@@ -111,8 +105,8 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                                 0);   // string index
                                     storage_avail -= d.len();
 
-                                    let s = CopySlice::new(&DESCRIPTOR_STORAGE[.. storage_avail]);
-                                    let d = ConfigurationDescriptor::place(s.as_mut(),
+                                    let s = &mut self.descriptor_storage.as_mut()[.. storage_avail];
+                                    let d = ConfigurationDescriptor::place(s,
                                                1,  // num interfaces
                                                0,  // config value
                                                0,  // string index
@@ -122,7 +116,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                     storage_avail -= d.len();
 
                                     self.map_state(|state| {
-                                        *state = State::CtrlIn{ buf: &DESCRIPTOR_STORAGE[storage_avail ..] };
+                                        *state = State::CtrlIn{ buf: &self.descriptor_storage.as_slice()[storage_avail ..] };
                                     });
                                     CtrlSetupResult::Ok
                                 }
@@ -131,18 +125,18 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                             DescriptorType::String => {
                                 if let Some(buf) = match descriptor_index {
                                        0 => {
-                                            let mut storage_avail = DESCRIPTOR_STORAGE.len();
-                                            let s = CopySlice::new(DESCRIPTOR_STORAGE);
-                                            let d = LanguagesDescriptor::place(s.as_mut(), LANGUAGES);
+                                            let mut storage_avail = self.descriptor_storage.len();
+                                            let s = self.descriptor_storage.as_mut();
+                                            let d = LanguagesDescriptor::place(s, LANGUAGES);
                                             storage_avail -= d.len();
-                                            Some(&DESCRIPTOR_STORAGE[storage_avail ..])
+                                            Some(&self.descriptor_storage.as_slice()[storage_avail ..])
                                        }
                                        1 => if lang_id == LANGUAGES[0] {
-                                                let mut storage_avail = DESCRIPTOR_STORAGE.len();
-                                                let s = CopySlice::new(DESCRIPTOR_STORAGE);
-                                                let d = StringDescriptor::place(s.as_mut(), MANUFACTURER_STRING);
+                                                let mut storage_avail = self.descriptor_storage.len();
+                                                let s = self.descriptor_storage.as_mut();
+                                                let d = StringDescriptor::place(s, MANUFACTURER_STRING);
                                                 storage_avail -= d.len();
-                                                Some(&DESCRIPTOR_STORAGE[storage_avail ..])
+                                                Some(&self.descriptor_storage.as_slice()[storage_avail ..])
                                             }
                                             else {
                                                 None

@@ -382,7 +382,7 @@ pub unsafe fn reset_handler() {
 
     let usb_client = static_init!(
         capsules::usb_simple::SimpleClient<'static, sam4l::usbc::Usbc<'static>>,
-        capsules::usb_simple::SimpleClient::new(&sam4l::usbc::USBC), 224/8);
+        capsules::usb_simple::SimpleClient::new(&sam4l::usbc::USBC), 288/8);
     sam4l::usbc::USBC.set_client(usb_client);
 
     let imix = Imix {
@@ -413,8 +413,9 @@ pub unsafe fn reset_handler() {
 
     rf233.start();
 
-    usb_client.enable();
-    usb_client.attach();
+    // Test USB
+    imix.usb.enable();
+    imix.usb.attach();
 
     debug!("Initialization complete. Entering main loop");
     kernel::main(&imix, &mut chip, load_processes(), &imix.ipc);

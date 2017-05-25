@@ -24,11 +24,24 @@ impl<'a, T: Copy> CopySlice<'a, T> {
             core::slice::from_raw_parts_mut(self.ptr, self.len)
         }
     }
+
+    pub fn as_slice(&self) -> &'a [T] {
+        unsafe {
+            core::slice::from_raw_parts(self.ptr, self.len)
+        }
+    }
 }
 
 pub fn static_bytes_8() -> &'static mut [u8] {
     unsafe {
         static mut STORAGE: [u8; 8] = [0xee; 8];
+        &mut STORAGE
+    }
+}
+
+pub fn static_bytes_100() -> &'static mut [u8] {
+    unsafe {
+        static mut STORAGE: [u8; 100] = [0xee; 100];
         &mut STORAGE
     }
 }

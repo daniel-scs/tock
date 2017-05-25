@@ -63,11 +63,17 @@ impl<'a> UsbController for Usbc<'a> {
 
     fn set_address(&self, addr: u16) {
         // The hardware can do only 7-bit addresses
-        UDCON_UADD.write((addr as u8) & 0b1111111);
+        let addr = (addr as u8) & 0b1111111;
+
+        debug!("Set Address = {}", addr);
+
+        UDCON_UADD.write(addr);
         UDCON_ADDEN.write(false);
     }
 
     fn enable_address(&self) {
+        debug!("Enable Address = {}", UDCON.read() & 0b1111111);
+
         UDCON_ADDEN.write(true);
     }
 }
@@ -340,7 +346,7 @@ impl<'a> Usbc<'a> {
                 client.bus_reset();
             });
             debug!("USB Bus Reset");
-            // debug_regs();
+            debug_regs();
 
             // Acknowledge the interrupt
             UDINTCLR.write(UDINT_EORST);
@@ -471,6 +477,7 @@ impl<'a> Usbc<'a> {
 
                                     // Wait for OUT packets
                                     // Also, wait for NAKIN to signal end of OUT stage
+                                    UESTAnCLR.n(endpoint).write(RXOUT);
                                     UESTAnCLR.n(endpoint).write(NAKIN);
                                     endpoint_enable_interrupts(endpoint, RXOUT | NAKIN);
                                 }
@@ -613,6 +620,8 @@ impl<'a> Usbc<'a> {
                             _ => {
                                 // Respond with STALL to any following transactions in this request
                                 UECONnSET.n(endpoint).write(STALLRQ);
+
+                                debug!("D({}) Client OUT err => STALL", endpoint);
                             }
                         }
 
@@ -643,10 +652,12 @@ impl<'a> Usbc<'a> {
                         endpoint_disable_interrupts(endpoint, TXIN);
 
                         // XXX: Can we still stall this request or is it too late?
-                        self.client.map(|c| { c.ctrl_status() });
 
                         // Send zero-length packet to acknowledge transaction
                         self.descriptors[0][0].packet_size.set(PacketSize::single(0));
+
+                        // for SetAddress, need to enable address after sending ZLP
+                        self.client.map(|c| { c.ctrl_status() });
 
                         *dstate = DeviceState::Init;
 
