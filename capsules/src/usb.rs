@@ -281,7 +281,7 @@ impl DeviceDescriptor {
     pub fn write_to(&self, b: &mut [u8]) -> usize {
         b[0] = 18;
         b[1] = DescriptorType::Device as u8;
-        put_u16(&mut b[2..4], self.usb_release);
+        put_bcd(&mut b[2..4], self.usb_release);
         b[4] = self.class;
         b[5] = self.subclass;
         b[6] = self.protocol;
@@ -454,4 +454,12 @@ fn put_u16<'a>(buf: &'a mut [u8], n: u16) {
     }
     buf[0] = (n & 0xff) as u8;
     buf[1] = (n >> 8) as u8;
+}
+
+fn put_bcd<'a>(buf: &'a mut [u8], n: u16) {
+    if buf.len() != 2 {
+        panic!("Wrong length");
+    }
+    buf[0] = (n >> 8) as u8;
+    buf[1] = (n & 0xff) as u8;
 }
