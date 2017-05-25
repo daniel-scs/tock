@@ -95,28 +95,20 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
 
                                     let mut storage_avail = self.descriptor_storage.len();
                                     let s = self.descriptor_storage.as_mut();
-                                    let d = InterfaceDescriptor::place(s,
-                                                0,    // interface_number
-                                                0,    // alternate_setting
-                                                0,    // num_endpoints (exluding default control endpoint)
-                                                0xff, // interface_class = vendor_specific
-                                                0xab, // interface_subclass
-                                                0,    // interface protocol
-                                                0);   // string index
-                                    storage_avail -= d.len();
 
-                                    let s = &mut self.descriptor_storage.as_mut()[.. storage_avail];
-                                    let d = ConfigurationDescriptor::place(s,
-                                               1,  // num interfaces
-                                               0,  // config value
-                                               0,  // string index
-                                               ConfigurationAttributes::new(true, false),
-                                               0,  // max power
-                                               0); // length of related descriptors
-                                    storage_avail -= d.len();
+                                    let di = InterfaceDescriptor::default();
+                                    storage_avail -= di.write_to(&mut s[storage_avail - di.size() ..]);
+
+                                    let dc = ConfigurationDescriptor {
+                                                 num_interfaces: 1,
+                                                 related_descriptor_length: di.size(),
+                                                 .. Default::default() };
+                                    storage_avail -= dc.write_to(&mut s[storage_avail - dc.size() ..]);
 
                                     self.map_state(|state| {
-                                        *state = State::CtrlIn{ buf: &self.descriptor_storage.as_slice()[storage_avail ..] };
+                                        *state = State::CtrlIn{
+                                            buf: &self.descriptor_storage.as_slice()[storage_avail ..]
+                                        };
                                     });
                                     CtrlSetupResult::Ok
                                 }
@@ -124,6 +116,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                             },
                             DescriptorType::String => {
                                 if let Some(buf) = match descriptor_index {
+                                        /*
                                        0 => {
                                             let mut storage_avail = self.descriptor_storage.len();
                                             let s = self.descriptor_storage.as_mut();
@@ -141,6 +134,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                             else {
                                                 None
                                             },
+                                        */
                                        _ => None,
                                    }
                                 {

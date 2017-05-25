@@ -586,7 +586,6 @@ impl<'a> Usbc<'a> {
                         endpoint_disable_interrupts(endpoint, RXOUT);
 
                         debug!("D({}) RXOUT: End of Control Read transaction", endpoint);
-                        self.debug_show_d0();
                         self.client.map(|c| {
                             c.ctrl_status_complete()
                         });

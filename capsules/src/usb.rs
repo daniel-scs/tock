@@ -245,25 +245,32 @@ impl FeatureSelector {
     }
 }
 
-pub struct DeviceDescriptor {
-    usb_release: u16,
-    class: u8,
-    subclass: u8,
-    protocol: u8,
-    max_packet_size_ep0: u8,
-    vendor_id: u16,
-    product_id: u16,
-    device_release: u16,
-    manufacturer_string: u8,
-    product_string: u8,
-    serial_number_string: u8,
-    num_configurations: u8,
+pub trait Descriptor {
+    /// Serialized size of Descriptor
+    fn size(&self) -> usize;
+
+    fn write_to(&self, buf: &mut [u8]) -> usize;
 }
 
-impl DeviceDescriptor {
-    pub fn default() -> Self {
+pub struct DeviceDescriptor {
+    pub usb_release: u16,
+    pub class: u8,
+    pub subclass: u8,
+    pub protocol: u8,
+    pub max_packet_size_ep0: u8,
+    pub vendor_id: u16,
+    pub product_id: u16,
+    pub device_release: u16,
+    pub manufacturer_string: u8,
+    pub product_string: u8,
+    pub serial_number_string: u8,
+    pub num_configurations: u8,
+}
+
+impl Default for DeviceDescriptor {
+    fn default() -> Self {
         DeviceDescriptor{
-            usb_release: 0x20,
+            usb_release: 0x0200,
             class: 0,
             subclass: 0,
             protocol: 0,
@@ -271,15 +278,19 @@ impl DeviceDescriptor {
             vendor_id: 0x6667,
             product_id: 0xabcd,
             device_release: 0x0001,
-            manufacturer_string: 1,
+            manufacturer_string: 0,
             product_string: 0,
             serial_number_string: 0,
             num_configurations: 1,
         }
     }
+}
 
-    pub fn write_to(&self, b: &mut [u8]) -> usize {
-        b[0] = 18;
+impl Descriptor for DeviceDescriptor {
+    fn size(&self) -> usize { 18 }
+
+    fn write_to(&self, b: &mut [u8]) -> usize {
+        b[0] = 18;  // Size of descriptor
         b[1] = DescriptorType::Device as u8;
         put_bcd(&mut b[2..4], self.usb_release);
         b[4] = self.class;
@@ -293,24 +304,110 @@ impl DeviceDescriptor {
         b[15] = self.product_string;
         b[16] = self.serial_number_string;
         b[17] = self.num_configurations;
-
         18
     }
 }
 
-pub trait Descriptor {
-    /// Serialized size of Descriptor, if fixed
-    fn size() -> Option<usize>;
-    fn as_bytes(&self) -> &[u8];
-    fn len(&self) -> usize;
+pub struct ConfigurationDescriptor {
+     pub num_interfaces: u8,
+     pub configuration_value: u8,
+     pub string_index: u8,
+     pub attributes: ConfigurationAttributes,
+     pub max_power: u8,   // in 2mA units
+     pub related_descriptor_length: usize,
 }
 
+impl Default for ConfigurationDescriptor {
+    fn default() -> Self {
+        ConfigurationDescriptor {
+            num_interfaces: 1,
+            configuration_value: 0,
+            string_index: 0,
+            attributes: ConfigurationAttributes::new(true, false),
+            max_power: 0,   // in 2mA units
+            related_descriptor_length: 0
+        }
+    }
+}
+
+impl Descriptor for ConfigurationDescriptor {
+    fn size(&self) -> usize { 9 }
+
+    fn write_to(&self, buf: &mut [u8]) -> usize {
+        buf[0] = 9; // Size of descriptor
+        buf[1] = DescriptorType::Configuration as u8;
+        put_u16(&mut buf[2..4], (9 + self.related_descriptor_length) as u16);
+        buf[4] = self.num_interfaces;
+        buf[5] = self.configuration_value;
+        buf[6] = self.string_index;
+        buf[7] = From::from(self.attributes);
+        buf[8] = self.max_power;
+        9
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct ConfigurationAttributes(u8);
+
+impl ConfigurationAttributes {
+    pub fn new(is_self_powered: bool, supports_remote_wakeup: bool) -> Self {
+        ConfigurationAttributes(if is_self_powered { 1 << 6 } else { 0 }
+                                | if supports_remote_wakeup { 1 << 5 } else { 0 })
+    }
+}
+
+impl From<ConfigurationAttributes> for u8 {
+    fn from(ca: ConfigurationAttributes) -> u8 {
+        ca.0
+    }
+}
+
+pub struct InterfaceDescriptor {
+    pub interface_number: u8,
+    pub alternate_setting: u8,
+    pub num_endpoints: u8,
+    pub interface_class: u8,
+    pub interface_subclass: u8,
+    pub interface_protocol: u8,
+    pub string_index: u8,
+}
+
+impl Default for InterfaceDescriptor {
+    fn default() -> Self {
+        InterfaceDescriptor {
+            interface_number: 0,
+            alternate_setting: 0,
+            num_endpoints: 0, // (exluding default control endpoint)
+            interface_class: 0xff, // vendor_specific
+            interface_subclass: 0xab,
+            interface_protocol: 0,
+            string_index: 0,
+        }
+    }
+}
+
+impl Descriptor for InterfaceDescriptor {
+    fn size(&self) -> usize { 9 }
+
+    fn write_to(&self, buf: &mut [u8]) -> usize {
+        buf[0] = 9; // Size of descriptor
+        buf[1] = DescriptorType::Interface as u8;
+        buf[2] = self.interface_number;
+        buf[3] = self.alternate_setting;
+        buf[4] = self.num_endpoints;
+        buf[5] = self.interface_class;
+        buf[6] = self.interface_subclass;
+        buf[7] = self.interface_protocol;
+        buf[8] = self.string_index;
+        9
+    }
+}
+
+/*
 pub struct LanguagesDescriptor<'a>(&'a [u8]);
 
 impl<'a> Descriptor for LanguagesDescriptor<'a> {
     fn size() -> Option<usize> { None }
-    fn as_bytes(&self) -> &[u8] { self.0 }
-    fn len(&self) -> usize { self.0.len() }
 }
 
 impl<'a> LanguagesDescriptor<'a> {
@@ -354,99 +451,7 @@ impl<'a, 'b> StringDescriptor<'a> {
         StringDescriptor(buf)
     }
 }
-
-pub struct ConfigurationDescriptor<'a>(&'a [u8]);
-
-impl<'a> Descriptor for ConfigurationDescriptor<'a> {
-    fn size() -> Option<usize> { Some(9) }
-    fn as_bytes(&self) -> &[u8] { self.0 }
-    fn len(&self) -> usize { self.0.len() }
-}
-
-impl<'a> ConfigurationDescriptor<'a> {
-    pub fn place(buf: &'a mut [u8],
-                 num_interfaces: u8,
-                 configuration_value: u8,
-                 string_index: u8,
-                 attributes: ConfigurationAttributes,
-                 max_power: u8,   // in 2mA units
-                 related_descriptor_length: usize,
-                 ) -> Self {
-
-        // Deposit the descriptor at the end of the provided buffer
-        if buf.len() < 9 {
-            panic!("Not enough room to allocate");
-        }
-        let len = buf.len();
-        let buf = &mut buf[len - 9 ..];
-
-        buf[0] = 9; // Size of descriptor
-        buf[1] = DescriptorType::Configuration as u8;
-        put_u16(&mut buf[2..4], (9 + related_descriptor_length) as u16);
-        buf[4] = num_interfaces;
-        buf[5] = configuration_value;
-        buf[6] = string_index;
-        buf[7] = From::from(attributes);
-        buf[8] = max_power;
-
-        ConfigurationDescriptor(buf)
-    }
-}
-
-pub struct ConfigurationAttributes(u8);
-
-impl ConfigurationAttributes {
-    pub fn new(is_self_powered: bool, supports_remote_wakeup: bool) -> Self {
-        ConfigurationAttributes(if is_self_powered { 1 << 6 } else { 0 }
-                                | if supports_remote_wakeup { 1 << 5 } else { 0 })
-    }
-}
-
-impl From<ConfigurationAttributes> for u8 {
-    fn from(ca: ConfigurationAttributes) -> u8 {
-        ca.0
-    }
-}
-
-pub struct InterfaceDescriptor<'a>(&'a [u8]);
-
-impl <'a> Descriptor for InterfaceDescriptor<'a> {
-    fn size() -> Option<usize> { Some(9) }
-    fn as_bytes(&self) -> &[u8] { self.0 }
-    fn len(&self) -> usize { self.0.len() }
-}
-
-impl<'a> InterfaceDescriptor<'a> {
-    pub fn place(buf: &'a mut [u8],
-                 interface_number: u8,
-                 alternate_setting: u8,
-                 num_endpoints: u8,
-                 interface_class: u8,
-                 interface_subclass: u8,
-                 interface_protocol: u8,
-                 string_index: u8
-                 ) -> Self {
-
-        // Deposit the descriptor at the end of the provided buffer
-        if buf.len() < 9 {
-            panic!("Not enough room to allocate");
-        }
-        let len = buf.len();
-        let buf = &mut buf[len - 9 ..];
-
-        buf[0] = 9; // Size of descriptor
-        buf[1] = DescriptorType::Interface as u8;
-        buf[2] = interface_number;
-        buf[3] = alternate_setting;
-        buf[4] = num_endpoints;
-        buf[5] = interface_class;
-        buf[6] = interface_subclass;
-        buf[7] = interface_protocol;
-        buf[8] = string_index;
-
-        InterfaceDescriptor(buf)
-    }
-}
+*/
 
 fn put_u16<'a>(buf: &'a mut [u8], n: u16) {
     if buf.len() != 2 {
