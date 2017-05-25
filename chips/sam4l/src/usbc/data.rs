@@ -27,6 +27,7 @@ pub enum DeviceState {
     CtrlReadStatus,
     CtrlWriteOut,
     CtrlWriteStatus,
+    CtrlWriteStatusWait,
 
     CtrlInDelay,
 }

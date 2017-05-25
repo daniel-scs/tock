@@ -203,6 +203,13 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     }
 
     fn ctrl_status(&self) {
+        // Entered Status stage
+    }
+
+    fn ctrl_status_complete(&self) {
+        // Control Read: IN request acknowledged
+        // Control Write: status sent
+        //
         self.map_state(|state| {
             match *state {
                 State::SetAddress => {
@@ -212,9 +219,5 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
             };
             *state = State::Init
         })
-    }
-
-    fn ctrl_status_complete(&self) {
-        // IN request acknowledged
     }
 }

@@ -65,10 +65,11 @@ impl<'a> UsbController for Usbc<'a> {
         // The hardware can do only 7-bit addresses
         let addr = (addr as u8) & 0b1111111;
 
-        debug!("Set Address = {}", addr);
-
         UDCON_ADDEN.write(false);
         UDCON_UADD.write(addr);
+
+        debug!("Set Address = {}", addr);
+        debug_regs();
     }
 
     fn enable_address(&self) {
@@ -650,23 +651,32 @@ impl<'a> Usbc<'a> {
                     if status & TXIN != 0 {
                         debug!("D({}) TXIN for Control Write Status (will send ZLP)", endpoint);
 
-                        endpoint_disable_interrupts(endpoint, TXIN);
-
-                        // XXX: Can we still stall this request or is it too late?
+                        self.client.map(|c| { c.ctrl_status() });
 
                         // Send zero-length packet to acknowledge transaction
                         self.descriptors[0][0].packet_size.set(PacketSize::single(0));
 
-                        // for SetAddress, need to enable address after sending ZLP
-                        self.client.map(|c| { c.ctrl_status() });
+                        *dstate = DeviceState::CtrlWriteStatusWait;
+
+                        // Signal to the controller that the IN payload is ready to send
+                        UESTAnCLR.n(endpoint).write(TXIN);
+
+                        // Wait for TXIN again to confirm that IN payload has been sent
+                    }
+                }
+                DeviceState::CtrlWriteStatusWait => {
+                    if status & TXIN != 0 {
+                        debug!("D({}) TXIN: Control Write Status Complete", endpoint);
+
+                        endpoint_disable_interrupts(endpoint, TXIN);
 
                         *dstate = DeviceState::Init;
 
                         // Wait for next SETUP
                         endpoint_enable_interrupts(endpoint, RXSTP);
 
-                        // Signal to the controller that the IN payload is ready to send
-                        UESTAnCLR.n(endpoint).write(TXIN);
+                        // for SetAddress, need to enable address after Status stage
+                        self.client.map(|c| { c.ctrl_status_complete() });
                     }
                 }
                 DeviceState::CtrlInDelay => {
