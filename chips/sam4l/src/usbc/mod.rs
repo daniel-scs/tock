@@ -28,7 +28,7 @@ macro_rules! client_err {
 }
 
 /// State for managing the USB controller
-#[repr(C, packed)]
+#[repr(C)]
 pub struct Usbc<'a> {
     client: Option<&'a hil::usb::Client>,
     state: MapCell<State>,
@@ -170,7 +170,11 @@ impl<'a> Usbc<'a> {
                         USBCON_FRZCLK.write(false);
                         USBCON_USBE.write(true);
 
-                        UDESC.write(&self.descriptors as *const Endpoint as u32);
+                        UDESC.write(&self.descriptors as *const _ as u32);
+                        if UDESC.read() != &self.descriptors as *const _ as u32 {
+                            // XXX We are waiting for the feature #[repr(align = "8")]
+                            panic!("Unaligned USB descriptors");
+                        }
 
                         // Device interrupts
                         let udints = // UDINT_SUSP | // XXX ignore while debugging interrupts
@@ -320,8 +324,7 @@ impl<'a> Usbc<'a> {
 
         let udint: u32 = UDINT.read();
 
-        let p = self.descriptors[0][0].addr.get();
-        debug!("--> UDINT={:08x}{:?}, B_{}_{} @ {:?}", udint, UdintFlags(udint), 0, 0, p);
+        debug!("--> UDINT={:08x}{:?}", udint, UdintFlags(udint));
 
         if udint & UDINT_EORST != 0 {
             // Bus reset
@@ -335,10 +338,9 @@ impl<'a> Usbc<'a> {
             // Alert the client
             self.client.map(|client| {
                 client.bus_reset();
-                // client.set_buffers(); // XXX Shouldn't be necessary
             });
             debug!("USB Bus Reset");
-            debug_regs();
+            // debug_regs();
 
             // Acknowledge the interrupt
             UDINTCLR.write(UDINT_EORST);
@@ -347,7 +349,7 @@ impl<'a> Usbc<'a> {
             *dstate = DeviceState::Init;
 
             // Don't process any more interrupt flags right now
-            // return;
+            return;
         }
 
         if udint & UDINT_SUSP != 0 {
@@ -371,7 +373,7 @@ impl<'a> Usbc<'a> {
             UDINTCLR.write(UDINT_SUSP);
 
             // Don't process any more interrupt flags right now
-            // return;
+            return;
         }
 
         if udint & UDINT_WAKEUP != 0 {
@@ -660,9 +662,6 @@ impl<'a> Usbc<'a> {
                 }
             } // match dstate
         } // for endpoint
-
-        // self.client.map(|c| { c.set_buffers() }); // XXX DEBUG
-
     } // handle_device_interrupt
 
     fn debug_show_d0(&self) {
@@ -673,17 +672,17 @@ impl<'a> Usbc<'a> {
                         None
                       }
                       else {
-                        unsafe { Some(slice::from_raw_parts(addr,
-                                        8 // XXX
-                                        // b.packet_size.get().byte_count() as usize
-                                      )) }
+                        unsafe {
+                            Some(slice::from_raw_parts(addr,
+                                    b.packet_size.get().byte_count() as usize))
+                        }
                       };
 
-            debug!("B_0_{} addr<{:?}> = {:?}: \
+            debug!("B_0_{} \
                    \n     {:?}\
                    \n     {:?}\
                    \n     {:?}",
-                   bi, (&b.addr as *const _), b.addr.get(),
+                   bi, // (&b.addr as *const _), b.addr.get(),
                    b.packet_size.get(), b.ctrl_status.get(),
                    buf.map(HexBuf));
         }
@@ -730,6 +729,7 @@ fn endpoint_enable_only_interrupts(endpoint: u32, mask: u32) {
     endpoint_enable_interrupts(endpoint, mask);
 }
 
+#[allow(dead_code)]
 fn debug_regs() {
     debug!("    registers:\
             \n    USBFSM={:08x}\

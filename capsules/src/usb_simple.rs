@@ -8,7 +8,7 @@ use kernel::common::copy_slice::*;
 use kernel::hil::usb::*;
 use core::cell::{RefCell};
 use core::ops::DerefMut;
-use core::cmp::max;
+use core::cmp::min;
 
 pub struct SimpleClient<'a, C: 'a> {
     controller: &'a C,
@@ -39,7 +39,7 @@ impl<'a, C: UsbController> SimpleClient<'a, C> {
     pub fn new(controller: &'a C) -> Self {
         let storage = static_bytes_8();
         let buf = VolatileSlice::new_mut(storage);
-        buf.copy_from_slice(&[0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7]);
+        buf.prefix_copy_from_slice(&[0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7]);
 
         SimpleClient{
             controller: controller,
@@ -58,8 +58,8 @@ impl<'a, C: UsbController> SimpleClient<'a, C> {
 
 impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     fn enable(&self) {
-        self.controller.enable_device(false);
         self.controller.endpoint_set_buffer(0, self.ep0_buf);
+        self.controller.enable_device(false);
         self.controller.endpoint_ctrl_out_enable(0);
     }
 
@@ -69,10 +69,6 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
 
     fn bus_reset(&self) {
         /* XXX: Reconfigure */
-    }
-
-    fn set_buffers(&self) {
-        self.controller.endpoint_set_buffer(0, self.ep0_buf);
     }
 
     fn ctrl_setup(&self) -> CtrlSetupResult {
@@ -188,9 +184,9 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
             match *state {
                 State::CtrlIn{ buf } => {
                     if buf.len() > 0 {
-                        let packet_bytes = max(8, buf.len());
+                        let packet_bytes = min(8, buf.len());
                         let packet = &buf[.. packet_bytes];
-                        self.ep0_buf.copy_from_slice(packet);
+                        self.ep0_buf.prefix_copy_from_slice(packet);
 
                         let buf = &buf[packet_bytes ..];
                         let transfer_complete = buf.len() == 0;

@@ -69,7 +69,7 @@ pub const fn new_endpoint() -> Endpoint {
     [Bank::new(), Bank::new()]
 }
 
-#[repr(C, packed)]
+#[repr(C)]
 pub struct Bank {
     pub addr: VolatileCell<*mut u8>,
     pub packet_size: VolatileCell<PacketSize>,
@@ -110,7 +110,7 @@ impl From<BankIndex> for usize {
 }
 
 #[derive(Copy, Clone)]
-#[repr(C, packed)]
+#[repr(C)]
 pub struct PacketSize(u32);
 
 impl PacketSize {
@@ -153,7 +153,7 @@ impl fmt::Debug for PacketSize {
 }
 
 #[derive(Copy, Clone)]
-#[repr(C, packed)]
+#[repr(C)]
 pub struct ControlStatus(u32);
 
 impl ControlStatus {
@@ -184,7 +184,7 @@ fn bang(b: bool) -> &'static str {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
-#[repr(C, packed)]
+#[repr(C)]
 pub struct EndpointConfig(u32);
 
 impl EndpointConfig {

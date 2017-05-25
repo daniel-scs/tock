@@ -31,9 +31,9 @@ impl<T: Copy> VolatileSlice<T> {
         self.ptr
     }
 
-    pub fn copy_from_slice(&self, src: &[T]) {
-        if self.len != src.len() {
-            panic!("unequal lengths");
+    pub fn prefix_copy_from_slice(&self, src: &[T]) {
+        if self.len < src.len() {
+            panic!("too small to copy from slice");
         }
         for (i, p) in src.iter().enumerate() {
             unsafe {
