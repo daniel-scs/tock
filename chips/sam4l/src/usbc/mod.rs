@@ -67,14 +67,15 @@ impl<'a> UsbController for Usbc<'a> {
 
         debug!("Set Address = {}", addr);
 
-        UDCON_UADD.write(addr);
         UDCON_ADDEN.write(false);
+        UDCON_UADD.write(addr);
     }
 
     fn enable_address(&self) {
-        debug!("Enable Address = {}", UDCON.read() & 0b1111111);
-
         UDCON_ADDEN.write(true);
+
+        debug!("Enable Address = {}", UDCON.read() & 0b1111111);
+        debug_regs();
     }
 }
 
