@@ -295,7 +295,7 @@ impl<'a> Usbc<'a> {
         // Specify which endpoint interrupts we want, among:
         //      TXIN | RXOUT | RXSTP | NAKOUT | NAKIN |
         //      ERRORF | STALLED | CRCERR | RAMACERR
-        endpoint_enable_only_interrupts(endpoint, RXSTP | ERRORF | CRCERR | RAMACERR);
+        endpoint_enable_only_interrupts(endpoint, RXSTP | RAMACERR);
     }
 
     /// Set a client to receive data from the USBC
@@ -411,7 +411,7 @@ impl<'a> Usbc<'a> {
         }
 
         // Process per-endpoint interrupt flags
-        for endpoint in 0..9 {
+        for endpoint in 0..1 {
             if udint & (1 << (12 + endpoint)) == 0 {
                 // No interrupts for this endpoint
                 continue;
@@ -470,7 +470,9 @@ impl<'a> Usbc<'a> {
                                     // Also, wait for NAKOUT to signal end of IN stage
                                     // (The datasheet incorrectly says NAKIN)
                                     UESTAnCLR.n(endpoint).write(NAKOUT);
-                                    endpoint_enable_interrupts(endpoint, TXIN | NAKOUT);
+                                    endpoint_enable_only_interrupts(endpoint,
+                                        RXSTP | RAMACERR | TXIN | NAKOUT);
+                                    // endpoint_enable_interrupts(endpoint, TXIN | NAKOUT);
                                 }
                                 else {
                                     // The following Data stage will be OUT
@@ -481,7 +483,9 @@ impl<'a> Usbc<'a> {
                                     // Also, wait for NAKIN to signal end of OUT stage
                                     UESTAnCLR.n(endpoint).write(RXOUT);
                                     UESTAnCLR.n(endpoint).write(NAKIN);
-                                    endpoint_enable_interrupts(endpoint, RXOUT | NAKIN);
+                                    endpoint_enable_only_interrupts(endpoint,
+                                        RXSTP | RAMACERR | RXOUT | NAKIN);
+                                    // endpoint_enable_interrupts(endpoint, RXOUT | NAKIN);
                                 }
                             }
                             failure => {
@@ -494,6 +498,8 @@ impl<'a> Usbc<'a> {
                                     _ =>
                                         debug!("D({}) No client to handle Setup", endpoint),
                                 }
+
+                                endpoint_enable_only_interrupts(endpoint, RXSTP | RAMACERR);
 
                                 // Remain in DeviceState::Init for next SETUP
                             }
@@ -528,6 +534,8 @@ impl<'a> Usbc<'a> {
                     else if status & TXIN != 0 {
                         // The data bank is ready to receive another IN payload
                         debug!("D({}) TXIN", endpoint);
+
+                        // XXX: check NBUSYBK so we don't overwrite SETUP data?
 
                         let result = self.client.map(|c| {
                             // Allow client to write a packet payload to buffer
