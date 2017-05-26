@@ -405,55 +405,53 @@ impl Descriptor for InterfaceDescriptor {
     }
 }
 
-/*
-pub struct LanguagesDescriptor<'a>(&'a [u8]);
+pub struct LanguagesDescriptor<'a> {
+    pub langs: &'a [u16],
+}
 
 impl<'a> Descriptor for LanguagesDescriptor<'a> {
-    fn size() -> Option<usize> { None }
-}
+    fn size(&self) -> usize {
+        2 + (2 * self.langs.len())
+    }
 
-impl<'a> LanguagesDescriptor<'a> {
-    pub fn place(buf: &'a mut [u8],
-                 langs: &[u16]) -> LanguagesDescriptor<'a> {
-
-        buf[0] = (2 + (2 * langs.len())) as u8;
+    fn write_to(&self, buf: &mut [u8]) -> usize {
+        let len = self.size();
+        buf[0] = len as u8;
         buf[1] = DescriptorType::String as u8;
-        for (i, lang) in langs.iter().enumerate() {
+        for (i, lang) in self.langs.iter().enumerate() {
             put_u16(&mut buf[2 + (2 * i) .. 4 + (2 * i)], *lang);
         }
-
-        LanguagesDescriptor(buf)
+        len
     }
 }
 
-pub struct StringDescriptor<'a>(&'a [u8]);
+pub struct StringDescriptor<'a> {
+    pub string: &'a str,
+}
 
 impl<'a> Descriptor for StringDescriptor<'a> {
-    fn size() -> Option<usize> { None }
-    fn as_bytes(&self) -> &[u8] { self.0 }
-    fn len(&self) -> usize { self.0.len() }
-}
-
-impl<'a, 'b> StringDescriptor<'a> {
-    pub fn place(buf: &'a mut [u8],
-                 str: &'b str
-                 ) -> StringDescriptor<'a> {
-
-        // Deposit the descriptor at the end of the provided buffer
-        if buf.len() < str.len() {
-            panic!("Not enough room to allocate");
+    fn size(&self) -> usize {
+        let mut len = 2;
+        for ch in self.string.chars() {
+            len += 2 * ch.len_utf16();
         }
-        let len = buf.len();
-        let buf = &mut buf[len - str.len() ..];
+        len
+    }
 
-        buf[0] = (2 + str.len()) as u8;
+    fn write_to(&self, buf: &mut [u8]) -> usize {
         buf[1] = DescriptorType::String as u8;
-        buf.copy_from_slice(str.as_bytes());
-
-        StringDescriptor(buf)
+        let mut i = 2;
+        for ch in self.string.chars() {
+            let mut chbuf = [0; 2];
+            for w in ch.encode_utf16(&mut chbuf) {
+                put_u16(&mut buf[i .. i+2], *w);
+                i += 2;
+            }
+        }
+        buf[0] = i as u8;
+        i
     }
 }
-*/
 
 fn put_u16<'a>(buf: &'a mut [u8], n: u16) {
     if buf.len() != 2 {

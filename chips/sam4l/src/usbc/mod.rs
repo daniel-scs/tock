@@ -325,7 +325,7 @@ impl<'a> Usbc<'a> {
 
         let udint: u32 = UDINT.read();
 
-        debug!("--> UDINT={:?} {:?}", UdintFlags(udint), *dstate);
+        // debug!("--> UDINT={:?} {:?}", UdintFlags(udint), *dstate);
 
         if udint & UDINT_EORST != 0 {
             // Bus reset
@@ -414,7 +414,7 @@ impl<'a> Usbc<'a> {
             //    again = false;
             {
                 let status = UESTAn.n(endpoint).read();
-                debug!("UESTA{}={:?}", endpoint, UestaFlags(status));
+                // debug!("UESTA{}={:?}", endpoint, UestaFlags(status));
 
                 if status & STALLED != 0 {
                     debug!("D({}) STALLED/CRCERR", endpoint);
@@ -435,7 +435,7 @@ impl<'a> Usbc<'a> {
                         if status & RXSTP != 0 {
                             // We received a SETUP transaction
 
-                            debug!("D({}) RXSTP", endpoint);
+                            // debug!("D({}) RXSTP", endpoint);
                             // self.debug_show_d0();
 
                             let packet_bytes = self.descriptors[0][0].packet_size.get().byte_count();
@@ -503,7 +503,7 @@ impl<'a> Usbc<'a> {
 
                             endpoint_disable_interrupts(endpoint, TXIN | NAKOUT);
 
-                            debug!("D({}) NAKOUT");
+                            // debug!("D({}) NAKOUT");
                             self.client.map(|c| {
                                 c.ctrl_status()
                             });
@@ -521,7 +521,7 @@ impl<'a> Usbc<'a> {
                         }
                         else if status & TXIN != 0 {
                             // The data bank is ready to receive another IN payload
-                            debug!("D({}) TXIN", endpoint);
+                            // debug!("D({}) TXIN", endpoint);
 
                             let result = self.client.map(|c| {
                                 // Allow client to write a packet payload to buffer
@@ -541,7 +541,7 @@ impl<'a> Usbc<'a> {
                                         }
                                     );
 
-                                    debug!("D({}) Send CTRL IN packet ({} bytes)", endpoint, packet_bytes);
+                                    // debug!("D({}) Send CTRL IN packet ({} bytes)", endpoint, packet_bytes);
                                     // self.debug_show_d0();
 
                                     if transfer_complete {
@@ -582,7 +582,7 @@ impl<'a> Usbc<'a> {
 
                             endpoint_disable_interrupts(endpoint, RXOUT);
 
-                            debug!("D({}) RXOUT: End of Control Read transaction", endpoint);
+                            // debug!("D({}) RXOUT: End of Control Read transaction", endpoint);
                             self.client.map(|c| {
                                 c.ctrl_status_complete()
                             });
@@ -600,7 +600,7 @@ impl<'a> Usbc<'a> {
                         if status & RXOUT != 0 {
                             // Received data
 
-                            debug!("D({}) RXOUT: Received Control Write data", endpoint);
+                            // debug!("D({}) RXOUT: Received Control Write data", endpoint);
                             // self.debug_show_d0();
                             let result = self.client.map(|c| {
                                 c.ctrl_out(self.descriptors[0][0].packet_size.get().byte_count())
@@ -634,7 +634,7 @@ impl<'a> Usbc<'a> {
                         }
                         if status & NAKIN != 0 {
                             // The host has completed the Data stage by sending an IN token
-                            debug!("D({}) NAKIN: Control Write -> Status stage", endpoint);
+                            // debug!("D({}) NAKIN: Control Write -> Status stage", endpoint);
 
                             endpoint_disable_interrupts(endpoint, RXOUT | NAKIN);
 
@@ -652,7 +652,7 @@ impl<'a> Usbc<'a> {
                     }
                     DeviceState::CtrlWriteStatus => {
                         if status & TXIN != 0 {
-                            debug!("D({}) TXIN for Control Write Status (will send ZLP)", endpoint);
+                            // debug!("D({}) TXIN for Control Write Status (will send ZLP)", endpoint);
 
                             self.client.map(|c| { c.ctrl_status() });
 
@@ -669,7 +669,7 @@ impl<'a> Usbc<'a> {
                     }
                     DeviceState::CtrlWriteStatusWait => {
                         if status & TXIN != 0 {
-                            debug!("D({}) TXIN: Control Write Status Complete", endpoint);
+                            // debug!("D({}) TXIN: Control Write Status Complete", endpoint);
 
                             endpoint_disable_interrupts(endpoint, TXIN);
 
@@ -784,6 +784,7 @@ fn debug_regs() {
            UECON0.read());
 }
 
+#[allow(dead_code)]
 struct UdintFlags(u32);
 
 impl fmt::Debug for UdintFlags {
@@ -821,6 +822,7 @@ impl fmt::Debug for UdintFlags {
     }
 }
 
+#[allow(dead_code)]
 struct UestaFlags(u32);
 
 impl fmt::Debug for UestaFlags {

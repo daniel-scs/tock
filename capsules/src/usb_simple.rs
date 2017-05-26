@@ -29,7 +29,11 @@ static LANGUAGES: &'static [u16] = &[
     0x0409, // English (United States)
 ];
 
-static MANUFACTURER_STRING: &'static str = "XYZ Corp.";
+static STRINGS: &'static [&'static str] = &[
+    "XYZ Corp.",      // Manufacturer
+    "The Zorpinator", // Product
+    "Serial No. 5",   // Serial number
+];
 
 impl<'a, C: UsbController> SimpleClient<'a, C> {
     pub fn new(controller: &'a C) -> Self {
@@ -55,7 +59,7 @@ impl<'a, C: UsbController> SimpleClient<'a, C> {
 impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     fn enable(&self) {
         self.controller.endpoint_set_buffer(0, self.ep0_buf);
-        self.controller.enable_device(true);
+        self.controller.enable_device(false);
         self.controller.endpoint_ctrl_out_enable(0);
     }
 
@@ -85,7 +89,13 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                             DescriptorType::Device => match descriptor_index {
                                 0 => {
                                     self.map_state(|state| {
-                                        let len = DeviceDescriptor::default().write_to(self.descriptor_storage.as_mut());
+                                        let d = DeviceDescriptor {
+                                                    manufacturer_string: 1,
+                                                    product_string: 2,
+                                                    serial_number_string: 3,
+                                                    .. Default::default()
+                                                };
+                                        let len = d.write_to(self.descriptor_storage.as_mut());
                                         let end = min(len, requested_length as usize);
                                         *state = State::CtrlIn{ buf: &(self.descriptor_storage.as_slice())[ .. end] };
                                     });
@@ -125,25 +135,18 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                             },
                             DescriptorType::String => {
                                 if let Some(buf) = match descriptor_index {
-                                        /*
                                        0 => {
-                                            let mut storage_avail = self.descriptor_storage.len();
-                                            let s = self.descriptor_storage.as_mut();
-                                            let d = LanguagesDescriptor::place(s, LANGUAGES);
-                                            storage_avail -= d.len();
-                                            Some(&self.descriptor_storage.as_slice()[storage_avail ..])
+                                            let d = LanguagesDescriptor{ langs: LANGUAGES };
+                                            let len = d.write_to(self.descriptor_storage.as_mut());
+                                            let end = min(len, requested_length as usize);
+                                            Some(&self.descriptor_storage.as_slice()[ .. end])
                                        }
-                                       1 => if lang_id == LANGUAGES[0] {
-                                                let mut storage_avail = self.descriptor_storage.len();
-                                                let s = self.descriptor_storage.as_mut();
-                                                let d = StringDescriptor::place(s, MANUFACTURER_STRING);
-                                                storage_avail -= d.len();
-                                                Some(&self.descriptor_storage.as_slice()[storage_avail ..])
-                                            }
-                                            else {
-                                                None
-                                            },
-                                        */
+                                       i if i > 0 && (i as usize) <= STRINGS.len() && lang_id == LANGUAGES[0] => {
+                                            let d = StringDescriptor{ string: STRINGS[i as usize - 1] };
+                                            let len = d.write_to(self.descriptor_storage.as_mut());
+                                            let end = min(len, requested_length as usize);
+                                            Some(&self.descriptor_storage.as_slice()[ .. end])
+                                       },
                                        _ => None,
                                    }
                                 {
