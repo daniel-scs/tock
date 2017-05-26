@@ -69,14 +69,12 @@ impl<'a> UsbController for Usbc<'a> {
         UDCON_UADD.write(addr);
 
         debug!("Set Address = {}", addr);
-        debug_regs();
     }
 
     fn enable_address(&self) {
         UDCON_ADDEN.write(true);
 
         debug!("Enable Address = {}", UDCON.read() & 0b1111111);
-        debug_regs();
     }
 }
 
@@ -334,7 +332,8 @@ impl<'a> Usbc<'a> {
 
         let udint: u32 = UDINT.read();
 
-        debug!("--> UDINT={:08x}{:?}", udint, UdintFlags(udint));
+        // debug!("--> UDINT={:08x}{:?}", udint, UdintFlags(udint));
+        debug!("--> UDINT={:?} {:?}", UdintFlags(udint), *dstate);
 
         if udint & UDINT_EORST != 0 {
             // Bus reset
@@ -353,7 +352,7 @@ impl<'a> Usbc<'a> {
                 client.bus_reset();
             });
             debug!("USB Bus Reset");
-            debug_regs();
+            // debug_regs();
 
             // Acknowledge the interrupt
             UDINTCLR.write(UDINT_EORST);
@@ -421,7 +420,7 @@ impl<'a> Usbc<'a> {
                 again = false;
 
                 let status = UESTAn.n(endpoint).read();
-                debug!("UESTA{}={:08x}{:?}", endpoint, status, UestaFlags(status));
+                debug!("UESTA{}={:?}", endpoint, UestaFlags(status));
 
                 if status & STALLED != 0 {
                     debug!("D({}) STALLED/CRCERR", endpoint);
@@ -437,12 +436,14 @@ impl<'a> Usbc<'a> {
                     UESTAnCLR.n(endpoint).write(RAMACERR);
                 }
 
+                /*
                 if status & RXSTP != 0 {
                     if *dstate != DeviceState::Init {
                         debug!("** Unexpected RXSTP: Transfer aborted");
                         *dstate = DeviceState::Init;
                     }
                 }
+                */
 
                 match *dstate {
                     DeviceState::Init => {
@@ -475,7 +476,7 @@ impl<'a> Usbc<'a> {
                                         // (The datasheet incorrectly says NAKIN)
                                         UESTAnCLR.n(endpoint).write(NAKOUT);
                                         endpoint_enable_only_interrupts(endpoint,
-                                            RXSTP | RAMACERR | TXIN | NAKOUT);
+                                            RAMACERR | TXIN | NAKOUT);
                                         // endpoint_enable_interrupts(endpoint, TXIN | NAKOUT);
                                     }
                                     else {
@@ -488,7 +489,7 @@ impl<'a> Usbc<'a> {
                                         UESTAnCLR.n(endpoint).write(RXOUT);
                                         UESTAnCLR.n(endpoint).write(NAKIN);
                                         endpoint_enable_only_interrupts(endpoint,
-                                            RXSTP | RAMACERR | RXOUT | NAKIN);
+                                            RAMACERR | RXOUT | NAKIN);
                                         // endpoint_enable_interrupts(endpoint, RXOUT | NAKIN);
                                     }
                                 }
@@ -533,7 +534,7 @@ impl<'a> Usbc<'a> {
                             UESTAnCLR.n(endpoint).write(NAKOUT);
 
                             // Run handler again in case the RXOUT has already arrived
-                            // again = true;
+                            again = true;
                         }
                         else if status & TXIN != 0 {
                             // The data bank is ready to receive another IN payload
@@ -585,6 +586,9 @@ impl<'a> Usbc<'a> {
                                     debug!("D({}) Client IN err => STALL", endpoint);
 
                                     *dstate = DeviceState::Init;
+
+                                    // Wait for next SETUP
+                                    endpoint_enable_interrupts(endpoint, RXSTP);
                                 }
                             }
                         }
@@ -636,6 +640,9 @@ impl<'a> Usbc<'a> {
                                     debug!("D({}) Client OUT err => STALL", endpoint);
 
                                     *dstate = DeviceState::Init;
+
+                                    // Wait for next SETUP
+                                    endpoint_enable_interrupts(endpoint, RXSTP);
                                 }
                             }
 
@@ -695,6 +702,8 @@ impl<'a> Usbc<'a> {
                         /* XXX: Spin fruitlessly */
                     }
                 } // match dstate
+
+                again = false; // XXX
             } // while again
         } // for endpoint
     } // handle_device_interrupt

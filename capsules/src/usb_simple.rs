@@ -76,7 +76,10 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                 || { CtrlSetupResult::Error(static_fmt!("Nonstandard request: {:?}", setup_data)) },
                 |request| {
                 match request {
-                    StandardDeviceRequest::GetDescriptor{ descriptor_type, descriptor_index, lang_id } => {
+                    StandardDeviceRequest::GetDescriptor{ descriptor_type,
+                                                          descriptor_index,
+                                                          lang_id,
+                                                          length, } => {
                         match descriptor_type {
                             DescriptorType::Device => match descriptor_index {
                                 0 => {
@@ -105,9 +108,13 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                                  .. Default::default() };
                                     storage_avail -= dc.write_to(&mut s[storage_avail - dc.size() ..]);
 
+                                    let request_start = storage_avail;
+                                    let request_end = min(request_start + (length as usize),
+                                                          self.descriptor_storage.len());
                                     self.map_state(|state| {
                                         *state = State::CtrlIn{
-                                            buf: &self.descriptor_storage.as_slice()[storage_avail ..]
+                                            buf: &self.descriptor_storage.as_slice()[request_start ..
+                                                                                     request_end]
                                         };
                                     });
                                     CtrlSetupResult::Ok
@@ -147,7 +154,11 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                     CtrlSetupResult::Error("GetDescriptor: invalid String index")
                                 }
                             }
-                            _ => CtrlSetupResult::Error("GetDescriptor: unrecognized descriptor type"),
+                            DescriptorType::DeviceQualifier => {
+                                // We are full-speed only, so we must respond with a request error
+                                CtrlSetupResult::Error("GetDescriptor(DeviceQualifier): none")
+                            }
+                            _ => CtrlSetupResult::Error(static_fmt!("GetDescriptor: unrecognized descriptor type: {:?}", descriptor_type)),
                         } // match descriptor_type
                     }
                     StandardDeviceRequest::SetAddress{device_address} => {
@@ -203,7 +214,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     fn ctrl_status_complete(&self) {
         // Control Read: IN request acknowledged
         // Control Write: status sent
-        //
+
         self.map_state(|state| {
             match *state {
                 State::SetAddress => {

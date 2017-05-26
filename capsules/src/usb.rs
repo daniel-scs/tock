@@ -54,6 +54,7 @@ impl SetupData {
                                     descriptor_type: dt,
                                     descriptor_index: (self.value & 0xff) as u8,
                                     lang_id: self.index,
+                                    length: self.length,
                             })
                         })
                     }
@@ -63,7 +64,7 @@ impl SetupData {
                                 descriptor_type: dt,
                                 descriptor_index: (self.value & 0xff) as u8,
                                 lang_id: self.index,
-                                descriptor_length: self.length
+                                descriptor_length: self.length,
                             })
                         })
                     }
@@ -111,6 +112,7 @@ pub enum StandardDeviceRequest {
         descriptor_type: DescriptorType,
         descriptor_index: u8,
         lang_id: u16,
+        length: u16,
     },
     SetDescriptor{
         descriptor_type: DescriptorType,
