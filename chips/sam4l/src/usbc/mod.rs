@@ -183,7 +183,7 @@ impl<'a> Usbc<'a> {
                         }
 
                         // Device interrupts
-                        let udints = // UDINT_SUSP | // XXX ignore while debugging interrupts
+                        let udints = // UDINT_SUSP |
                                      // UDINT_SOF |
                                      UDINT_EORST |
                                      UDINT_EORSM |
@@ -268,13 +268,6 @@ impl<'a> Usbc<'a> {
             }
         });
 
-		/* XXX
-		Before using an endpoint, the user should setup the endpoint address for each bank. Depending
-		on the direction, the type, and the packet-mode (single or multi-packet), the user should also ini-
-		tialize the endpoint packet size, and the endpoint control and status fields, so that the USBC
-		controller does not compute random values from the RAM.
-		*/
-
         // Enable the endpoint (meaning the controller will respond to requests)
         UERST.set_bit(endpoint);
 
@@ -332,7 +325,6 @@ impl<'a> Usbc<'a> {
 
         let udint: u32 = UDINT.read();
 
-        // debug!("--> UDINT={:08x}{:?}", udint, UdintFlags(udint));
         debug!("--> UDINT={:?} {:?}", UdintFlags(udint), *dstate);
 
         if udint & UDINT_EORST != 0 {
@@ -414,7 +406,9 @@ impl<'a> Usbc<'a> {
             }
 
             // Set to true to process more flags without waiting for another interrupt
-            // (Ignoring `again` should not lead to incorrect behavior)
+            // (Using this with debugging messages tends to fill up the console buffer too fast.)
+            // (Ignoring `again` should not cause incorrect behavior.)
+            //
             // let mut again = true;
             // while again {
             //    again = false;
@@ -435,15 +429,6 @@ impl<'a> Usbc<'a> {
                     // Acknowledge
                     UESTAnCLR.n(endpoint).write(RAMACERR);
                 }
-
-                /*
-                if status & RXSTP != 0 {
-                    if *dstate != DeviceState::Init {
-                        debug!("** Unexpected RXSTP: Transfer aborted");
-                        *dstate = DeviceState::Init;
-                    }
-                }
-                */
 
                 match *dstate {
                     DeviceState::Init => {
@@ -477,7 +462,6 @@ impl<'a> Usbc<'a> {
                                         UESTAnCLR.n(endpoint).write(NAKOUT);
                                         endpoint_enable_only_interrupts(endpoint,
                                             RAMACERR | TXIN | NAKOUT);
-                                        // endpoint_enable_interrupts(endpoint, TXIN | NAKOUT);
                                     }
                                     else {
                                         // The following Data stage will be OUT
@@ -490,7 +474,6 @@ impl<'a> Usbc<'a> {
                                         UESTAnCLR.n(endpoint).write(NAKIN);
                                         endpoint_enable_only_interrupts(endpoint,
                                             RAMACERR | RXOUT | NAKIN);
-                                        // endpoint_enable_interrupts(endpoint, RXOUT | NAKIN);
                                     }
                                 }
                                 failure => {
@@ -631,6 +614,7 @@ impl<'a> Usbc<'a> {
                                     // Don't acknowledge; hardware will have to send NAK
 
                                     // Unsubscribe from RXOUT until client says it is ready
+                                    // (But there is not yet any interface for that)
                                     endpoint_disable_interrupts(endpoint, RXOUT);
                                 }
                                 _ => {
@@ -694,7 +678,7 @@ impl<'a> Usbc<'a> {
                             // Wait for next SETUP
                             endpoint_enable_interrupts(endpoint, RXSTP);
 
-                            // for SetAddress, need to enable address after Status stage
+                            // for SetAddress, client must enable address after STATUS stage
                             self.client.map(|c| { c.ctrl_status_complete() });
                         }
                     }

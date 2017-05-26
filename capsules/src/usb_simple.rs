@@ -64,7 +64,8 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     }
 
     fn bus_reset(&self) {
-        /* XXX: Reconfigure */
+        // Should the client initiate reconfiguration here,
+        // or let the hardware layer do it?
     }
 
     fn ctrl_setup(&self) -> CtrlSetupResult {
