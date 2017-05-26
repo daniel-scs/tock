@@ -55,7 +55,7 @@ impl<'a, C: UsbController> SimpleClient<'a, C> {
 impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     fn enable(&self) {
         self.controller.endpoint_set_buffer(0, self.ep0_buf);
-        self.controller.enable_device(false);
+        self.controller.enable_device(true);
         self.controller.endpoint_ctrl_out_enable(0);
     }
 
@@ -79,13 +79,14 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                     StandardDeviceRequest::GetDescriptor{ descriptor_type,
                                                           descriptor_index,
                                                           lang_id,
-                                                          length, } => {
+                                                          requested_length, } => {
                         match descriptor_type {
                             DescriptorType::Device => match descriptor_index {
                                 0 => {
                                     self.map_state(|state| {
                                         let len = DeviceDescriptor::default().write_to(self.descriptor_storage.as_mut());
-                                        *state = State::CtrlIn{ buf: &(self.descriptor_storage.as_slice())[ .. len] };
+                                        let end = min(len, requested_length as usize);
+                                        *state = State::CtrlIn{ buf: &(self.descriptor_storage.as_slice())[ .. end] };
                                     });
                                     CtrlSetupResult::Ok
                                 }
@@ -109,7 +110,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                     storage_avail -= dc.write_to(&mut s[storage_avail - dc.size() ..]);
 
                                     let request_start = storage_avail;
-                                    let request_end = min(request_start + (length as usize),
+                                    let request_end = min(request_start + (requested_length as usize),
                                                           self.descriptor_storage.len());
                                     self.map_state(|state| {
                                         *state = State::CtrlIn{
@@ -170,6 +171,10 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                         self.map_state(|state| {
                             *state = State::SetAddress;
                         });
+                        CtrlSetupResult::Ok
+                    }
+                    StandardDeviceRequest::SetConfiguration{ .. } => {
+                        // We have been assigned a particular configuration
                         CtrlSetupResult::Ok
                     }
                     _ => CtrlSetupResult::Error(static_fmt!("Unrecognized request type: {:?}", setup_data)),

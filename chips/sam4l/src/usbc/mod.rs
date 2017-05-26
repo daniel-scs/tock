@@ -415,10 +415,10 @@ impl<'a> Usbc<'a> {
 
             // Set to true to process more flags without waiting for another interrupt
             // (Ignoring `again` should not lead to incorrect behavior)
-            let mut again = true;
-            while again {
-                again = false;
-
+            // let mut again = true;
+            // while again {
+            //    again = false;
+            {
                 let status = UESTAn.n(endpoint).read();
                 debug!("UESTA{}={:?}", endpoint, UestaFlags(status));
 
@@ -451,7 +451,7 @@ impl<'a> Usbc<'a> {
                             // We received a SETUP transaction
 
                             debug!("D({}) RXSTP", endpoint);
-                            self.debug_show_d0();
+                            // self.debug_show_d0();
 
                             let packet_bytes = self.descriptors[0][0].packet_size.get().byte_count();
                             let result =
@@ -534,7 +534,7 @@ impl<'a> Usbc<'a> {
                             UESTAnCLR.n(endpoint).write(NAKOUT);
 
                             // Run handler again in case the RXOUT has already arrived
-                            again = true;
+                            // again = true;
                         }
                         else if status & TXIN != 0 {
                             // The data bank is ready to receive another IN payload
@@ -559,7 +559,7 @@ impl<'a> Usbc<'a> {
                                     );
 
                                     debug!("D({}) Send CTRL IN packet ({} bytes)", endpoint, packet_bytes);
-                                    self.debug_show_d0();
+                                    // self.debug_show_d0();
 
                                     if transfer_complete {
                                         // IN data completely sent.  Unsubscribe from TXIN.
@@ -618,7 +618,7 @@ impl<'a> Usbc<'a> {
                             // Received data
 
                             debug!("D({}) RXOUT: Received Control Write data", endpoint);
-                            self.debug_show_d0();
+                            // self.debug_show_d0();
                             let result = self.client.map(|c| {
                                 c.ctrl_out(self.descriptors[0][0].packet_size.get().byte_count())
                             });
@@ -663,7 +663,7 @@ impl<'a> Usbc<'a> {
                             UESTAnCLR.n(endpoint).write(NAKIN);
 
                             // Can probably send the ZLP immediately
-                            again = true;
+                            // again = true;
                         }
                     }
                     DeviceState::CtrlWriteStatus => {
@@ -703,11 +703,12 @@ impl<'a> Usbc<'a> {
                     }
                 } // match dstate
 
-                again = false; // XXX
+                // again = false; // XXX
             } // while again
         } // for endpoint
     } // handle_device_interrupt
 
+    #[allow(dead_code)]
     fn debug_show_d0(&self) {
         for bi in 0..1 {
             let b = &self.descriptors[0][bi];

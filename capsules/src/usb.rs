@@ -54,7 +54,7 @@ impl SetupData {
                                     descriptor_type: dt,
                                     descriptor_index: (self.value & 0xff) as u8,
                                     lang_id: self.index,
-                                    length: self.length,
+                                    requested_length: self.length,
                             })
                         })
                     }
@@ -70,7 +70,7 @@ impl SetupData {
                     }
                     8 => Some(StandardDeviceRequest::GetConfiguration),
                     9 => Some(StandardDeviceRequest::SetConfiguration{
-                            configuration: (self.value & 0xff) as u8
+                            configuration_value: (self.value & 0xff) as u8
                          }),
                     10 => Some(StandardDeviceRequest::GetInterface{
                               interface: self.index
@@ -112,7 +112,7 @@ pub enum StandardDeviceRequest {
         descriptor_type: DescriptorType,
         descriptor_index: u8,
         lang_id: u16,
-        length: u16,
+        requested_length: u16,
     },
     SetDescriptor{
         descriptor_type: DescriptorType,
@@ -122,7 +122,7 @@ pub enum StandardDeviceRequest {
     },
     GetConfiguration,
     SetConfiguration{
-        configuration: u8,
+        configuration_value: u8,
     },
     GetInterface{
         interface: u16,
