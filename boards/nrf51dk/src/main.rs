@@ -35,10 +35,11 @@
 
 #![no_std]
 #![no_main]
-#![feature(lang_items)]
+#![feature(lang_items,compiler_builtins_lib)]
 
 extern crate cortexm0;
 extern crate capsules;
+extern crate compiler_builtins;
 #[macro_use(debug, static_init)]
 extern crate kernel;
 extern crate nrf51;
@@ -65,7 +66,7 @@ const BUTTON2_PIN: usize = 18;
 const BUTTON3_PIN: usize = 19;
 const BUTTON4_PIN: usize = 20;
 
-unsafe fn load_process() -> &'static mut [Option<kernel::process::Process<'static>>] {
+unsafe fn load_process() -> &'static mut [Option<kernel::Process<'static>>] {
     extern "C" {
         /// Beginning of the ROM region containing app images.
         static _sapps: u8;
@@ -79,17 +80,16 @@ unsafe fn load_process() -> &'static mut [Option<kernel::process::Process<'stati
     #[link_section = ".app_memory"]
     static mut APP_MEMORY: [u8; 8192] = [0; 8192];
 
-    static mut PROCESSES: [Option<kernel::process::Process<'static>>; NUM_PROCS] = [None];
+    static mut PROCESSES: [Option<kernel::Process<'static>>; NUM_PROCS] = [None];
 
     let mut apps_in_flash_ptr = &_sapps as *const u8;
     let mut app_memory_ptr = APP_MEMORY.as_mut_ptr();
     let mut app_memory_size = APP_MEMORY.len();
     for i in 0..NUM_PROCS {
-        let (process, flash_offset, memory_offset) =
-            kernel::process::Process::create(apps_in_flash_ptr,
-                                             app_memory_ptr,
-                                             app_memory_size,
-                                             FAULT_RESPONSE);
+        let (process, flash_offset, memory_offset) = kernel::Process::create(apps_in_flash_ptr,
+                                                                             app_memory_ptr,
+                                                                             app_memory_size,
+                                                                             FAULT_RESPONSE);
 
         if process.is_none() {
             break;
@@ -117,6 +117,17 @@ pub struct Platform {
 
 
 impl kernel::Platform for Platform {
+    // TODO: Why is this not inlined, you might ask? Well... we seem to be
+    // hitting some sort of LLVM codegen issue (maybe a bug in LLVM, maybe a bug
+    // in Tock), where certain compilation variants of the below match
+    // statement, when inlined, result in totally unexpected assembly that
+    // results in trying to jump to an instruction that doesn't exist. It _only_
+    // appears in thumbv6, only when the 17-valued branch below is not commented
+    // out, only with optimization level 2 or higher, and only when inlined. So
+    // for now, we're not inlining it until we resolve the issue. So far it's
+    // been raised as an issue on the Rust project:
+    // https://github.com/rust-lang/rust/issues/42248
+    #[inline(never)]
     fn with_driver<F, R>(&self, driver_num: usize, f: F) -> R
         where F: FnOnce(Option<&kernel::Driver>) -> R
     {
@@ -194,10 +205,10 @@ pub unsafe fn reset_handler() {
         pin.set_client(gpio);
     }
 
-    nrf51::uart::UART0.configure(Pinmux::new(9),
-                                 Pinmux::new(11),
-                                 Pinmux::new(10),
-                                 Pinmux::new(8));
+    nrf51::uart::UART0.configure(Pinmux::new(9), /*. tx  */
+                                 Pinmux::new(11), /* rx  */
+                                 Pinmux::new(10), /* cts */
+                                 Pinmux::new(8) /*. rts */);
     let console = static_init!(
         capsules::console::Console<nrf51::uart::UART>,
         capsules::console::Console::new(&nrf51::uart::UART0,

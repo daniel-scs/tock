@@ -21,11 +21,11 @@
 //
 
 use core::cell::Cell;
+use kernel::ReturnCode;
 use kernel::common::take_cell::TakeCell;
 use kernel::hil::gpio;
 use kernel::hil::radio;
 use kernel::hil::spi;
-use kernel::returncode::ReturnCode;
 use rf233_const::*;
 
 const INTERRUPT_ID: usize = 0x2154;
@@ -996,14 +996,15 @@ impl<'a, S: spi::SpiMasterDevice + 'a> radio::RadioConfig for RF233<'a, S> {
 
     fn start(&self) -> ReturnCode {
         if self.state.get() != InternalState::START {
-            return ReturnCode::FAIL;
+            return ReturnCode::EALREADY;
         }
         self.register_read(RF233Register::PART_NUM);
         ReturnCode::SUCCESS
     }
 
     fn stop(&self) -> ReturnCode {
-        ReturnCode::FAIL
+        // XXX: TODO: implement stop()
+        ReturnCode::ENOSUPPORT
     }
 
     fn is_on(&self) -> bool {

@@ -12,6 +12,7 @@ pub mod radio;
 pub mod temperature;
 pub mod crc;
 pub mod symmetric_encryption;
+pub mod ninedof;
 pub mod usb;
 
 pub trait Controller {

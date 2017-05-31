@@ -11,7 +11,7 @@
 #include <timer.h>
 #include <isl29035.h>
 #include <si7021.h>
-#include <FXOS8700CQ.h>
+#include <ninedof.h>
 #include <button.h>
 #include <led.h>
 #include <adc.h>
@@ -29,6 +29,7 @@ simple_ble_config_t ble_config = {
 };
 
 // Empty handler for setting BLE addresses
+#pragma GCC diagnostic ignored "-Wsuggest-attribute=const"
 void ble_address_set (void) {
   // nop
 }
@@ -53,16 +54,23 @@ static void sample_sensors (void) {
   int temp;
   unsigned humi;
   si7021_get_temperature_humidity_sync(&temp, &humi);
-  uint32_t accel_mag = FXOS8700CQ_read_accel_mag();
+  uint32_t accel_mag = ninedof_read_accel_mag();
   int light = isl29035_read_light_intensity();
 
   // Analog inputs: A0-A5
-  int a0 = (adc_read_single_sample(0) * 3300) / 4095;
-  int a1 = (adc_read_single_sample(1) * 3300) / 4095;
-  int a2 = (adc_read_single_sample(3) * 3300) / 4095;
-  int a3 = (adc_read_single_sample(4) * 3300) / 4095;
-  int a4 = (adc_read_single_sample(5) * 3300) / 4095;
-  int a5 = (adc_read_single_sample(6) * 3300) / 4095;
+  uint16_t val;
+  adc_sample_sync(0, &val);
+  int a0 = (val * 3300)/ 4095;
+  adc_sample_sync(1, &val);
+  int a1 = (val * 3300)/ 4095;
+  adc_sample_sync(2, &val);
+  int a2 = (val * 3300)/ 4095;
+  adc_sample_sync(3, &val);
+  int a3 = (val * 3300)/ 4095;
+  adc_sample_sync(4, &val);
+  int a4 = (val * 3300)/ 4095;
+  adc_sample_sync(5, &val);
+  int a5 = (val * 3300)/ 4095;
 
   // Digital inputs: D0, D1, D6, D7
   int d0 = gpio_read(0);
@@ -106,9 +114,6 @@ int main(void) {
   button_subscribe(button_callback, NULL);
   button_enable_interrupt(0);
 
-  // Setup the ADC
-  adc_initialize();
-
   // Setup D0, D1, D6, D7
   gpio_enable_input(0, PullDown); // D0
   gpio_enable_input(1, PullDown); // D1
@@ -121,4 +126,3 @@ int main(void) {
     delay_ms(1000);
   }
 }
-

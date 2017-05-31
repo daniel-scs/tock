@@ -10,6 +10,7 @@ pub mod debug;
 pub mod driver;
 pub mod ipc;
 pub mod mem;
+pub mod memop;
 pub mod returncode;
 pub mod hil;
 
