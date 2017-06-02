@@ -1,3 +1,5 @@
+//! Macros for defining USBC registers
+
 #[macro_export]
 macro_rules! reg {
     [ $offset:expr, $description:expr, $name:ident, "RW" ] => {

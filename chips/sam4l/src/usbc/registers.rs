@@ -1,3 +1,5 @@
+//! Registers of the SAM4L's USB controller
+
 #![allow(non_upper_case_globals)]
 
 use usbc::common_register::*;

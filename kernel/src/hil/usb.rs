@@ -31,17 +31,22 @@ pub trait Client {
 }
 
 pub enum CtrlSetupResult {
+    // The Setup request was handled successfully
     Ok,
+
+    // The Setup request cannot be handled; abort this transfer with STALL
     Error(&'static str),
 }
 
 pub enum CtrlInResult {
     /// A packet of the given size was written into the endpoint buffer
     Packet(usize, bool),
+
     /// The client is not yet able to provide data to the host, but may
     /// be able to in the future.  This result causes the controller
     /// to send a NAK token to the host.
     Delay,
+
     /// The client does not support the request.  This result causes the
     /// controller to send a STALL token to the host.
     Error,
@@ -50,8 +55,10 @@ pub enum CtrlInResult {
 pub enum CtrlOutResult {
     /// Data received (send ACK)
     Ok,
+
     /// Not ready yet (send NAK)
     Delay,
+
     /// In halt state (send STALL)
     Halted,
 }

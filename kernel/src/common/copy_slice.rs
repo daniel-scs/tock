@@ -1,3 +1,6 @@
+//! A wrapper around an immutable slice of `Copy` elements
+//! that provides access via a mutable slice
+
 use core;
 
 pub struct CopySlice<'a, T: 'a + Copy>{
@@ -32,14 +35,14 @@ impl<'a, T: Copy> CopySlice<'a, T> {
     }
 }
 
-pub fn static_bytes_8() -> &'static mut [u8] {
+pub fn static_mut_bytes_8() -> &'static mut [u8] {
     unsafe {
         static mut STORAGE: [u8; 8] = [0xee; 8];
         &mut STORAGE
     }
 }
 
-pub fn static_bytes_100() -> &'static mut [u8] {
+pub fn static_mut_bytes_100() -> &'static mut [u8] {
     unsafe {
         static mut STORAGE: [u8; 100] = [0xee; 100];
         &mut STORAGE

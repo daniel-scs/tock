@@ -1,10 +1,10 @@
-//! Platform-independent USB 2.1 protocol library
+//! Platform-independent USB 2.0 protocol library
 
 use core::fmt;
 use core::convert::From;
 
+/// The datastructure sent in a SETUP handshake
 #[derive(Debug, Copy, Clone)]
-#[repr(C, packed)]
 pub struct SetupData {
     pub request_type: DeviceRequestType,
     pub request_code: u8,
@@ -14,7 +14,7 @@ pub struct SetupData {
 }
 
 impl SetupData {
-    /// Create a `SetupData` structure from a buffer received from the wire
+    /// Create a `SetupData` structure from a buffer as received from the wire
     pub fn get(buf: &[u8]) -> Option<Self> {
         if buf.len() != 8 {
             return None;
@@ -84,13 +84,6 @@ impl SetupData {
     }
 }
 
-fn get_u16(buf: &[u8]) -> Option<u16> {
-    if buf.len() != 2 {
-        return None;
-    }
-    Some ((buf[0] as u16) | ((buf[1] as u16) << 8))
-}
-
 #[derive(Debug)]
 pub enum StandardDeviceRequest {
     GetStatus{
@@ -157,7 +150,7 @@ fn get_descriptor_type(byte: u8) -> Option<DescriptorType> {
     }
 }
 
-// Get a descriptor type that is legal in a SetDescriptor request
+/// Get a descriptor type that is legal in a SetDescriptor request
 fn get_set_descriptor_type(byte: u8) -> Option<DescriptorType> {
     match get_descriptor_type(byte) {
         dt @ Some(DescriptorType::Device) => dt,
@@ -251,6 +244,7 @@ pub trait Descriptor {
     /// Serialized size of Descriptor
     fn size(&self) -> usize;
 
+    /// Serialize the descriptor to a buffer for transmission on the bus
     fn write_to(&self, buf: &mut [u8]) -> usize;
 }
 
@@ -439,6 +433,7 @@ impl<'a> Descriptor for StringDescriptor<'a> {
         len
     }
 
+    // Encode as utf16-le
     fn write_to(&self, buf: &mut [u8]) -> usize {
         buf[1] = DescriptorType::String as u8;
         let mut i = 2;
@@ -454,6 +449,15 @@ impl<'a> Descriptor for StringDescriptor<'a> {
     }
 }
 
+/// Parse a `u16` from a two-byte buffer as received on the bus
+fn get_u16(buf: &[u8]) -> Option<u16> {
+    if buf.len() != 2 {
+        return None;
+    }
+    Some ((buf[0] as u16) | ((buf[1] as u16) << 8))
+}
+
+/// Write a `u16` to a buffer for transmission on the bus
 fn put_u16<'a>(buf: &'a mut [u8], n: u16) {
     if buf.len() != 2 {
         panic!("Wrong length");

@@ -1,7 +1,11 @@
+//! A macro static_fmt! that provides a small amount of static storage
+//! for formatting a string.  The value of the macro has type `&'static str`.
+//! Each invocation overwrites what was written previously.
+
 use core;
 use core::fmt::{Write, Result};
 
-const STORAGE_SIZE: usize = 100;
+const STORAGE_SIZE: usize = 500;
 
 #[derive(Copy, Clone)]
 pub struct StaticCursor {

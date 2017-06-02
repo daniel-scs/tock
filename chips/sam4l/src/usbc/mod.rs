@@ -236,6 +236,7 @@ impl<'a> Usbc<'a> {
         });
     }
 
+    /// Provide a buffer for transfers in and out of the given endpoint
     pub fn endpoint_bank_set_buffer(&self, endpoint: EndpointIndex, bank: BankIndex,
                                     buf: VolatileSlice<u8>) {
         let e: usize = From::from(endpoint);

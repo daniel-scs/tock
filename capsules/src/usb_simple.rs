@@ -10,6 +10,16 @@ use core::cell::{RefCell};
 use core::ops::DerefMut;
 use core::cmp::min;
 
+static LANGUAGES: &'static [u16] = &[
+    0x0409, // English (United States)
+];
+
+static STRINGS: &'static [&'static str] = &[
+    "XYZ Corp.",      // Manufacturer
+    "The Zorpinator", // Product
+    "Serial No. 5",   // Serial number
+];
+
 pub struct SimpleClient<'a, C: 'a> {
     controller: &'a C,
     state: RefCell<State>,
@@ -25,26 +35,19 @@ enum State {
     SetAddress,
 }
 
-static LANGUAGES: &'static [u16] = &[
-    0x0409, // English (United States)
-];
-
-static STRINGS: &'static [&'static str] = &[
-    "XYZ Corp.",      // Manufacturer
-    "The Zorpinator", // Product
-    "Serial No. 5",   // Serial number
-];
-
 impl<'a, C: UsbController> SimpleClient<'a, C> {
     pub fn new(controller: &'a C) -> Self {
-        let storage = static_bytes_8();
-        let buf = VolatileSlice::new_mut(storage);
+        // XXX It appears we need to declare the storage
+        // mutable like this, else later reads will merely
+        // return the statically-initialized value.
+        let ep0_buf = static_mut_bytes_8();
+        let descr_buf = static_mut_bytes_100();
 
         SimpleClient{
             controller: controller,
             state: RefCell::new(State::Init),
-            ep0_buf: buf,
-            descriptor_storage: CopySlice::new(static_bytes_100()),
+            ep0_buf: VolatileSlice::new_mut(ep0_buf),
+            descriptor_storage: CopySlice::new(descr_buf),
         }
     }
 
@@ -68,10 +71,11 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     }
 
     fn bus_reset(&self) {
-        // Should the client initiate reconfiguration here,
-        // or let the hardware layer do it?
+        // Should the client initiate reconfiguration here?
+        // For now, the hardware layer does it.
     }
 
+    /// Handle a Control Setup transaction
     fn ctrl_setup(&self) -> CtrlSetupResult {
         let buf: &mut [u8] = &mut [0xff; 8];
         copy_from_volatile_slice(buf, self.ep0_buf);
@@ -178,15 +182,16 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                         CtrlSetupResult::Ok
                     }
                     StandardDeviceRequest::SetConfiguration{ .. } => {
-                        // We have been assigned a particular configuration
+                        // We have been assigned a particular configuration: fine!
                         CtrlSetupResult::Ok
                     }
-                    _ => CtrlSetupResult::Error(static_fmt!("Unrecognized request type: {:?}", setup_data)),
+                    _ => CtrlSetupResult::Error(static_fmt!("Unrecognized request type: {:?}", request)),
                 }
             })
         })
     }
 
+    /// Handle a Control In transaction
     fn ctrl_in(&self) -> CtrlInResult {
         self.map_state(|state| {
             match *state {
@@ -212,6 +217,8 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
         })
     }
 
+    /// Handle a Control Out transaction
+    ///   (for now, return an error)
     fn ctrl_out(&self, _packet_bytes: u32) -> CtrlOutResult {
         CtrlOutResult::Halted
     }
@@ -220,6 +227,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
         // Entered Status stage
     }
 
+    /// Handle the completion of a Control transfer
     fn ctrl_status_complete(&self) {
         // Control Read: IN request acknowledged
         // Control Write: status sent
