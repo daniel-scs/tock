@@ -4,22 +4,17 @@
 macro_rules! reg {
     [ $offset:expr, $description:expr, $name:ident, "RW" ] => {
         #[allow(dead_code)]
-        pub const $name: Reg<u32> = Reg::new((USBC_BASE + $offset) as *mut u32);
-    };
-
-    [ $offset:expr, $description:expr, $name:ident, "RW", $t:ty ] => {
-        #[allow(dead_code)]
-        pub const $name: Reg<$t> = Reg::new((USBC_BASE + $offset) as *mut u32);
+        pub const $name: Reg = Reg::new((USBC_BASE + $offset) as *mut u32);
     };
 
     [ $offset:expr, $description:expr, $name:ident, "R" ] => {
         #[allow(dead_code)]
-        pub const $name: RegR<u32> = RegR::new((USBC_BASE + $offset) as *mut u32);
+        pub const $name: RegR = RegR::new((USBC_BASE + $offset) as *mut u32);
     };
 
     [ $offset:expr, $description:expr, $name:ident, "W" ] => {
         #[allow(dead_code)]
-        pub const $name: RegW<u32> = RegW::new((USBC_BASE + $offset) as *mut u32);
+        pub const $name: RegW = RegW::new((USBC_BASE + $offset) as *mut u32);
     };
 }
 
@@ -27,22 +22,17 @@ macro_rules! reg {
 macro_rules! regs {
     [ $offset:expr, $description:expr, $name:ident, "RW", $count:expr ] => {
         #[allow(dead_code)]
-        pub const $name: Regs<u32> = Regs::new((USBC_BASE + $offset) as *mut u32);
-    };
-
-    [ $offset:expr, $description:expr, $name:ident, "RW", $count:expr, $t:ty ] => {
-        #[allow(dead_code)]
-        pub const $name: Regs<$t> = Regs::new((USBC_BASE + $offset) as *mut u32);
+        pub const $name: [Reg; $count] = [Reg::new((USBC_BASE + $offset) as *mut u32); $count];
     };
 
     [ $offset:expr, $description:expr, $name:ident, "R", $count:expr ] => {
         #[allow(dead_code)]
-        pub const $name: RegsR<u32> = RegsR::new((USBC_BASE + $offset) as *mut u32);
+        pub const $name: [RegR; $count] = [RegR::new((USBC_BASE + $offset) as *mut u32); $count];
     };
 
     [ $offset:expr, $description:expr, $name:ident, "W", $count:expr ] => {
         #[allow(dead_code)]
-        pub const $name: RegsW<u32> = RegsW::new((USBC_BASE + $offset) as *mut u32);
+        pub const $name: [RegW; $count] = [RegW::new((USBC_BASE + $offset) as *mut u32); $count];
     };
 }
 

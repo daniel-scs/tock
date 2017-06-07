@@ -274,7 +274,7 @@ impl<'a> Usbc<'a> {
         // Enable the endpoint (meaning the controller will respond to requests)
         UERST.set_bit(endpoint);
 
-        self.endpoint_configure(endpoint, cfg);
+        self.endpoint_configure(endpoint as usize, cfg);
 
         // Set EPnINTE, enabling interrupts for this endpoint
         UDINTESET.set_bit(12 + endpoint);
@@ -282,9 +282,9 @@ impl<'a> Usbc<'a> {
         debug!("Enabled endpoint {}", endpoint);
     }
 
-    fn endpoint_configure(&self, endpoint: u32, cfg: EndpointConfig) {
+    fn endpoint_configure(&self, endpoint: usize, cfg: EndpointConfig) {
         // Configure the endpoint
-        UECFGn.n(endpoint).write(cfg);
+        UECFGn[endpoint].write(From::from(cfg));
 
         // Specify which endpoint interrupts we want, among:
         //      TXIN | RXOUT | RXSTP | NAKOUT | NAKIN |
@@ -416,21 +416,21 @@ impl<'a> Usbc<'a> {
             // while again {
             //    again = false;
             {
-                let status = UESTAn.n(endpoint).read();
+                let status = UESTAn[endpoint].read();
                 // debug!("UESTA{}={:?}", endpoint, UestaFlags(status));
 
                 if status & STALLED != 0 {
                     debug!("D({}) STALLED/CRCERR", endpoint);
 
                     // Acknowledge
-                    UESTAnCLR.n(endpoint).write(STALLED);
+                    UESTAnCLR[endpoint].write(STALLED);
                 }
 
                 if status & RAMACERR != 0 {
                     debug!("D({}) RAMACERR", endpoint);
 
                     // Acknowledge
-                    UESTAnCLR.n(endpoint).write(RAMACERR);
+                    UESTAnCLR[endpoint].write(RAMACERR);
                 }
 
                 match *dstate {
@@ -462,7 +462,7 @@ impl<'a> Usbc<'a> {
                                         // Wait until bank is clear to send
                                         // Also, wait for NAKOUT to signal end of IN stage
                                         // (The datasheet incorrectly says NAKIN)
-                                        UESTAnCLR.n(endpoint).write(NAKOUT);
+                                        UESTAnCLR[endpoint].write(NAKOUT);
                                         endpoint_enable_only_interrupts(endpoint,
                                             RAMACERR | TXIN | NAKOUT);
                                     }
@@ -473,15 +473,15 @@ impl<'a> Usbc<'a> {
 
                                         // Wait for OUT packets
                                         // Also, wait for NAKIN to signal end of OUT stage
-                                        UESTAnCLR.n(endpoint).write(RXOUT);
-                                        UESTAnCLR.n(endpoint).write(NAKIN);
+                                        UESTAnCLR[endpoint].write(RXOUT);
+                                        UESTAnCLR[endpoint].write(NAKIN);
                                         endpoint_enable_only_interrupts(endpoint,
                                             RAMACERR | RXOUT | NAKIN);
                                     }
                                 },
                                 failure => {
                                     // Respond with STALL to any following transactions in this request
-                                    UECONnSET.n(endpoint).write(STALLRQ);
+                                    UECONnSET[endpoint].write(STALLRQ);
 
                                     match failure {
                                         None =>
@@ -497,7 +497,7 @@ impl<'a> Usbc<'a> {
                             }
 
                             // Acknowledge
-                            UESTAnCLR.n(endpoint).write(RXSTP);
+                            UESTAnCLR[endpoint].write(RXSTP);
                         }
                     }
                     DeviceState::CtrlReadIn => {
@@ -517,7 +517,7 @@ impl<'a> Usbc<'a> {
                             endpoint_enable_interrupts(endpoint, RXOUT);
 
                             // Acknowledge
-                            UESTAnCLR.n(endpoint).write(NAKOUT);
+                            UESTAnCLR[endpoint].write(NAKOUT);
 
                             // Run handler again in case the RXOUT has already arrived
                             // again = true;
@@ -557,7 +557,7 @@ impl<'a> Usbc<'a> {
                                     }
 
                                     // Signal to the controller that the IN payload is ready to send
-                                    UESTAnCLR.n(endpoint).write(TXIN);
+                                    UESTAnCLR[endpoint].write(TXIN);
                                 }
                                 Some(CtrlInResult::Delay) => {
                                     endpoint_disable_interrupts(endpoint, TXIN);
@@ -567,7 +567,7 @@ impl<'a> Usbc<'a> {
                                 }
                                 _ => {
                                     // Respond with STALL to any following IN/OUT transactions
-                                    UECONnSET.n(endpoint).write(STALLRQ);
+                                    UECONnSET[endpoint].write(STALLRQ);
 
                                     debug!("D({}) Client IN err => STALL", endpoint);
 
@@ -596,7 +596,7 @@ impl<'a> Usbc<'a> {
                             endpoint_enable_interrupts(endpoint, RXSTP);
 
                             // Acknowledge
-                            UESTAnCLR.n(endpoint).write(RXOUT);
+                            UESTAnCLR[endpoint].write(RXOUT);
                         }
                     }
                     DeviceState::CtrlWriteOut => {
@@ -611,7 +611,7 @@ impl<'a> Usbc<'a> {
                             match result {
                                 Some(CtrlOutResult::Ok) => {
                                     // Acknowledge
-                                    UESTAnCLR.n(endpoint).write(RXOUT);
+                                    UESTAnCLR[endpoint].write(RXOUT);
                                 }
                                 Some(CtrlOutResult::Delay) => {
                                     // Don't acknowledge; hardware will have to send NAK
@@ -622,7 +622,7 @@ impl<'a> Usbc<'a> {
                                 }
                                 _ => {
                                     // Respond with STALL to any following transactions in this request
-                                    UECONnSET.n(endpoint).write(STALLRQ);
+                                    UECONnSET[endpoint].write(STALLRQ);
 
                                     debug!("D({}) Client OUT err => STALL", endpoint);
 
@@ -647,7 +647,7 @@ impl<'a> Usbc<'a> {
                             endpoint_enable_interrupts(endpoint, TXIN);
 
                             // Acknowledge
-                            UESTAnCLR.n(endpoint).write(NAKIN);
+                            UESTAnCLR[endpoint].write(NAKIN);
 
                             // Can probably send the ZLP immediately
                             // again = true;
@@ -665,7 +665,7 @@ impl<'a> Usbc<'a> {
                             *dstate = DeviceState::CtrlWriteStatusWait;
 
                             // Signal to the controller that the IN payload is ready to send
-                            UESTAnCLR.n(endpoint).write(TXIN);
+                            UESTAnCLR[endpoint].write(TXIN);
 
                             // Wait for TXIN again to confirm that IN payload has been sent
                         }
@@ -746,17 +746,17 @@ impl<'a> Usbc<'a> {
 }
 
 #[inline]
-fn endpoint_disable_interrupts(endpoint: u32, mask: u32) {
-    UECONnCLR.n(endpoint).write(mask);
+fn endpoint_disable_interrupts(endpoint: usize, mask: u32) {
+    UECONnCLR[endpoint].write(mask);
 }
 
 #[inline]
-fn endpoint_enable_interrupts(endpoint: u32, mask: u32) {
-    UECONnSET.n(endpoint).write(mask);
+fn endpoint_enable_interrupts(endpoint: usize, mask: u32) {
+    UECONnSET[endpoint].write(mask);
 }
 
 #[inline]
-fn endpoint_enable_only_interrupts(endpoint: u32, mask: u32) {
+fn endpoint_enable_only_interrupts(endpoint: usize, mask: u32) {
     endpoint_disable_interrupts(endpoint, !0);
     endpoint_enable_interrupts(endpoint, mask);
 }
@@ -783,7 +783,7 @@ fn debug_regs() {
            UDINTE.read(),
            UDINT.read(),
            UERST.read(),
-           UECFG0.read_word(),
+           UECFG0.read(),
            UECON0.read());
 }
 
