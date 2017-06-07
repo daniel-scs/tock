@@ -3,7 +3,7 @@
 //! It responds to standard device requests and can be enumerated.
 
 use usb::*;
-use kernel::common::volatile_slice::*;
+use kernel::common::volatile_cell::*;
 use kernel::common::copy_slice::*;
 use kernel::hil::usb::*;
 use core::cell::{RefCell};
@@ -23,7 +23,7 @@ static STRINGS: &'static [&'static str] = &[
 pub struct SimpleClient<'a, C: 'a> {
     controller: &'a C,
     state: RefCell<State>,
-    ep0_buf: VolatileSlice<u8>,
+    ep0_buf: &'a [VolatileCell<u8>],
     descriptor_storage: CopySlice<'static, u8>,
 }
 
@@ -35,18 +35,17 @@ enum State {
     SetAddress,
 }
 
+pub const EP0_BUFLEN: usize = 8;
+// pub const DESCRIPTOR_BUFLEN: usize = 20;
+
 impl<'a, C: UsbController> SimpleClient<'a, C> {
-    pub fn new(controller: &'a C) -> Self {
-        // XXX It appears we need to declare the storage
-        // mutable like this, else later reads will merely
-        // return the statically-initialized value.
-        let ep0_buf = static_mut_bytes_8();
-        let descr_buf = static_mut_bytes_100();
+    pub fn new(controller: &'a C, ep0_buf: &'a [VolatileCell<u8>; EP0_BUFLEN]) -> Self {
+        let descr_buf = static_mut_bytes_100(); // XXX
 
         SimpleClient{
             controller: controller,
             state: RefCell::new(State::Init),
-            ep0_buf: VolatileSlice::new_mut(ep0_buf),
+            ep0_buf: ep0_buf,
             descriptor_storage: CopySlice::new(descr_buf),
         }
     }
@@ -77,12 +76,9 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
 
     /// Handle a Control Setup transaction
     fn ctrl_setup(&self) -> CtrlSetupResult {
-        let buf: &mut [u8] = &mut [0xff; 8];
-        copy_from_volatile_slice(buf, self.ep0_buf);
-
-        SetupData::get(buf).map_or(CtrlSetupResult::Error("Couldn't parse setup data"), |setup_data| {
+        SetupData::get(self.ep0_buf).map_or(CtrlSetupResult::ErrNoParse, |setup_data| {
             setup_data.get_standard_request().map_or_else(
-                || { CtrlSetupResult::Error(static_fmt!("Nonstandard request: {:?}", setup_data)) },
+                || { CtrlSetupResult::ErrNonstandardRequest },
                 |request| {
                 match request {
                     StandardDeviceRequest::GetDescriptor{ descriptor_type,
@@ -105,7 +101,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                     });
                                     CtrlSetupResult::Ok
                                 }
-                                _ => CtrlSetupResult::Error("GetDescriptor: invalid Device index"),
+                                _ => CtrlSetupResult::ErrInvalidDeviceIndex,
                             },
                             DescriptorType::Configuration => match descriptor_index {
                                 0 => {
@@ -135,7 +131,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                     });
                                     CtrlSetupResult::Ok
                                 }
-                                _ => CtrlSetupResult::Error("GetDescriptor: invalid Configuration index"),
+                                _ => CtrlSetupResult::ErrInvalidConfigurationIndex,
                             },
                             DescriptorType::String => {
                                 if let Some(buf) = match descriptor_index {
@@ -160,14 +156,14 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                     CtrlSetupResult::Ok
                                 }
                                 else {
-                                    CtrlSetupResult::Error("GetDescriptor: invalid String index")
+                                    CtrlSetupResult::ErrInvalidStringIndex
                                 }
                             }
                             DescriptorType::DeviceQualifier => {
                                 // We are full-speed only, so we must respond with a request error
-                                CtrlSetupResult::Error("GetDescriptor(DeviceQualifier): none")
+                                CtrlSetupResult::ErrNoDeviceQualifier
                             }
-                            _ => CtrlSetupResult::Error(static_fmt!("GetDescriptor: unrecognized descriptor type: {:?}", descriptor_type)),
+                            _ => CtrlSetupResult::ErrUnrecognizedDescriptorType
                         } // match descriptor_type
                     }
                     StandardDeviceRequest::SetAddress{device_address} => {
@@ -185,7 +181,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                         // We have been assigned a particular configuration: fine!
                         CtrlSetupResult::Ok
                     }
-                    _ => CtrlSetupResult::Error(static_fmt!("Unrecognized request type: {:?}", request)),
+                    _ => CtrlSetupResult::ErrUnrecognizedRequestType
                 }
             })
         })
@@ -199,7 +195,11 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                     if buf.len() > 0 {
                         let packet_bytes = min(8, buf.len());
                         let packet = &buf[.. packet_bytes];
-                        self.ep0_buf.prefix_copy_from_slice(packet);
+
+                        // Copy a packet into the endpoint buffer
+                        for (i, b) in packet.iter().enumerate() {
+                            self.ep0_buf[i].set(*b);
+                        }
 
                         let buf = &buf[packet_bytes ..];
                         let transfer_complete = buf.len() == 0;

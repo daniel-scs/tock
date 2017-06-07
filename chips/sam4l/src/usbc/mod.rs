@@ -12,7 +12,7 @@ use core::slice;
 use kernel::hil;
 use kernel::hil::usb::*;
 use kernel::common::take_cell::MapCell;
-use kernel::common::volatile_slice::VolatileSlice;
+use kernel::common::volatile_cell::VolatileCell;
 
 use nvic;
 use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};
@@ -46,7 +46,7 @@ impl<'a> UsbController for Usbc<'a> {
         self._enable(Mode::device_at_speed(speed));
     }
 
-    fn endpoint_set_buffer<'b>(&'b self, e: u32, buf: VolatileSlice<u8>) {
+    fn endpoint_set_buffer<'b>(&'b self, e: u32, buf: &[VolatileCell<u8>]) {
         if buf.len() != 8 {
             panic!("Bad endpoint buffer size");
         }
@@ -240,10 +240,10 @@ impl<'a> Usbc<'a> {
 
     /// Provide a buffer for transfers in and out of the given endpoint
     pub fn endpoint_bank_set_buffer(&self, endpoint: EndpointIndex, bank: BankIndex,
-                                    buf: VolatileSlice<u8>) {
+                                    buf: &[VolatileCell<u8>]) {
         let e: usize = From::from(endpoint);
         let b: usize = From::from(bank);
-        let p = buf.as_mut_ptr();
+        let p = buf.as_ptr() as *mut u8;
 
         debug!("Set Endpoint{}/Bank{} addr={:8?}", e, b, p);
         self.descriptors[e][b].set_addr(p);
@@ -449,7 +449,7 @@ impl<'a> Usbc<'a> {
                                     })
                                 }
                                 else {
-                                    Some(CtrlSetupResult::Error("Bad byte count"))
+                                    Some(CtrlSetupResult::ErrBadLength)
                                 };
 
                             match result {
@@ -478,16 +478,16 @@ impl<'a> Usbc<'a> {
                                         endpoint_enable_only_interrupts(endpoint,
                                             RAMACERR | RXOUT | NAKIN);
                                     }
-                                }
+                                },
                                 failure => {
                                     // Respond with STALL to any following transactions in this request
                                     UECONnSET.n(endpoint).write(STALLRQ);
 
                                     match failure {
-                                        Some(CtrlSetupResult::Error(err)) =>
-                                            debug!("D({}) Client err on Setup: {}", endpoint, err),
-                                        _ =>
+                                        None =>
                                             debug!("D({}) No client to handle Setup", endpoint),
+                                        Some(err) =>
+                                            debug!("D({}) Client err on Setup: {:?}", endpoint, err),
                                     }
 
                                     endpoint_enable_only_interrupts(endpoint, RXSTP | RAMACERR);

@@ -2,6 +2,7 @@
 
 use core::fmt;
 use core::convert::From;
+use kernel::common::volatile_cell::VolatileCell;
 
 /// The datastructure sent in a SETUP handshake
 #[derive(Debug, Copy, Clone)]
@@ -14,17 +15,17 @@ pub struct SetupData {
 }
 
 impl SetupData {
-    /// Create a `SetupData` structure from a buffer as received from the wire
-    pub fn get(buf: &[u8]) -> Option<Self> {
-        if buf.len() != 8 {
+    /// Create a `SetupData` structure from a packet received from the wire
+    pub fn get(p: &[VolatileCell<u8>]) -> Option<Self> {
+        if p.len() != 8 {
             return None;
         }
         Some(SetupData {
-            request_type: DeviceRequestType(buf[0]),
-            request_code: buf[1],
-            value: get_u16(&buf[2..4]).unwrap(),
-            index: get_u16(&buf[4..6]).unwrap(),
-            length: get_u16(&buf[6..8]).unwrap(),
+            request_type: DeviceRequestType(p[0].get()),
+            request_code: p[1].get(),
+            value: get_u16(p[2].get(), p[3].get()),
+            index: get_u16(p[4].get(), p[5].get()),
+            length: get_u16(p[6].get(), p[7].get()),
         })
     }
 
@@ -449,12 +450,9 @@ impl<'a> Descriptor for StringDescriptor<'a> {
     }
 }
 
-/// Parse a `u16` from a two-byte buffer as received on the bus
-fn get_u16(buf: &[u8]) -> Option<u16> {
-    if buf.len() != 2 {
-        return None;
-    }
-    Some ((buf[0] as u16) | ((buf[1] as u16) << 8))
+/// Parse a `u16` from two bytes as received on the bus
+fn get_u16(b0: u8, b1: u8) -> u16 {
+    (b0 as u16) | ((b1 as u16) << 8)
 }
 
 /// Write a `u16` to a buffer for transmission on the bus
