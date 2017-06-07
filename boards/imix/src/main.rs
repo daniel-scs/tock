@@ -14,7 +14,6 @@ use capsules::timer::TimerDriver;
 use capsules::virtual_alarm::{MuxAlarm, VirtualMuxAlarm};
 use capsules::virtual_i2c::{I2CDevice, MuxI2C};
 use capsules::virtual_spi::{VirtualSpiMasterDevice, MuxSpiMaster};
-use kernel::common::volatile_cell::VolatileCell;
 use kernel::Chip;
 use kernel::hil;
 use kernel::hil::Controller;
@@ -401,8 +400,6 @@ pub unsafe fn reset_handler() {
     rf233.set_config_client(radio_capsule);
 
     // Configure the USB controller
-    static mut EP0_BUF: [VolatileCell<u8>; capsules::usb_simple::EP0_BUFLEN] =
-        [VolatileCell::new(0); capsules::usb_simple::EP0_BUFLEN];
     static mut DESCRIPTOR_BUF: [u8; capsules::usb_simple::DESCRIPTOR_BUFLEN] =
         [0; capsules::usb_simple::DESCRIPTOR_BUFLEN];
     let descriptor_buf = &(*(DESCRIPTOR_BUF.as_ptr() as *const [Cell<u8>;
@@ -410,7 +407,7 @@ pub unsafe fn reset_handler() {
     let usb_client = static_init!(
         capsules::usb_simple::SimpleClient<'static, sam4l::usbc::Usbc<'static>>,
         capsules::usb_simple::SimpleClient::new(&sam4l::usbc::USBC,
-                                                &EP0_BUF, descriptor_buf),
+                                                descriptor_buf),
         256/8);
     sam4l::usbc::USBC.set_client(usb_client);
 

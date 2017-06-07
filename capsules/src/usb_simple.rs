@@ -6,6 +6,7 @@ use usb::*;
 use kernel::common::volatile_cell::*;
 use kernel::hil::usb::*;
 use core::cell::Cell;
+use core::default::Default;
 use core::cmp::min;
 
 static LANGUAGES: &'static [u16] = &[
@@ -18,11 +19,13 @@ static STRINGS: &'static [&'static str] = &[
     "Serial No. 5",   // Serial number
 ];
 
+const DESCRIPTOR_BUFLEN: usize = 30;
+
 pub struct SimpleClient<'a, C: 'a> {
     controller: &'a C,
     state: Cell<State<'a>>,
-    ep0_buf: &'a [VolatileCell<u8>],
-    descriptor_buf: &'a [Cell<u8>],
+    ep0_storage: [VolatileCell<u8>; 8],
+    descriptor_storage: [Cell<u8>; DESCRIPTOR_BUFLEN],
 }
 
 #[derive(Copy, Clone)]
@@ -34,26 +37,30 @@ enum State<'a> {
     SetAddress,
 }
 
-pub const EP0_BUFLEN: usize = 8;
-pub const DESCRIPTOR_BUFLEN: usize = 30;
-
 impl<'a, C: UsbController> SimpleClient<'a, C> {
-    pub fn new(controller: &'a C,
-               ep0_buf: &'a [VolatileCell<u8>; EP0_BUFLEN],
-               descriptor_buf: &'a [Cell<u8>; DESCRIPTOR_BUFLEN]) -> Self {
-
+    pub fn new(controller: &'a C) -> Self {
         SimpleClient{
             controller: controller,
             state: Cell::new(State::Init),
-            ep0_buf: ep0_buf,
-            descriptor_buf: descriptor_buf,
+            ep0_storage: [VolatileCell::new(0); 8],
+            descriptor_storage: Default::default(),
         }
+    }
+
+    #[inline]
+    fn ep0_buf(&self) -> &[VolatileCell<u8>] {
+        &self.ep0_storage
+    }
+
+    #[inline]
+    fn descriptor_buf(&'a self) -> &'a [Cell<u8>] {
+        &self.descriptor_storage
     }
 }
 
 impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     fn enable(&self) {
-        self.controller.endpoint_set_buffer(0, self.ep0_buf);
+        self.controller.endpoint_set_buffer(0, self.ep0_buf());
         self.controller.enable_device(false);
         self.controller.endpoint_ctrl_out_enable(0);
     }
@@ -69,7 +76,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
 
     /// Handle a Control Setup transaction
     fn ctrl_setup(&self) -> CtrlSetupResult {
-        SetupData::get(self.ep0_buf).map_or(CtrlSetupResult::ErrNoParse, |setup_data| {
+        SetupData::get(self.ep0_buf()).map_or(CtrlSetupResult::ErrNoParse, |setup_data| {
             setup_data.get_standard_request().map_or_else(
                 || { CtrlSetupResult::ErrNonstandardRequest },
                 |request| {
@@ -81,17 +88,18 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                         match descriptor_type {
                             DescriptorType::Device => match descriptor_index {
                                 0 => {
+                                    let buf = self.descriptor_buf();
                                     let d = DeviceDescriptor {
                                                 manufacturer_string: 1,
                                                 product_string: 2,
                                                 serial_number_string: 3,
                                                 .. Default::default()
                                             };
-                                    let len = d.write_to(self.descriptor_buf);
+                                    let len = d.write_to(buf);
                                     let end = min(len, requested_length as usize);
                                     self.state.set(
                                         State::CtrlIn{
-                                            buf: &self.descriptor_buf[ .. end]
+                                            buf: &buf[ .. end]
                                         });
                                     CtrlSetupResult::Ok
                                 }
@@ -102,24 +110,24 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                     // Place all the descriptors related to this configuration
                                     // into a buffer contiguously, starting with the last
 
-                                    let mut storage_avail = self.descriptor_buf.len();
-                                    let s = self.descriptor_buf;
+                                    let buf = self.descriptor_buf();
+                                    let mut storage_avail = buf.len();
 
                                     let di = InterfaceDescriptor::default();
-                                    storage_avail -= di.write_to(&s[storage_avail - di.size() ..]);
+                                    storage_avail -= di.write_to(&buf[storage_avail - di.size() ..]);
 
                                     let dc = ConfigurationDescriptor {
                                                  num_interfaces: 1,
                                                  related_descriptor_length: di.size(),
                                                  .. Default::default() };
-                                    storage_avail -= dc.write_to(&s[storage_avail - dc.size() ..]);
+                                    storage_avail -= dc.write_to(&buf[storage_avail - dc.size() ..]);
 
                                     let request_start = storage_avail;
                                     let request_end = min(request_start + (requested_length as usize),
-                                                          self.descriptor_buf.len());
+                                                          buf.len());
                                     self.state.set(
                                         State::CtrlIn{
-                                            buf: &self.descriptor_buf[request_start .. request_end]
+                                            buf: &buf[request_start .. request_end]
                                         });
                                     CtrlSetupResult::Ok
                                 }
@@ -128,16 +136,18 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                             DescriptorType::String => {
                                 if let Some(buf) = match descriptor_index {
                                        0 => {
-                                            let d = LanguagesDescriptor{ langs: LANGUAGES };
-                                            let len = d.write_to(self.descriptor_buf);
-                                            let end = min(len, requested_length as usize);
-                                            Some(&self.descriptor_buf[ .. end])
+                                           let buf = self.descriptor_buf();
+                                           let d = LanguagesDescriptor{ langs: LANGUAGES };
+                                           let len = d.write_to(buf);
+                                           let end = min(len, requested_length as usize);
+                                           Some(&buf[ .. end])
                                        }
                                        i if i > 0 && (i as usize) <= STRINGS.len() && lang_id == LANGUAGES[0] => {
-                                            let d = StringDescriptor{ string: STRINGS[i as usize - 1] };
-                                            let len = d.write_to(self.descriptor_buf);
-                                            let end = min(len, requested_length as usize);
-                                            Some(&self.descriptor_buf[ .. end])
+                                           let buf = self.descriptor_buf();
+                                           let d = StringDescriptor{ string: STRINGS[i as usize - 1] };
+                                           let len = d.write_to(buf);
+                                           let end = min(len, requested_length as usize);
+                                           Some(&buf[ .. end])
                                        },
                                        _ => None,
                                    }
@@ -182,10 +192,11 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                 if buf.len() > 0 {
                     let packet_bytes = min(8, buf.len());
                     let packet = &buf[.. packet_bytes];
+                    let ep0_buf = self.ep0_buf();
 
                     // Copy a packet into the endpoint buffer
                     for (i, b) in packet.iter().enumerate() {
-                        self.ep0_buf[i].set(b.get());
+                        ep0_buf[i].set(b.get());
                     }
 
                     let buf = &buf[packet_bytes ..];
