@@ -4,10 +4,8 @@
 
 use usb::*;
 use kernel::common::volatile_cell::*;
-use kernel::common::copy_slice::*;
 use kernel::hil::usb::*;
-use core::cell::{RefCell};
-use core::ops::DerefMut;
+use core::cell::Cell;
 use core::cmp::min;
 
 static LANGUAGES: &'static [u16] = &[
@@ -22,39 +20,34 @@ static STRINGS: &'static [&'static str] = &[
 
 pub struct SimpleClient<'a, C: 'a> {
     controller: &'a C,
-    state: RefCell<State>,
+    state: Cell<State<'a>>,
     ep0_buf: &'a [VolatileCell<u8>],
-    descriptor_storage: CopySlice<'static, u8>,
+    descriptor_buf: &'a [Cell<u8>],
 }
 
-enum State {
+#[derive(Copy, Clone)]
+enum State<'a> {
     Init,
     CtrlIn{
-        buf: &'static [u8]
+        buf: &'a [Cell<u8>]
     },
     SetAddress,
 }
 
 pub const EP0_BUFLEN: usize = 8;
-// pub const DESCRIPTOR_BUFLEN: usize = 20;
+pub const DESCRIPTOR_BUFLEN: usize = 30;
 
 impl<'a, C: UsbController> SimpleClient<'a, C> {
-    pub fn new(controller: &'a C, ep0_buf: &'a [VolatileCell<u8>; EP0_BUFLEN]) -> Self {
-        let descr_buf = static_mut_bytes_100(); // XXX
+    pub fn new(controller: &'a C,
+               ep0_buf: &'a [VolatileCell<u8>; EP0_BUFLEN],
+               descriptor_buf: &'a [Cell<u8>; DESCRIPTOR_BUFLEN]) -> Self {
 
         SimpleClient{
             controller: controller,
-            state: RefCell::new(State::Init),
+            state: Cell::new(State::Init),
             ep0_buf: ep0_buf,
-            descriptor_storage: CopySlice::new(descr_buf),
+            descriptor_buf: descriptor_buf,
         }
-    }
-
-    fn map_state<F, R>(&self, f: F) -> R
-        where F: FnOnce(&mut State) -> R
-    {
-        let mut s = self.state.borrow_mut();
-        f(s.deref_mut())
     }
 }
 
@@ -88,17 +81,18 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                         match descriptor_type {
                             DescriptorType::Device => match descriptor_index {
                                 0 => {
-                                    self.map_state(|state| {
-                                        let d = DeviceDescriptor {
-                                                    manufacturer_string: 1,
-                                                    product_string: 2,
-                                                    serial_number_string: 3,
-                                                    .. Default::default()
-                                                };
-                                        let len = d.write_to(self.descriptor_storage.as_mut());
-                                        let end = min(len, requested_length as usize);
-                                        *state = State::CtrlIn{ buf: &(self.descriptor_storage.as_slice())[ .. end] };
-                                    });
+                                    let d = DeviceDescriptor {
+                                                manufacturer_string: 1,
+                                                product_string: 2,
+                                                serial_number_string: 3,
+                                                .. Default::default()
+                                            };
+                                    let len = d.write_to(self.descriptor_buf);
+                                    let end = min(len, requested_length as usize);
+                                    self.state.set(
+                                        State::CtrlIn{
+                                            buf: &self.descriptor_buf[ .. end]
+                                        });
                                     CtrlSetupResult::Ok
                                 }
                                 _ => CtrlSetupResult::ErrInvalidDeviceIndex,
@@ -108,27 +102,25 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                     // Place all the descriptors related to this configuration
                                     // into a buffer contiguously, starting with the last
 
-                                    let mut storage_avail = self.descriptor_storage.len();
-                                    let s = self.descriptor_storage.as_mut();
+                                    let mut storage_avail = self.descriptor_buf.len();
+                                    let s = self.descriptor_buf;
 
                                     let di = InterfaceDescriptor::default();
-                                    storage_avail -= di.write_to(&mut s[storage_avail - di.size() ..]);
+                                    storage_avail -= di.write_to(&s[storage_avail - di.size() ..]);
 
                                     let dc = ConfigurationDescriptor {
                                                  num_interfaces: 1,
                                                  related_descriptor_length: di.size(),
                                                  .. Default::default() };
-                                    storage_avail -= dc.write_to(&mut s[storage_avail - dc.size() ..]);
+                                    storage_avail -= dc.write_to(&s[storage_avail - dc.size() ..]);
 
                                     let request_start = storage_avail;
                                     let request_end = min(request_start + (requested_length as usize),
-                                                          self.descriptor_storage.len());
-                                    self.map_state(|state| {
-                                        *state = State::CtrlIn{
-                                            buf: &self.descriptor_storage.as_slice()[request_start ..
-                                                                                     request_end]
-                                        };
-                                    });
+                                                          self.descriptor_buf.len());
+                                    self.state.set(
+                                        State::CtrlIn{
+                                            buf: &self.descriptor_buf[request_start .. request_end]
+                                        });
                                     CtrlSetupResult::Ok
                                 }
                                 _ => CtrlSetupResult::ErrInvalidConfigurationIndex,
@@ -137,22 +129,20 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                 if let Some(buf) = match descriptor_index {
                                        0 => {
                                             let d = LanguagesDescriptor{ langs: LANGUAGES };
-                                            let len = d.write_to(self.descriptor_storage.as_mut());
+                                            let len = d.write_to(self.descriptor_buf);
                                             let end = min(len, requested_length as usize);
-                                            Some(&self.descriptor_storage.as_slice()[ .. end])
+                                            Some(&self.descriptor_buf[ .. end])
                                        }
                                        i if i > 0 && (i as usize) <= STRINGS.len() && lang_id == LANGUAGES[0] => {
                                             let d = StringDescriptor{ string: STRINGS[i as usize - 1] };
-                                            let len = d.write_to(self.descriptor_storage.as_mut());
+                                            let len = d.write_to(self.descriptor_buf);
                                             let end = min(len, requested_length as usize);
-                                            Some(&self.descriptor_storage.as_slice()[ .. end])
+                                            Some(&self.descriptor_buf[ .. end])
                                        },
                                        _ => None,
                                    }
                                 {
-                                    self.map_state(|state| {
-                                        *state = State::CtrlIn{ buf: buf };
-                                    });
+                                    self.state.set(State::CtrlIn{ buf: buf });
                                     CtrlSetupResult::Ok
                                 }
                                 else {
@@ -172,9 +162,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
 
                         // ... and when this request gets to the Status stage
                         // we will actually enable the address.
-                        self.map_state(|state| {
-                            *state = State::SetAddress;
-                        });
+                        self.state.set(State::SetAddress);
                         CtrlSetupResult::Ok
                     }
                     StandardDeviceRequest::SetConfiguration{ .. } => {
@@ -189,32 +177,30 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
 
     /// Handle a Control In transaction
     fn ctrl_in(&self) -> CtrlInResult {
-        self.map_state(|state| {
-            match *state {
-                State::CtrlIn{ buf } => {
-                    if buf.len() > 0 {
-                        let packet_bytes = min(8, buf.len());
-                        let packet = &buf[.. packet_bytes];
+        match self.state.get() {
+            State::CtrlIn{ buf } => {
+                if buf.len() > 0 {
+                    let packet_bytes = min(8, buf.len());
+                    let packet = &buf[.. packet_bytes];
 
-                        // Copy a packet into the endpoint buffer
-                        for (i, b) in packet.iter().enumerate() {
-                            self.ep0_buf[i].set(*b);
-                        }
-
-                        let buf = &buf[packet_bytes ..];
-                        let transfer_complete = buf.len() == 0;
-
-                        *state = State::CtrlIn{ buf: buf };
-
-                        CtrlInResult::Packet(packet_bytes, transfer_complete)
+                    // Copy a packet into the endpoint buffer
+                    for (i, b) in packet.iter().enumerate() {
+                        self.ep0_buf[i].set(b.get());
                     }
-                    else {
-                        CtrlInResult::Packet(0, true)
-                    }
+
+                    let buf = &buf[packet_bytes ..];
+                    let transfer_complete = buf.len() == 0;
+
+                    self.state.set(State::CtrlIn{ buf: buf });
+
+                    CtrlInResult::Packet(packet_bytes, transfer_complete)
                 }
-                _ => CtrlInResult::Error
+                else {
+                    CtrlInResult::Packet(0, true)
+                }
             }
-        })
+            _ => CtrlInResult::Error
+        }
     }
 
     /// Handle a Control Out transaction
@@ -232,14 +218,12 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
         // Control Read: IN request acknowledged
         // Control Write: status sent
 
-        self.map_state(|state| {
-            match *state {
-                State::SetAddress => {
-                    self.controller.enable_address();
-                },
-                _ => {}
-            };
-            *state = State::Init
-        })
+        match self.state.get() {
+            State::SetAddress => {
+                self.controller.enable_address();
+            },
+            _ => {}
+        };
+        self.state.set(State::Init);
     }
 }
