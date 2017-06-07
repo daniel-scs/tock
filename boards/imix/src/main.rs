@@ -8,7 +8,6 @@ extern crate compiler_builtins;
 extern crate kernel;
 extern crate sam4l;
 
-use core::cell::Cell;
 use capsules::rf233::RF233;
 use capsules::timer::TimerDriver;
 use capsules::virtual_alarm::{MuxAlarm, VirtualMuxAlarm};
@@ -400,15 +399,10 @@ pub unsafe fn reset_handler() {
     rf233.set_config_client(radio_capsule);
 
     // Configure the USB controller
-    static mut DESCRIPTOR_BUF: [u8; capsules::usb_simple::DESCRIPTOR_BUFLEN] =
-        [0; capsules::usb_simple::DESCRIPTOR_BUFLEN];
-    let descriptor_buf = &(*(DESCRIPTOR_BUF.as_ptr() as *const [Cell<u8>;
-                             capsules::usb_simple::DESCRIPTOR_BUFLEN]));
     let usb_client = static_init!(
         capsules::usb_simple::SimpleClient<'static, sam4l::usbc::Usbc<'static>>,
-        capsules::usb_simple::SimpleClient::new(&sam4l::usbc::USBC,
-                                                descriptor_buf),
-        256/8);
+        capsules::usb_simple::SimpleClient::new(&sam4l::usbc::USBC),
+        448/8);
     sam4l::usbc::USBC.set_client(usb_client);
 
     let imix = Imix {

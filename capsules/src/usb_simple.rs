@@ -23,17 +23,20 @@ const DESCRIPTOR_BUFLEN: usize = 30;
 
 pub struct SimpleClient<'a, C: 'a> {
     controller: &'a C,
-    state: Cell<State<'a>>,
+    state: Cell<State>,
     ep0_storage: [VolatileCell<u8>; 8],
     descriptor_storage: [Cell<u8>; DESCRIPTOR_BUFLEN],
 }
 
 #[derive(Copy, Clone)]
-enum State<'a> {
+enum State {
     Init,
-    CtrlIn{
-        buf: &'a [Cell<u8>]
-    },
+
+    /// We are doing a Control In transfer of some data
+    /// in self.descriptor_storage, with the given extent
+    /// remaining to send
+    CtrlIn(usize, usize),
+
     SetAddress,
 }
 
@@ -97,10 +100,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                             };
                                     let len = d.write_to(buf);
                                     let end = min(len, requested_length as usize);
-                                    self.state.set(
-                                        State::CtrlIn{
-                                            buf: &buf[ .. end]
-                                        });
+                                    self.state.set(State::CtrlIn(0, end));
                                     CtrlSetupResult::Ok
                                 }
                                 _ => CtrlSetupResult::ErrInvalidDeviceIndex,
@@ -125,10 +125,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                     let request_start = storage_avail;
                                     let request_end = min(request_start + (requested_length as usize),
                                                           buf.len());
-                                    self.state.set(
-                                        State::CtrlIn{
-                                            buf: &buf[request_start .. request_end]
-                                        });
+                                    self.state.set(State::CtrlIn(request_start, request_end));
                                     CtrlSetupResult::Ok
                                 }
                                 _ => CtrlSetupResult::ErrInvalidConfigurationIndex,
@@ -152,7 +149,7 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                        _ => None,
                                    }
                                 {
-                                    self.state.set(State::CtrlIn{ buf: buf });
+                                    self.state.set(State::CtrlIn(0, buf.len()));
                                     CtrlSetupResult::Ok
                                 }
                                 else {
@@ -188,10 +185,11 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     /// Handle a Control In transaction
     fn ctrl_in(&self) -> CtrlInResult {
         match self.state.get() {
-            State::CtrlIn{ buf } => {
-                if buf.len() > 0 {
-                    let packet_bytes = min(8, buf.len());
-                    let packet = &buf[.. packet_bytes];
+            State::CtrlIn(start, end) => {
+                let len = end.saturating_sub(start);
+                if len > 0 {
+                    let packet_bytes = min(8, len);
+                    let packet = &self.descriptor_storage[start .. start + packet_bytes];
                     let ep0_buf = self.ep0_buf();
 
                     // Copy a packet into the endpoint buffer
@@ -199,10 +197,11 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                         ep0_buf[i].set(b.get());
                     }
 
-                    let buf = &buf[packet_bytes ..];
-                    let transfer_complete = buf.len() == 0;
+                    let start = start + packet_bytes;
+                    let len = end.saturating_sub(start);
+                    let transfer_complete = len == 0;
 
-                    self.state.set(State::CtrlIn{ buf: buf });
+                    self.state.set(State::CtrlIn(start, end));
 
                     CtrlInResult::Packet(packet_bytes, transfer_complete)
                 }
