@@ -8,7 +8,7 @@ use core::marker::PhantomData;
 pub struct Reg(*mut u32);
 
 impl Reg {
-    pub const fn new(addr: *mut u32) -> Self {
+    pub const unsafe fn new(addr: *mut u32) -> Self {
         Reg(addr)
     }
 
@@ -30,7 +30,7 @@ impl Reg {
     }
 
     #[inline]
-    pub fn clr_bit(self, bit_index: u32) {
+    pub fn clear_bit(self, bit_index: u32) {
         let w = self.read();
         let bit = 1 << bit_index;
         self.write(w & (!bit));
@@ -43,7 +43,7 @@ impl Reg {
 pub struct RegW(*mut u32);
 
 impl RegW {
-    pub const fn new(addr: *mut u32) -> Self {
+    pub const unsafe fn new(addr: *mut u32) -> Self {
         RegW(addr)
     }
 
@@ -68,7 +68,7 @@ impl RegW {
 pub struct RegR(*const u32);
 
 impl RegR {
-    pub const fn new(addr: *const u32) -> Self {
+    pub const unsafe fn new(addr: *const u32) -> Self {
         RegR(addr)
     }
 
