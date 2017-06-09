@@ -2,48 +2,106 @@
 
 #[macro_export]
 macro_rules! reg {
-    [ $offset:expr, $description:expr, $name:ident, "RW" ] => {
-        #[allow(dead_code)]
-        pub const $name: StaticRef<Register> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const Register)
+    [ $offset:expr, $description:expr, $name:ident, $ty:ident, "RW" ] => {
+        pub struct $ty(VolatileCell<u32>);
+
+        impl RegisterRW for $ty {
+            #[inline]
+            fn read(&self) -> u32 {
+                self.0.get()
+            }
+
+            #[inline]
+            fn write(&self, val: u32) {
+                self.0.set(val);
+            }
+        }
+
+        pub const $name: StaticRef<$ty> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const $ty)
         };
     };
 
-    [ $offset:expr, $description:expr, $name:ident, "R" ] => {
-        #[allow(dead_code)]
-        pub const $name: StaticRef<RegisterR> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const RegisterR)
+    [ $offset:expr, $description:expr, $name:ident, $ty:ident, "R" ] => {
+        pub struct $ty(VolatileCell<u32>);
+
+        impl RegisterR for $ty {
+            #[inline]
+            fn read(&self) -> u32 {
+                self.0.get()
+            }
+        }
+
+        pub const $name: StaticRef<$ty> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const $ty)
         };
     };
 
-    [ $offset:expr, $description:expr, $name:ident, "W" ] => {
-        #[allow(dead_code)]
-        pub const $name: StaticRef<RegisterW> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const RegisterW)
+    [ $offset:expr, $description:expr, $name:ident, $ty: ident, "W" ] => {
+        pub struct $ty(VolatileCell<u32>);
+
+        impl RegisterW for $ty {
+            #[inline]
+            fn write(&self, val: u32) {
+                self.0.set(val);
+            }
+        }
+
+        pub const $name: StaticRef<$ty> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const $ty)
         };
     };
 }
 
 #[macro_export]
 macro_rules! regs {
-    [ $offset:expr, $description:expr, $name:ident, "RW", $count:expr ] => {
-        #[allow(dead_code)]
-        pub const $name: StaticRef<[Register; $count]> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const [Register; $count])
+    [ $offset:expr, $description:expr, $name:ident, $ty:ident, "RW", $count:expr ] => {
+        pub struct $ty(VolatileCell<u32>);
+
+        impl RegisterRW for $ty {
+            #[inline]
+            fn read(&self) -> u32 {
+                self.0.get()
+            }
+
+            #[inline]
+            fn write(&self, val: u32) {
+                self.0.set(val);
+            }
+        }
+
+        pub const $name: StaticRef<[$ty; $count]> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const [$ty; $count])
         };
     };
 
-    [ $offset:expr, $description:expr, $name:ident, "R", $count:expr ] => {
-        #[allow(dead_code)]
-        pub const $name: StaticRef<[RegisterR; $count]> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const [RegisterR; $count])
+    [ $offset:expr, $description:expr, $name:ident, $ty:ident, "R", $count:expr ] => {
+        pub struct $ty(VolatileCell<u32>);
+
+        impl RegisterR for $ty {
+            #[inline]
+            fn read(&self) -> u32 {
+                self.0.get()
+            }
+        }
+
+        pub const $name: StaticRef<[$ty; $count]> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const [$ty; $count])
         };
     };
 
-    [ $offset:expr, $description:expr, $name:ident, "W", $count:expr ] => {
-        #[allow(dead_code)]
-        pub const $name: StaticRef<[RegisterW; $count]> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const [RegisterW; $count])
+    [ $offset:expr, $description:expr, $name:ident, $ty:ident, "W", $count:expr ] => {
+        pub struct $ty(VolatileCell<u32>);
+
+        impl RegisterW for $ty {
+            #[inline]
+            fn write(&self, val: u32) {
+                self.0.set(val);
+            }
+        }
+
+        pub const $name: StaticRef<[$ty; $count]> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const [$ty; $count])
         };
     };
 }

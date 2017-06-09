@@ -20,6 +20,7 @@ use scif;
 
 use self::data::*;
 use self::registers::*;
+use self::common_register::*;
 
 macro_rules! client_err {
     [ $msg:expr ] => {

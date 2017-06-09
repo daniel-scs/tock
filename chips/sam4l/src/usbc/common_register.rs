@@ -1,9 +1,8 @@
-#![allow(dead_code)]
+// #![allow(dead_code)]
 
-use core::marker::PhantomData;
 use kernel::common::volatile_cell::VolatileCell;
 
-pub trait RegisterTrait {
+pub trait RegisterRW {
     fn read(&self) -> u32;
     fn write(&self, val: u32);
 
@@ -22,62 +21,15 @@ pub trait RegisterTrait {
     }
 }
 
-/// A read-write memory-mapped register
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct Register(VolatileCell<u32>);
-
-impl Register {
-    #[inline]
-    pub fn read(&self) -> u32 {
-        self.0.get()
-    }
-
-    #[inline]
-    pub fn write(&self, val: u32) {
-        self.0.set(val)
-    }
-
-    #[inline]
-    pub fn set_bit(&self, bit_index: u32) {
-        let w = self.read();
-        let bit = 1 << bit_index;
-        self.write(w | bit);
-    }
-
-    #[inline]
-    pub fn clear_bit(&self, bit_index: u32) {
-        let w = self.read();
-        let bit = 1 << bit_index;
-        self.write(w & (!bit));
-    }
+pub trait RegisterR {
+    fn read(&self) -> u32;
 }
 
-/// A read-only memory-mapped register
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct RegisterR(VolatileCell<u32>);
-
-impl RegisterR {
-    #[inline]
-    pub fn read(&self) -> u32 {
-        self.0.get()
-    }
-}
-
-/// A write-only memory-mapped register, where any zero bits written have no effect
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct RegisterW(VolatileCell<u32>);
-
-impl RegisterW {
-    #[inline]
-    pub fn write(&self, val: u32) {
-        self.0.set(val)
-    }
+pub trait RegisterW {
+    fn write(&self, val: u32);
 
     #[inline]
-    pub fn set_bit(self, bit_index: u32) {
+    fn set_bit(&self, bit_index: u32) {
         // For this kind of register, reads always return zero
         // and zero bits have no effect, so we simply write the
         // single bit requested.
