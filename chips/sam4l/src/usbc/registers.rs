@@ -5,9 +5,27 @@
 use usbc::common_register::*;
 use usbc::data::*;
 use kernel::common::static_ref::*;
+use kernel::common::volatile_cell::*;
 
 // Base address of USBC registers.  See "7.1 Product Mapping"
 const USBC_BASE: u32 = 0x400A5000;
+
+
+pub struct Uerst(VolatileCell<u32>);
+
+impl RegisterTrait for Uerst {
+    fn read(&self) -> u32 {
+        self.0.get()
+    }
+
+    fn write(&self, val: u32) {
+        self.0.set(val);
+    }
+}
+
+pub const UERST: StaticRef<Uerst> = unsafe {
+    StaticRef::new((USBC_BASE + 0x001C) as *const Uerst)
+};
 
 reg![0x0000, "Device General Control Register", UDCON, "RW"];
 reg![0x0004, "Device Global Interrupt Register", UDINT, "R"];
@@ -16,7 +34,7 @@ reg![0x000C, "Device Global Interrupt Set Register", UDINTSET, "W"];
 reg![0x0010, "Device Global Interrupt Enable Register", UDINTE, "R"];
 reg![0x0014, "Device Global Interrupt Enable Clear Register", UDINTECLR, "W"];
 reg![0x0018, "Device Global Interrupt Enable Set Register", UDINTESET, "W"];
-reg![0x001C, "Endpoint Enable/Reset Register", UERST, "RW"];
+// reg![0x001C, "Endpoint Enable/Reset Register", UERST, "RW"];
 reg![0x0020, "Device Frame Number Register", UDFNUM, "R"];
 
 reg![0x0100, "DEBUG UECFG0", UECFG0, "RW"];

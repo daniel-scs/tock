@@ -3,6 +3,25 @@
 use core::marker::PhantomData;
 use kernel::common::volatile_cell::VolatileCell;
 
+pub trait RegisterTrait {
+    fn read(&self) -> u32;
+    fn write(&self, val: u32);
+
+    #[inline]
+    fn set_bit(&self, bit_index: u32) {
+        let w = self.read();
+        let bit = 1 << bit_index;
+        self.write(w | bit);
+    }
+
+    #[inline]
+    fn clear_bit(&self, bit_index: u32) {
+        let w = self.read();
+        let bit = 1 << bit_index;
+        self.write(w & (!bit));
+    }
+}
+
 /// A read-write memory-mapped register
 #[repr(C)]
 #[derive(Copy, Clone)]
