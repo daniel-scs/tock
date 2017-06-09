@@ -177,8 +177,8 @@ impl<'a> Usbc<'a> {
                             // UDCON_LS.write(speed)
                         }
 
-                        /*
                         USBCON_UIMOD.write(mode);   // see registers.rs: maybe wrong bit?
+                        /*
                         USBCON_FRZCLK.write(false);
                         USBCON_USBE.write(true);
                         */
