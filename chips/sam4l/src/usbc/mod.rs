@@ -66,16 +66,18 @@ impl<'a> UsbController for Usbc<'a> {
         // The hardware can do only 7-bit addresses
         let addr = (addr as u8) & 0b1111111;
 
+        /*
         UDCON_ADDEN.write(false);
         UDCON_UADD.write(addr);
+        */
 
         debug!("Set Address = {}", addr);
     }
 
     fn enable_address(&self) {
-        UDCON_ADDEN.write(true);
+        // UDCON_ADDEN.write(true);
 
-        debug!("Enable Address = {}", UDCON.read() & 0b1111111);
+        // debug!("Enable Address = {}", UDCON.read() & 0b1111111);
     }
 }
 
@@ -111,9 +113,9 @@ impl<'a> Usbc<'a> {
                     // produce 48MHz
                     scif::generic_clock_enable(scif::GenericClock::GCLK7, scif::ClockSource::DFLL0);
 
-                    while !USBSTA_CLKUSABLE.read() {}
+                    // while !USBSTA_CLKUSABLE.read() {}
 
-                    UDCON_DETACH.write(false);
+                    // UDCON_DETACH.write(false);
                     debug!("Attached.");
 
                     *state = State::Active(mode);
@@ -133,7 +135,7 @@ impl<'a> Usbc<'a> {
                     client_err!("Not attached");
                 }
                 State::Active(mode) => {
-                    UDCON_DETACH.write(true);
+                    // UDCON_DETACH.write(true);
 
                     scif::generic_clock_disable(scif::GenericClock::GCLK7);
 
@@ -171,12 +173,14 @@ impl<'a> Usbc<'a> {
                         // their default values.
 
                         if let Mode::Device{ speed, .. } = mode {
-                            UDCON_LS.write(speed)
+                            // UDCON_LS.write(speed)
                         }
 
+                        /*
                         USBCON_UIMOD.write(mode);   // see registers.rs: maybe wrong bit?
                         USBCON_FRZCLK.write(false);
                         USBCON_USBE.write(true);
+                        */
 
                         UDESC.write(&self.descriptors as *const _ as u32);
                         if UDESC.read() != &self.descriptors as *const _ as u32 {
@@ -226,7 +230,7 @@ impl<'a> Usbc<'a> {
         self.state.map(|state| {
             if *state != State::Reset {
                 unsafe {
-                    USBCON_USBE.write(false);
+                    // USBCON_USBE.write(false);
 
                     nvic::disable(nvic::NvicIdx::USBC);
 
@@ -334,7 +338,7 @@ impl<'a> Usbc<'a> {
             // Bus reset
 
             // Reconfigure what has been reset in the USBC
-            UDCON_LS.write(speed);
+            // UDCON_LS.write(speed);
             if let Some(ref config) = *config {
                 self.endpoint_configure(0, *config);
             }
@@ -776,10 +780,10 @@ fn debug_regs() {
             \n    UECON0={:08x}",
 
            USBFSM.read(),
-           USBCON.read(),
-           USBSTA.read(),
+           0xFF, // USBCON.read()
+           0xFF, // USBSTA.read(),
            UDESC.read(),
-           UDCON.read(),
+           0xFF, // UDCON.read(),
            UDINTE.read(),
            UDINT.read(),
            UERST.read(),

@@ -4,17 +4,23 @@
 macro_rules! reg {
     [ $offset:expr, $description:expr, $name:ident, "RW" ] => {
         #[allow(dead_code)]
-        pub const $name: Reg = unsafe { Reg::new((USBC_BASE + $offset) as *mut u32) };
+        pub const $name: StaticRef<Register> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const Register)
+        };
     };
 
     [ $offset:expr, $description:expr, $name:ident, "R" ] => {
         #[allow(dead_code)]
-        pub const $name: RegR = unsafe { RegR::new((USBC_BASE + $offset) as *mut u32) };
+        pub const $name: StaticRef<RegisterR> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const RegisterR)
+        };
     };
 
     [ $offset:expr, $description:expr, $name:ident, "W" ] => {
         #[allow(dead_code)]
-        pub const $name: RegW = unsafe { RegW::new((USBC_BASE + $offset) as *mut u32) };
+        pub const $name: StaticRef<RegisterW> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const RegisterW)
+        };
     };
 }
 
@@ -22,20 +28,27 @@ macro_rules! reg {
 macro_rules! regs {
     [ $offset:expr, $description:expr, $name:ident, "RW", $count:expr ] => {
         #[allow(dead_code)]
-        pub const $name: [Reg; $count] = unsafe { [Reg::new((USBC_BASE + $offset) as *mut u32); $count] };
+        pub const $name: StaticRef<[Register; $count]> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const [Register; $count])
+        };
     };
 
     [ $offset:expr, $description:expr, $name:ident, "R", $count:expr ] => {
         #[allow(dead_code)]
-        pub const $name: [RegR; $count] = unsafe { [RegR::new((USBC_BASE + $offset) as *mut u32); $count] };
+        pub const $name: StaticRef<[RegisterR; $count]> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const [RegisterR; $count])
+        };
     };
 
     [ $offset:expr, $description:expr, $name:ident, "W", $count:expr ] => {
         #[allow(dead_code)]
-        pub const $name: [RegW; $count] = unsafe { [RegW::new((USBC_BASE + $offset) as *mut u32); $count] };
+        pub const $name: StaticRef<[RegisterW; $count]> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const [RegisterW; $count])
+        };
     };
 }
 
+/*
 #[macro_export]
 macro_rules! bitfield {
     [ $reg:ident, $field:ident, "RW", $t:ty, $shift:expr, $bits:expr ] => {
@@ -53,3 +66,4 @@ macro_rules! bitfield {
         pub const $field: BitFieldR<$t> = BitFieldR::new($reg, $shift, $bits);
     };
 }
+*/

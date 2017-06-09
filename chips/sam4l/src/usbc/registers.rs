@@ -4,6 +4,7 @@
 
 use usbc::common_register::*;
 use usbc::data::*;
+use kernel::common::static_ref::*;
 
 // Base address of USBC registers.  See "7.1 Product Mapping"
 const USBC_BASE: u32 = 0x400A5000;
@@ -62,6 +63,7 @@ reg![0x0828, "IP Name Register 2", UNAME2, "R"];
 reg![0x082C, "USB Finite State Machine Status Register", USBFSM, "R"];
 reg![0x0830, "USB Descriptor address", UDESC, "RW"];
 
+/*
 bitfield![USBCON, USBCON_UIMOD, "RW", Mode, 25, 1]; // sheet says bit 25, but maybe it's 24?
 bitfield![USBCON, USBCON_USBE, "RW", bool, 15, 1];
 bitfield![USBCON, USBCON_FRZCLK, "RW", bool, 14, 1];
@@ -72,6 +74,7 @@ bitfield![UDCON, UDCON_UADD, "RW", u8, 0, 0b1111111];
 bitfield![UDCON, UDCON_ADDEN, "RW", bool, 7, 1];
 
 bitfield![USBSTA, USBSTA_CLKUSABLE, "R", bool, 14, 1];
+*/
 
 // Bitfields for UDINT, UDINTCLR, UDINTESET
 pub const UDINT_SUSP: u32 = 1 << 0;

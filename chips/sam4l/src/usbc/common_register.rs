@@ -1,55 +1,60 @@
 #![allow(dead_code)]
 
 use core::marker::PhantomData;
+use kernel::common::volatile_cell::VolatileCell;
 
-/// A memory-mapped register
+/// A read-write memory-mapped register
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct Reg(*mut u32);
+pub struct Register(VolatileCell<u32>);
 
-impl Reg {
-    pub const unsafe fn new(addr: *mut u32) -> Self {
-        Reg(addr)
+impl Register {
+    #[inline]
+    pub fn read(&self) -> u32 {
+        self.0.get()
     }
 
     #[inline]
-    pub fn read(self) -> u32 {
-        unsafe { ::core::ptr::read_volatile(self.0) }
+    pub fn write(&self, val: u32) {
+        self.0.set(val)
     }
 
     #[inline]
-    pub fn write(self, val: u32) {
-        unsafe { ::core::ptr::write_volatile(self.0, val); }
-    }
-
-    #[inline]
-    pub fn set_bit(self, bit_index: u32) {
+    pub fn set_bit(&self, bit_index: u32) {
         let w = self.read();
         let bit = 1 << bit_index;
         self.write(w | bit);
     }
 
     #[inline]
-    pub fn clear_bit(self, bit_index: u32) {
+    pub fn clear_bit(&self, bit_index: u32) {
         let w = self.read();
         let bit = 1 << bit_index;
         self.write(w & (!bit));
     }
 }
 
+/// A read-only memory-mapped register
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct RegisterR(VolatileCell<u32>);
+
+impl RegisterR {
+    #[inline]
+    pub fn read(&self) -> u32 {
+        self.0.get()
+    }
+}
+
 /// A write-only memory-mapped register, where any zero bits written have no effect
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct RegW(*mut u32);
+pub struct RegisterW(VolatileCell<u32>);
 
-impl RegW {
-    pub const unsafe fn new(addr: *mut u32) -> Self {
-        RegW(addr)
-    }
-
+impl RegisterW {
     #[inline]
-    pub fn write(self, val: u32) {
-        unsafe { ::core::ptr::write_volatile(self.0, val) }
+    pub fn write(&self, val: u32) {
+        self.0.set(val)
     }
 
     #[inline]
@@ -62,26 +67,11 @@ impl RegW {
     }
 }
 
-/// A read-only memory-mapped register
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct RegR(*const u32);
-
-impl RegR {
-    pub const unsafe fn new(addr: *const u32) -> Self {
-        RegR(addr)
-    }
-
-    #[inline]
-    pub fn read(self) -> u32 {
-        unsafe { ::core::ptr::read_volatile(self.0) }
-    }
-}
-
+/*
 /// A bitfield of a memory-mapped register
 pub struct BitField<T> {
     /// The register that hosts this bitfield
-    reg: Reg,
+    reg: &'static Register,
     /// Bit offset of the value within a word
     shift: u32,
     /// Bit pattern of the value (e.g. 0b111 for a three-bit field)
@@ -141,6 +131,7 @@ impl<T: FromWord> BitFieldR<T> {
         FromWord::from_word((self.reg.read() >> self.shift) & self.bits)
     }
 }
+*/
 
 pub trait ToWord {
     fn to_word(self) -> u32;
