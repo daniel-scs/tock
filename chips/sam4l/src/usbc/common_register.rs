@@ -1,7 +1,5 @@
 // #![allow(dead_code)]
 
-use kernel::common::volatile_cell::VolatileCell;
-
 pub trait RegisterRW {
     fn read(&self) -> u32;
     fn write(&self, val: u32);
@@ -37,72 +35,6 @@ pub trait RegisterW {
         self.write(bit);
     }
 }
-
-/*
-/// A bitfield of a memory-mapped register
-pub struct BitField<T> {
-    /// The register that hosts this bitfield
-    reg: &'static Register,
-    /// Bit offset of the value within a word
-    shift: u32,
-    /// Bit pattern of the value (e.g. 0b111 for a three-bit field)
-    bits: u32,
-    phantom: PhantomData<*mut T>,
-}
-
-impl<T: ToWord> BitField<T> {
-    pub const fn new(reg: Reg, shift: u32, bits: u32) -> Self {
-        BitField { reg: reg, shift: shift, bits: bits, phantom: PhantomData }
-    }
-
-    #[inline]
-    pub fn write(self, val: T) {
-        let w = self.reg.read();
-        let mask = self.bits << self.shift;
-        let val_bits = (val.to_word() & self.bits) << self.shift;
-        self.reg.write(w & !mask | val_bits);
-    }
-}
-
-/// A bitfield of a write-only memory-mapped register,
-/// where any zeros written have no effect
-pub struct BitFieldW<T> {
-    reg: RegW,
-    shift: u32,
-    bits: u32,
-    phantom: PhantomData<*mut T>,
-}
-
-impl<T: ToWord> BitFieldW<T> {
-    pub const fn new(reg: RegW, shift: u32, bits: u32) -> Self {
-        BitFieldW { reg: reg, shift: shift, bits: bits, phantom: PhantomData }
-    }
-
-    #[inline]
-    pub fn write(self, val: T) {
-        let val_bits = (val.to_word() & self.bits) << self.shift;
-        self.reg.write(val_bits);
-    }
-}
-
-pub struct BitFieldR<T> {
-    reg: RegR,
-    shift: u32,
-    bits: u32,
-    phantom: PhantomData<*mut T>,
-}
-
-impl<T: FromWord> BitFieldR<T> {
-    pub const fn new(reg: RegR, shift: u32, bits: u32) -> Self {
-        BitFieldR { reg: reg, shift: shift, bits: bits, phantom: PhantomData }
-    }
-
-    #[inline]
-    pub fn read(self) -> T {
-        FromWord::from_word((self.reg.read() >> self.shift) & self.bits)
-    }
-}
-*/
 
 pub trait ToWord {
     fn to_word(self) -> u32;

@@ -3,9 +3,14 @@
 #[macro_export]
 macro_rules! reg {
     [ $offset:expr, $description:expr, $name:ident, $ty:ident, "RW" ] => {
-        pub struct $ty(VolatileCell<u32>);
 
-        impl RegisterRW for $ty {
+        #[allow(non_snake_case)]
+        mod $name {
+            use kernel::common::volatile_cell::VolatileCell;
+            pub struct $name(pub VolatileCell<u32>);
+        }
+
+        impl RegisterRW for $name::$name {
             #[inline]
             fn read(&self) -> u32 {
                 self.0.get()
@@ -17,38 +22,48 @@ macro_rules! reg {
             }
         }
 
-        pub const $name: StaticRef<$ty> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const $ty)
+        pub const $name: StaticRef<$name::$name> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const $name::$name)
         };
     };
 
     [ $offset:expr, $description:expr, $name:ident, $ty:ident, "R" ] => {
-        pub struct $ty(VolatileCell<u32>);
 
-        impl RegisterR for $ty {
+        #[allow(non_snake_case)]
+        mod $name {
+            use kernel::common::volatile_cell::VolatileCell;
+            pub struct $name(pub VolatileCell<u32>);
+        }
+
+        impl RegisterR for $name::$name {
             #[inline]
             fn read(&self) -> u32 {
                 self.0.get()
             }
         }
 
-        pub const $name: StaticRef<$ty> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const $ty)
+        pub const $name: StaticRef<$name::$name> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const $name::$name)
         };
     };
 
     [ $offset:expr, $description:expr, $name:ident, $ty: ident, "W" ] => {
-        pub struct $ty(VolatileCell<u32>);
 
-        impl RegisterW for $ty {
+        #[allow(non_snake_case)]
+        mod $name {
+            use kernel::common::volatile_cell::VolatileCell;
+            pub struct $name(pub VolatileCell<u32>);
+        }
+
+        impl RegisterW for $name::$name {
             #[inline]
             fn write(&self, val: u32) {
                 self.0.set(val);
             }
         }
 
-        pub const $name: StaticRef<$ty> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const $ty)
+        pub const $name: StaticRef<$name::$name> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const $name::$name)
         };
     };
 }
@@ -56,9 +71,14 @@ macro_rules! reg {
 #[macro_export]
 macro_rules! regs {
     [ $offset:expr, $description:expr, $name:ident, $ty:ident, "RW", $count:expr ] => {
-        pub struct $ty(VolatileCell<u32>);
 
-        impl RegisterRW for $ty {
+        #[allow(non_snake_case)]
+        mod $name {
+            use kernel::common::volatile_cell::VolatileCell;
+            pub struct $name(pub VolatileCell<u32>);
+        }
+
+        impl RegisterRW for $name::$name {
             #[inline]
             fn read(&self) -> u32 {
                 self.0.get()
@@ -70,50 +90,74 @@ macro_rules! regs {
             }
         }
 
-        pub const $name: StaticRef<[$ty; $count]> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const [$ty; $count])
+        pub const $name: StaticRef<[$name::$name; $count]> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const [$name::$name; $count])
         };
     };
 
     [ $offset:expr, $description:expr, $name:ident, $ty:ident, "R", $count:expr ] => {
-        pub struct $ty(VolatileCell<u32>);
 
-        impl RegisterR for $ty {
+        #[allow(non_snake_case)]
+        mod $name {
+            use kernel::common::volatile_cell::VolatileCell;
+            pub struct $name(pub VolatileCell<u32>);
+        }
+
+        impl RegisterR for $name::$name {
             #[inline]
             fn read(&self) -> u32 {
                 self.0.get()
             }
         }
 
-        pub const $name: StaticRef<[$ty; $count]> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const [$ty; $count])
+        pub const $name: StaticRef<[$name::$name; $count]> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const [$name::$name; $count])
         };
     };
 
     [ $offset:expr, $description:expr, $name:ident, $ty:ident, "W", $count:expr ] => {
-        pub struct $ty(VolatileCell<u32>);
 
-        impl RegisterW for $ty {
+        #[allow(non_snake_case)]
+        mod $name {
+            use kernel::common::volatile_cell::VolatileCell;
+            pub struct $name(pub VolatileCell<u32>);
+        }
+
+        impl RegisterW for $name::$name {
             #[inline]
             fn write(&self, val: u32) {
                 self.0.set(val);
             }
         }
 
-        pub const $name: StaticRef<[$ty; $count]> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const [$ty; $count])
+        pub const $name: StaticRef<[$name::$name; $count]> = unsafe {
+            StaticRef::new((USBC_BASE + $offset) as *const [$name::$name; $count])
         };
     };
 }
 
-/*
 #[macro_export]
 macro_rules! bitfield {
-    [ $reg:ident, $field:ident, "RW", $t:ty, $shift:expr, $bits:expr ] => {
-        #[allow(dead_code)]
-        pub const $field: BitField<$t> = BitField::new($reg, $shift, $bits);
+    [ $reg:ident, $field:ident, "RW", $valty:ty, $shift:expr, $src_mask:expr ] => {
+
+        #[allow(non_snake_case)]
+        mod $field {
+            pub struct $field;
+        }
+
+        impl $field::$field {
+            pub fn write(self, val: $valty) {
+                let w = $reg.read();
+                let dst_mask = $src_mask << $shift;
+                let val_bits = (val.to_word() & $src_mask) << $shift;
+                $reg.write((w & !dst_mask) | val_bits);
+            }
+        }
+
+        pub const $field: $field::$field = $field::$field;
     };
 
+    /*
     [ $reg:ident, $field:ident, "W", $t:ty, $shift:expr, $bits:expr ] => {
         #[allow(dead_code)]
         pub const $field: BitFieldW<$t> = BitFieldW::new($reg, $shift, $bits);
@@ -123,5 +167,5 @@ macro_rules! bitfield {
         #[allow(dead_code)]
         pub const $field: BitFieldR<$t> = BitFieldR::new($reg, $shift, $bits);
     };
+    */
 }
-*/

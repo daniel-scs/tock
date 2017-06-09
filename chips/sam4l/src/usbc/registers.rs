@@ -7,7 +7,6 @@
 use usbc::common_register::*;
 use usbc::data::*;
 use kernel::common::static_ref::*;
-use kernel::common::volatile_cell::*;
 
 // Base address of USBC registers.  See "7.1 Product Mapping"
 const USBC_BASE: u32 = 0x400A5000;
@@ -66,40 +65,7 @@ reg![0x0828, "IP Name Register 2", UNAME2, UNAME2_T, "R"];
 reg![0x082C, "USB Finite State Machine Status Register", USBFSM, USBFSM_T, "R"];
 reg![0x0830, "USB Descriptor address", UDESC, UDESC_T, "RW"];
 
-pub struct USBCON_UIMOD_T(StaticRef<USBCON_T>);
-
-impl USBCON_UIMOD_T {
-    const fn new(r: StaticRef<USBCON_T>) -> Self {
-        USBCON_UIMOD_T(r)
-    }
-
-    pub fn write(self, val: Mode) {
-        let w = self.0.read();
-        let src_mask = 1;
-        let shift = 25;
-        let dst_mask = src_mask << shift;
-        let val_bits = (val.to_word() & src_mask) << shift;
-        self.0.write((w & !dst_mask) | val_bits);
-    }
-}
-
-pub const USBCON_UIMOD: USBCON_UIMOD_T = USBCON_UIMOD_T::new(USBCON);
-
-/*
-impl USBCON_T {
-    fn UIMOD_write(&self, val: Mode) {
-        let w = UIMOD.read();
-        let src_mask = 1;
-        let shift = 25;
-        let dst_mask = src_mask << shift;
-        let val_bits = (val.to_word() & src_mask) << shift;
-        self.reg.write((w & !dst_mask) | val_bits);
-    }
-}
-*/
-
-/*
-bitfield![USBCON, USBCON_UIMOD, "RW", Mode, 25, 1]; // sheet says bit 25, but maybe it's 24?
+bitfield![USBCON, USBCON_UIMOD, "RW", Mode, 25, 1];
 bitfield![USBCON, USBCON_USBE, "RW", bool, 15, 1];
 bitfield![USBCON, USBCON_FRZCLK, "RW", bool, 14, 1];
 
@@ -109,7 +75,6 @@ bitfield![UDCON, UDCON_UADD, "RW", u8, 0, 0b1111111];
 bitfield![UDCON, UDCON_ADDEN, "RW", bool, 7, 1];
 
 bitfield![USBSTA, USBSTA_CLKUSABLE, "R", bool, 14, 1];
-*/
 
 // Bitfields for UDINT, UDINTCLR, UDINTESET
 pub const UDINT_SUSP: u32 = 1 << 0;
