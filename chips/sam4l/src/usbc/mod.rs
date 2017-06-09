@@ -76,7 +76,7 @@ impl<'a> UsbController for Usbc<'a> {
     fn enable_address(&self) {
         UDCON_ADDEN.write(true);
 
-        // debug!("Enable Address = {}", UDCON.read() & 0b1111111);
+        debug!("Enable Address = {}", UDCON.read() & 0b1111111);
     }
 }
 
@@ -112,7 +112,7 @@ impl<'a> Usbc<'a> {
                     // produce 48MHz
                     scif::generic_clock_enable(scif::GenericClock::GCLK7, scif::ClockSource::DFLL0);
 
-                    // while !USBSTA_CLKUSABLE.read() {}
+                    while !USBSTA_CLKUSABLE.read() {}
 
                     UDCON_DETACH.write(false);
                     debug!("Attached.");

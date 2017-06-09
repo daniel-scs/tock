@@ -2,7 +2,7 @@
 
 #[macro_export]
 macro_rules! reg {
-    [ $offset:expr, $description:expr, $name:ident, $ty:ident, "RW" ] => {
+    [ $offset:expr, $description:expr, $name:ident, "RW" ] => {
 
         #[allow(non_snake_case)]
         mod $name {
@@ -27,7 +27,7 @@ macro_rules! reg {
         };
     };
 
-    [ $offset:expr, $description:expr, $name:ident, $ty:ident, "R" ] => {
+    [ $offset:expr, $description:expr, $name:ident, "R" ] => {
 
         #[allow(non_snake_case)]
         mod $name {
@@ -47,7 +47,7 @@ macro_rules! reg {
         };
     };
 
-    [ $offset:expr, $description:expr, $name:ident, $ty: ident, "W" ] => {
+    [ $offset:expr, $description:expr, $name:ident, "W" ] => {
 
         #[allow(non_snake_case)]
         mod $name {
@@ -70,7 +70,7 @@ macro_rules! reg {
 
 #[macro_export]
 macro_rules! regs {
-    [ $offset:expr, $description:expr, $name:ident, $ty:ident, "RW", $count:expr ] => {
+    [ $offset:expr, $description:expr, $name:ident, "RW", $count:expr ] => {
 
         #[allow(non_snake_case)]
         mod $name {
@@ -95,7 +95,7 @@ macro_rules! regs {
         };
     };
 
-    [ $offset:expr, $description:expr, $name:ident, $ty:ident, "R", $count:expr ] => {
+    [ $offset:expr, $description:expr, $name:ident, "R", $count:expr ] => {
 
         #[allow(non_snake_case)]
         mod $name {
@@ -115,7 +115,7 @@ macro_rules! regs {
         };
     };
 
-    [ $offset:expr, $description:expr, $name:ident, $ty:ident, "W", $count:expr ] => {
+    [ $offset:expr, $description:expr, $name:ident, "W", $count:expr ] => {
 
         #[allow(non_snake_case)]
         mod $name {
@@ -138,7 +138,7 @@ macro_rules! regs {
 
 #[macro_export]
 macro_rules! bitfield {
-    [ $reg:ident, $field:ident, "RW", $valty:ty, $shift:expr, $src_mask:expr ] => {
+    [ $reg:ident, $field:ident, "RW", $valty:ty, $shift:expr, $mask:expr ] => {
 
         #[allow(non_snake_case)]
         mod $field {
@@ -148,24 +148,27 @@ macro_rules! bitfield {
         impl $field::$field {
             pub fn write(self, val: $valty) {
                 let w = $reg.read();
-                let dst_mask = $src_mask << $shift;
-                let val_bits = (val.to_word() & $src_mask) << $shift;
-                $reg.write((w & !dst_mask) | val_bits);
+                let val_bits = (val.to_word() & $mask) << $shift;
+                $reg.write((w & !($mask << $shift)) | val_bits);
             }
         }
 
         pub const $field: $field::$field = $field::$field;
     };
 
-    /*
-    [ $reg:ident, $field:ident, "W", $t:ty, $shift:expr, $bits:expr ] => {
-        #[allow(dead_code)]
-        pub const $field: BitFieldW<$t> = BitFieldW::new($reg, $shift, $bits);
-    };
+    [ $reg:ident, $field:ident, "R", $valty:ty, $shift:expr, $mask:expr ] => {
 
-    [ $reg:ident, $field:ident, "R", $t:ty, $shift:expr, $bits:expr ] => {
-        #[allow(dead_code)]
-        pub const $field: BitFieldR<$t> = BitFieldR::new($reg, $shift, $bits);
+        #[allow(non_snake_case)]
+        mod $field {
+            pub struct $field;
+        }
+
+        impl $field::$field {
+            pub fn read(self) -> $valty {
+                FromWord::from_word(($reg.read() >> $shift) & $mask)
+            }
+        }
+
+        pub const $field: $field::$field = $field::$field;
     };
-    */
 }
