@@ -137,6 +137,15 @@ macro_rules! regs {
 }
 
 #[macro_export]
+macro_rules! registers {
+    [ $base:expr, {
+        $( $offset:expr => { $description:expr, $name:ident, $access:expr } ),*
+    } ] => {
+        $( reg!($offset, $description, $name, $access); )*
+    };
+}
+
+#[macro_export]
 macro_rules! bitfield {
     [ $reg:ident, $field:ident, "RW", $valty:ty, $shift:expr, $mask:expr ] => {
 

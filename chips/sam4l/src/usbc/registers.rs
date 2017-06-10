@@ -11,8 +11,16 @@ use kernel::common::static_ref::*;
 // Base address of USBC registers.  See "7.1 Product Mapping"
 const USBC_BASE: u32 = 0x400A5000;
 
+registers![USBC_BASE, {
+    0x0000 => { "Device General Control Register", UDCON, "RW" },
+    0x0004 => { "Device Global Interrupt Register", UDINT, "R" }
+}];
+    // (0x0100; 8), { "Endpoint n Configuration Register", UECFGn, "RW", },
+
+/*
 reg![0x0000, "Device General Control Register", UDCON, "RW"];
 reg![0x0004, "Device Global Interrupt Register", UDINT, "R"];
+*/
 reg![0x0008, "Device Global Interrupt Clear Register", UDINTCLR, "W"];
 reg![0x000C, "Device Global Interrupt Set Register", UDINTSET, "W"];
 reg![0x0010, "Device Global Interrupt Enable Register", UDINTE, "R"];
