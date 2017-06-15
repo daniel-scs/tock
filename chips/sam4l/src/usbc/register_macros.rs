@@ -1,15 +1,17 @@
 //! Macros for defining USBC registers
 
-#[macro_export]
-macro_rules! reg {
-    [ $offset:expr, $description:expr, $name:ident, "RW" ] => {
-
+macro_rules! define_register {
+    [ $name:ident ] => {
         #[allow(non_snake_case)]
         mod $name {
             use kernel::common::volatile_cell::VolatileCell;
             pub struct $name(pub VolatileCell<u32>);
         }
+    };
+}
 
+macro_rules! impl_register {
+    [ $name:ident, "RW" ] => {
         impl RegisterRW for $name::$name {
             #[inline]
             fn read(&self) -> u32 {
@@ -21,117 +23,43 @@ macro_rules! reg {
                 self.0.set(val);
             }
         }
-
-        pub const $name: StaticRef<$name::$name> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const $name::$name)
-        };
     };
-
-    [ $offset:expr, $description:expr, $name:ident, "R" ] => {
-
-        #[allow(non_snake_case)]
-        mod $name {
-            use kernel::common::volatile_cell::VolatileCell;
-            pub struct $name(pub VolatileCell<u32>);
-        }
-
+    [ $name:ident, "R" ] => {
         impl RegisterR for $name::$name {
             #[inline]
             fn read(&self) -> u32 {
                 self.0.get()
             }
         }
-
-        pub const $name: StaticRef<$name::$name> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const $name::$name)
-        };
     };
-
-    [ $offset:expr, $description:expr, $name:ident, "W" ] => {
-
-        #[allow(non_snake_case)]
-        mod $name {
-            use kernel::common::volatile_cell::VolatileCell;
-            pub struct $name(pub VolatileCell<u32>);
-        }
-
+    [ $name:ident, "W" ] => {
         impl RegisterW for $name::$name {
             #[inline]
             fn write(&self, val: u32) {
                 self.0.set(val);
             }
         }
-
-        pub const $name: StaticRef<$name::$name> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const $name::$name)
-        };
     };
 }
 
 #[macro_export]
-macro_rules! regs {
-    [ $offset:expr, $description:expr, $name:ident, "RW", $count:expr ] => {
+macro_rules! register {
+    [ $base:expr, $offset:expr, $description:expr, $name:ident, $access:tt ] => {
 
-        #[allow(non_snake_case)]
-        mod $name {
-            use kernel::common::volatile_cell::VolatileCell;
-            pub struct $name(pub VolatileCell<u32>);
-        }
+        define_register!($name);
+        impl_register!($name, $access);
 
-        impl RegisterRW for $name::$name {
-            #[inline]
-            fn read(&self) -> u32 {
-                self.0.get()
-            }
-
-            #[inline]
-            fn write(&self, val: u32) {
-                self.0.set(val);
-            }
-        }
-
-        pub const $name: StaticRef<[$name::$name; $count]> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const [$name::$name; $count])
+        pub const $name: StaticRef<$name::$name> = unsafe {
+            StaticRef::new(($base + $offset) as *const $name::$name)
         };
     };
+    [ $base:expr, $offset:expr, $description:expr, $name:ident, $access:tt, $count:expr ] => {
 
-    [ $offset:expr, $description:expr, $name:ident, "R", $count:expr ] => {
-
-        #[allow(non_snake_case)]
-        mod $name {
-            use kernel::common::volatile_cell::VolatileCell;
-            pub struct $name(pub VolatileCell<u32>);
-        }
-
-        impl RegisterR for $name::$name {
-            #[inline]
-            fn read(&self) -> u32 {
-                self.0.get()
-            }
-        }
+        define_register!($name);
+        impl_register!($name, $access);
 
         pub const $name: StaticRef<[$name::$name; $count]> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const [$name::$name; $count])
-        };
-    };
-
-    [ $offset:expr, $description:expr, $name:ident, "W", $count:expr ] => {
-
-        #[allow(non_snake_case)]
-        mod $name {
-            use kernel::common::volatile_cell::VolatileCell;
-            pub struct $name(pub VolatileCell<u32>);
-        }
-
-        impl RegisterW for $name::$name {
-            #[inline]
-            fn write(&self, val: u32) {
-                self.0.set(val);
-            }
-        }
-
-        pub const $name: StaticRef<[$name::$name; $count]> = unsafe {
-            StaticRef::new((USBC_BASE + $offset) as *const [$name::$name; $count])
+            StaticRef::new(($base + $offset) as *const [$name::$name; $count])
         };
     };
 }
@@ -139,9 +67,9 @@ macro_rules! regs {
 #[macro_export]
 macro_rules! registers {
     [ $base:expr, {
-        $( $offset:expr => { $description:expr, $name:ident, $access:tt } ),*
+        $( $offset:expr => { $( $arg:tt ),* } ),*
     } ] => {
-        $( reg![ $offset, $description, $name, $access ]; )*
+        $( register![ $base, $offset, $( $arg ),* ]; )*
     };
 }
 
