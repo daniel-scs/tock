@@ -4,7 +4,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 
-use usbc::common_register::*;
+use usbc::common::register::*;
 use usbc::data::*;
 use kernel::common::static_ref::*;
 

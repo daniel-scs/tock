@@ -2,7 +2,7 @@
 
 use core::fmt;
 use core::ptr;
-use usbc::common_register::*;
+use usbc::common::register::*;
 use kernel::common::volatile_cell::VolatileCell;
 
 #[derive(Copy, Clone, PartialEq, Debug)]

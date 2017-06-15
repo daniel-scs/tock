@@ -1,10 +1,10 @@
 //! SAM4L USB controller
 
-    mod common_register;
-    #[macro_use]
-    mod register_macros;
-    mod registers;
 pub mod data;
+
+#[macro_use]
+mod common;
+mod registers;
 
 use core::fmt;
 use core::slice;
@@ -20,7 +20,7 @@ use scif;
 
 use self::data::*;
 use self::registers::*;
-use self::common_register::*;
+use self::common::register::*;
 
 macro_rules! client_err {
     [ $msg:expr ] => {

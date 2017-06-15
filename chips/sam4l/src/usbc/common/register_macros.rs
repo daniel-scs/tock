@@ -1,4 +1,4 @@
-//! Macros for defining USBC registers
+//! Macros for defining registers
 
 macro_rules! define_register {
     [ $name:ident ] => {

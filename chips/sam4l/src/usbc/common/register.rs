@@ -1,4 +1,4 @@
-// #![allow(dead_code)]
+/// Traits for types that manipulate memory-mapped registers
 
 pub trait RegisterRW {
     fn read(&self) -> u32;
