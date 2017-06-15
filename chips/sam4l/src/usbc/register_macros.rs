@@ -139,9 +139,9 @@ macro_rules! regs {
 #[macro_export]
 macro_rules! registers {
     [ $base:expr, {
-        $( $offset:expr => { $description:expr, $name:ident, $access:expr } ),*
+        $( $offset:expr => { $description:expr, $name:ident, $access:tt } ),*
     } ] => {
-        $( reg!($offset, $description, $name, $access); )*
+        $( reg![ $offset, $description, $name, $access ]; )*
     };
 }
 

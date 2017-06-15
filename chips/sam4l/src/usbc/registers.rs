@@ -4,6 +4,8 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 
+// trace_macros!(true);
+
 use usbc::common_register::*;
 use usbc::data::*;
 use kernel::common::static_ref::*;
@@ -15,7 +17,6 @@ registers![USBC_BASE, {
     0x0000 => { "Device General Control Register", UDCON, "RW" },
     0x0004 => { "Device Global Interrupt Register", UDINT, "R" }
 }];
-    // (0x0100; 8), { "Endpoint n Configuration Register", UECFGn, "RW", },
 
 /*
 reg![0x0000, "Device General Control Register", UDCON, "RW"];
