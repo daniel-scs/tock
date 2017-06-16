@@ -9,6 +9,9 @@ use core::cell::Cell;
 use core::default::Default;
 use core::cmp::min;
 
+const VENDOR_ID: u16 = 0x6667;
+const PRODUCT_ID: u16 = 0xabcd;
+
 static LANGUAGES: &'static [u16] = &[
     0x0409, // English (United States)
 ];
@@ -81,7 +84,17 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     fn ctrl_setup(&self) -> CtrlSetupResult {
         SetupData::get(self.ep0_buf()).map_or(CtrlSetupResult::ErrNoParse, |setup_data| {
             setup_data.get_standard_request().map_or_else(
-                || { CtrlSetupResult::ErrNonstandardRequest },
+                || {
+                    // CtrlSetupResult::ErrNonstandardRequest
+
+                    // Send some crap back
+                    let buf = self.descriptor_buf();
+                    buf[0].set(0xa);
+                    buf[1].set(0xb);
+                    buf[2].set(0xc);
+                    self.state.set(State::CtrlIn(0, 3));
+                    CtrlSetupResult::Ok
+                },
                 |request| {
                 match request {
                     StandardDeviceRequest::GetDescriptor{ descriptor_type,
@@ -93,6 +106,8 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                                 0 => {
                                     let buf = self.descriptor_buf();
                                     let d = DeviceDescriptor {
+                                                vendor_id: VENDOR_ID,
+                                                product_id: PRODUCT_ID,
                                                 manufacturer_string: 1,
                                                 product_string: 2,
                                                 serial_number_string: 3,
