@@ -72,6 +72,10 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
         self.controller.endpoint_set_buffer(0, self.ep0_buf());
         self.controller.enable_device(false);
         self.controller.endpoint_ctrl_out_enable(0);
+
+        // XXX
+        static es: C::EndpointState = Default::default();
+        self.controller.endpoint_configure(&es, 0);
     }
 
     fn attach(&self) {
