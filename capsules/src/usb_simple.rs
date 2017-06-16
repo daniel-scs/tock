@@ -40,6 +40,9 @@ enum State {
     /// remaining to send
     CtrlIn(usize, usize),
 
+    /// We will accept data from the host
+    CtrlOut,
+
     SetAddress,
 }
 
@@ -87,13 +90,21 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
                 || {
                     // CtrlSetupResult::ErrNonstandardRequest
 
-                    // Send some crap back
-                    let buf = self.descriptor_buf();
-                    buf[0].set(0xa);
-                    buf[1].set(0xb);
-                    buf[2].set(0xc);
-                    self.state.set(State::CtrlIn(0, 3));
-                    CtrlSetupResult::Ok
+                    match setup_data.request_type.transfer_direction() {
+                        TransferDirection::HostToDevice => {
+                            self.state.set(State::CtrlOut);
+                            CtrlSetupResult::Ok
+                        }
+                        TransferDirection::DeviceToHost => {
+                            // Arrange to some crap back
+                            let buf = self.descriptor_buf();
+                            buf[0].set(0xa);
+                            buf[1].set(0xb);
+                            buf[2].set(0xc);
+                            self.state.set(State::CtrlIn(0, 3));
+                            CtrlSetupResult::Ok
+                        }
+                    }
                 },
                 |request| {
                 match request {
@@ -229,9 +240,18 @@ impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
     }
 
     /// Handle a Control Out transaction
-    ///   (for now, return an error)
-    fn ctrl_out(&self, _packet_bytes: u32) -> CtrlOutResult {
-        CtrlOutResult::Halted
+    fn ctrl_out(&self, packet_bytes: u32) -> CtrlOutResult {
+        match self.state.get() {
+            State::CtrlOut => {
+                debug!("Received {} vendor control bytes", packet_bytes);
+                       // &self.ep0_buf()[0 .. packet_bytes as usize]
+                CtrlOutResult::Ok
+            }
+            _ => {
+                // Bad state
+                CtrlOutResult::Halted
+            }
+        }
     }
 
     fn ctrl_status(&self) {
