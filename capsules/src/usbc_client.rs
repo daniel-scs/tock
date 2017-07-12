@@ -4,6 +4,7 @@
 
 use usb::*;
 use kernel::common::volatile_cell::*;
+use kernel::hil;
 use kernel::hil::usb::*;
 use core::cell::Cell;
 use core::default::Default;
@@ -24,7 +25,7 @@ static STRINGS: &'static [&'static str] = &[
 
 const DESCRIPTOR_BUFLEN: usize = 30;
 
-pub struct SimpleClient<'a, C: 'a> {
+pub struct Client<'a, C: 'a> {
     controller: &'a C,
     state: Cell<State>,
     ep0_storage: [VolatileCell<u8>; 8],
@@ -46,9 +47,9 @@ enum State {
     SetAddress,
 }
 
-impl<'a, C: UsbController> SimpleClient<'a, C> {
+impl<'a, C: UsbController> Client<'a, C> {
     pub fn new(controller: &'a C) -> Self {
-        SimpleClient{
+        Client {
             controller: controller,
             state: Cell::new(State::Init),
             ep0_storage: [VolatileCell::new(0); 8],
@@ -67,7 +68,7 @@ impl<'a, C: UsbController> SimpleClient<'a, C> {
     }
 }
 
-impl<'a, C: UsbController> Client for SimpleClient<'a, C> {
+impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
     fn enable(&self) {
         self.controller.endpoint_set_buffer(0, self.ep0_buf());
         self.controller.enable_device(false);

@@ -50,7 +50,7 @@ struct Imix {
                                                  capsules::rf233::RF233<'static,
                                                  VirtualSpiMasterDevice<'static, sam4l::spi::Spi>>>,
     crc: &'static capsules::crc::Crc<'static, sam4l::crccu::Crccu<'static>>,
-    usb: &'static capsules::usb_simple::SimpleClient<'static, sam4l::usbc::Usbc<'static>>,
+    usb: &'static capsules::usbc_client::Client<'static, sam4l::usbc::Usbc<'static>>,
 }
 
 // The RF233 radio stack requires our buffers for its SPI operations:
@@ -400,8 +400,8 @@ pub unsafe fn reset_handler() {
 
     // Configure the USB controller
     let usb_client = static_init!(
-        capsules::usb_simple::SimpleClient<'static, sam4l::usbc::Usbc<'static>>,
-        capsules::usb_simple::SimpleClient::new(&sam4l::usbc::USBC),
+        capsules::usbc_client::Client<'static, sam4l::usbc::Usbc<'static>>,
+        capsules::usbc_client::Client::new(&sam4l::usbc::USBC),
         448/8);
     sam4l::usbc::USBC.set_client(usb_client);
 

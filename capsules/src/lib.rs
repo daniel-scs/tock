@@ -35,4 +35,4 @@ pub mod symmetric_encryption;
 pub mod ninedof;
 pub mod ltc294x;
 pub mod usb;
-pub mod usb_simple;
+pub mod usbc_client;
