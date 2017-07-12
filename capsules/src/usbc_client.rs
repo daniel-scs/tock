@@ -75,8 +75,8 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
         self.controller.endpoint_ctrl_out_enable(0);
 
         // XXX
-        static es: C::EndpointState = Default::default();
-        self.controller.endpoint_configure(&es, 0);
+        // static es: C::EndpointState = Default::default();
+        // self.controller.endpoint_configure(&es, 0);
     }
 
     fn attach(&self) {
