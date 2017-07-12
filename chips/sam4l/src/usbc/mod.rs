@@ -12,8 +12,8 @@ use core::cell::Cell;
 
 use kernel::hil;
 use kernel::hil::usb::*;
+use kernel::common::VolatileCell;
 use kernel::common::take_cell::MapCell;
-use kernel::common::volatile_cell::VolatileCell;
 
 use nvic;
 use pm::{Clock, HSBClock, PBBClock, enable_clock, disable_clock};

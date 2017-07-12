@@ -3,7 +3,7 @@
 use core::fmt;
 use core::ptr;
 use usbc::common::register::*;
-use kernel::common::volatile_cell::VolatileCell;
+use kernel::common::VolatileCell;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Mode {

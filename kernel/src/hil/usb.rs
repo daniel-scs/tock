@@ -1,6 +1,6 @@
 //! Interface to USB controller hardware
 
-use common::volatile_cell::*;
+use common::VolatileCell;
 use core::default::Default;
 
 /// USB controller interface

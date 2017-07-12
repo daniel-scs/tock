@@ -3,7 +3,7 @@
 //! It responds to standard device requests and can be enumerated.
 
 use usb::*;
-use kernel::common::volatile_cell::*;
+use kernel::common::VolatileCell;
 use kernel::hil;
 use kernel::hil::usb::*;
 use core::cell::Cell;
