@@ -4,9 +4,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 
-use usbc::common::register::*;
-use usbc::data::*;
-use kernel::common::static_ref::*;
+use usbc::data::{Mode, Speed};
 
 // Base address of USBC registers.  See "7.1 Product Mapping"
 const USBC_BASE: u32 = 0x400A5000;

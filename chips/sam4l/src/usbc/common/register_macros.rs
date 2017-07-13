@@ -5,6 +5,7 @@ macro_rules! define_register {
         #[allow(non_snake_case)]
         mod $name {
             use kernel::common::volatile_cell::VolatileCell;
+
             pub struct $name(pub VolatileCell<u32>);
         }
     };
@@ -12,7 +13,7 @@ macro_rules! define_register {
 
 macro_rules! impl_register {
     [ $name:ident, "RW" ] => {
-        impl RegisterRW for $name::$name {
+        impl ::usbc::common::register::RegisterRW for $name::$name {
             #[inline]
             fn read(&self) -> u32 {
                 self.0.get()
@@ -25,7 +26,7 @@ macro_rules! impl_register {
         }
     };
     [ $name:ident, "R" ] => {
-        impl RegisterR for $name::$name {
+        impl ::usbc::common::register::RegisterR for $name::$name {
             #[inline]
             fn read(&self) -> u32 {
                 self.0.get()
@@ -33,7 +34,7 @@ macro_rules! impl_register {
         }
     };
     [ $name:ident, "W" ] => {
-        impl RegisterW for $name::$name {
+        impl ::usbc::common::register::RegisterW for $name::$name {
             #[inline]
             fn write(&self, val: u32) {
                 self.0.set(val);
@@ -49,18 +50,22 @@ macro_rules! register {
         define_register!($name);
         impl_register!($name, $access);
 
-        pub const $name: StaticRef<$name::$name> = unsafe {
-            StaticRef::new(($base + $offset) as *const $name::$name)
-        };
+        pub const $name: ::kernel::common::static_ref::StaticRef<$name::$name> =
+            unsafe {
+                ::kernel::common::static_ref::StaticRef::new(
+                    ($base + $offset) as *const $name::$name)
+            };
     };
     [ $base:expr, $offset:expr, $description:expr, $name:ident, $access:tt, $count:expr ] => {
 
         define_register!($name);
         impl_register!($name, $access);
 
-        pub const $name: StaticRef<[$name::$name; $count]> = unsafe {
-            StaticRef::new(($base + $offset) as *const [$name::$name; $count])
-        };
+        pub const $name: ::kernel::common::static_ref::StaticRef<[$name::$name; $count]> =
+            unsafe {
+                ::kernel::common::static_ref::StaticRef::new(
+                    ($base + $offset) as *const [$name::$name; $count])
+            };
     };
 }
 
@@ -84,6 +89,8 @@ macro_rules! bitfield {
 
         impl $field::$field {
             pub fn write(self, val: $valty) {
+                use usbc::common::register::*;
+
                 let w = $reg.read();
                 let val_bits = (val.to_word() & $mask) << $shift;
                 $reg.write((w & !($mask << $shift)) | val_bits);
@@ -102,6 +109,8 @@ macro_rules! bitfield {
 
         impl $field::$field {
             pub fn read(self) -> $valty {
+                use usbc::common::register::*;
+
                 FromWord::from_word(($reg.read() >> $shift) & $mask)
             }
         }
