@@ -35,7 +35,7 @@
 
 #![no_std]
 #![no_main]
-#![feature(lang_items,compiler_builtins_lib)]
+#![feature(lang_items,drop_types_in_const,compiler_builtins_lib)]
 
 extern crate cortexm0;
 extern crate capsules;
@@ -47,6 +47,7 @@ extern crate nrf51;
 use capsules::timer::TimerDriver;
 use capsules::virtual_alarm::{MuxAlarm, VirtualMuxAlarm};
 use kernel::{Chip, SysTick};
+use kernel::hil::symmetric_encryption::SymmetricEncryption;
 use kernel::hil::uart::UART;
 use nrf51::pinmux::Pinmux;
 use nrf51::rtc::{RTC, Rtc};
@@ -113,21 +114,11 @@ pub struct Platform {
     temp: &'static capsules::temp_nrf51dk::Temperature<'static, nrf51::temperature::Temperature>,
     rng: &'static capsules::rng::SimpleRng<'static, nrf51::trng::Trng<'static>>,
     aes: &'static capsules::symmetric_encryption::Crypto<'static, nrf51::aes::AesECB>,
+    ble_radio: &'static nrf51::ble_advertising_driver::BLE<'static, VirtualMuxAlarm<'static, Rtc>>,
 }
 
 
 impl kernel::Platform for Platform {
-    // TODO: Why is this not inlined, you might ask? Well... we seem to be
-    // hitting some sort of LLVM codegen issue (maybe a bug in LLVM, maybe a bug
-    // in Tock), where certain compilation variants of the below match
-    // statement, when inlined, result in totally unexpected assembly that
-    // results in trying to jump to an instruction that doesn't exist. It _only_
-    // appears in thumbv6, only when the 17-valued branch below is not commented
-    // out, only with optimization level 2 or higher, and only when inlined. So
-    // for now, we're not inlining it until we resolve the issue. So far it's
-    // been raised as an issue on the Rust project:
-    // https://github.com/rust-lang/rust/issues/42248
-    #[inline(never)]
     fn with_driver<F, R>(&self, driver_num: usize, f: F) -> R
         where F: FnOnce(Option<&kernel::Driver>) -> R
     {
@@ -139,6 +130,7 @@ impl kernel::Platform for Platform {
             9 => f(Some(self.button)),
             14 => f(Some(self.rng)),
             17 => f(Some(self.aes)),
+            33 => f(Some(self.ble_radio)),
             36 => f(Some(self.temp)),
             _ => f(None),
         }
@@ -156,8 +148,7 @@ pub unsafe fn reset_handler() {
         (&nrf51::gpio::PORT[LED2_PIN], capsules::led::ActivationMode::ActiveLow), // 22
         (&nrf51::gpio::PORT[LED3_PIN], capsules::led::ActivationMode::ActiveLow), // 23
         (&nrf51::gpio::PORT[LED4_PIN], capsules::led::ActivationMode::ActiveLow), // 24
-        ],
-        256/8);
+        ], 256/8);
     let led = static_init!(
         capsules::led::LED<'static, nrf51::gpio::GPIOPin>,
         capsules::led::LED::new(led_pins),
@@ -243,6 +234,13 @@ pub unsafe fn reset_handler() {
                          12);
     virtual_alarm1.set_client(timer);
 
+    let ble_radio_virtual_alarm = static_init!(
+        VirtualMuxAlarm<'static, Rtc>,
+        VirtualMuxAlarm::new(mux_alarm),
+        192/8);
+
+
+
     let temp = static_init!(
         capsules::temp_nrf51dk::Temperature<'static, nrf51::temperature::Temperature>,
         capsules::temp_nrf51dk::Temperature::new(&mut nrf51::temperature::TEMP,
@@ -264,8 +262,18 @@ pub unsafe fn reset_handler() {
                                                     &mut capsules::symmetric_encryption::IV),
         288/8);
     nrf51::aes::AESECB.ecb_init();
-    nrf51::aes::AESECB.set_client(aes);
+    SymmetricEncryption::set_client(&nrf51::aes::AESECB, aes);
 
+    let ble_radio = static_init!(
+     nrf51::ble_advertising_driver::BLE<VirtualMuxAlarm<'static, Rtc>>,
+     nrf51::ble_advertising_driver::BLE::new(
+         &mut nrf51::radio::RADIO,
+         kernel::Container::create(),
+         &mut nrf51::ble_advertising_driver::BUF,
+         ble_radio_virtual_alarm),
+        256/8);
+    //nrf51::radio::RADIO.set_client(ble_radio);
+    ble_radio_virtual_alarm.set_client(ble_radio);
 
     // Start all of the clocks. Low power operation will require a better
     // approach than this.
@@ -287,6 +295,7 @@ pub unsafe fn reset_handler() {
         temp: temp,
         rng: rng,
         aes: aes,
+        ble_radio: ble_radio,
     };
 
     alarm.start();

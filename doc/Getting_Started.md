@@ -15,7 +15,7 @@ developing Tock.
 
 #### Rust (nightly)
 
-We are using `rustc 1.19.0-nightly (f1140a331 2017-05-08)`. We recommend
+We are using `rustc 1.19.0-nightly (04145943a 2017-06-19)`. We recommend
 installing it with [rustup](http://www.rustup.rs) so you can manage multiple
 versions of Rust and continue using stable versions for other Rust code:
 
@@ -30,7 +30,7 @@ to your `$PATH`.
 Then install the correct nightly version of Rust:
 
 ```bash
-$ rustup install nightly-2017-05-09
+$ rustup install nightly-2017-06-20
 ```
 
 #### Xargo
@@ -197,10 +197,11 @@ $ make examples/blink
 
 ### Optional Requirements
 
-For some boards, currently `Hail`, you will need `tockloader`. `tockloader`
-also has features that are generally useful to all Tock boards, such as easy to
-manage serial connections, and the ability to list, add, replace, and remove
-applications over JTAG (or USB if a bootloader is installed).
+For some boards, currently `Hail` and `imix` (but not `imixv1`), you will need
+`tockloader`. `tockloader` also has features that are generally useful to all
+Tock boards, such as easy to manage serial connections, and the ability to
+list, add, replace, and remove applications over JTAG (or USB if a bootloader
+is installed).
 
 1. [tockloader](https://github.com/helena-project/tockloader) (version 0.6.1)
 

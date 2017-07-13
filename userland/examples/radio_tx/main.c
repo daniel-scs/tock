@@ -1,10 +1,10 @@
 #include <stdbool.h>
 
+#include "gpio.h"
 #include "led.h"
 #include "radio.h"
 #include "timer.h"
 #include "tock.h"
-#include "gpio.h"
 
 #define BUF_SIZE 60
 char packet[BUF_SIZE];
@@ -24,7 +24,7 @@ int main(void) {
   while (1) {
     led_toggle(0);
     int err = radio_send(0x0802, packet, BUF_SIZE);
-    if (err != SUCCESS) {
+    if (err != TOCK_SUCCESS) {
       gpio_toggle(0);
     }
     delay_ms(250);
