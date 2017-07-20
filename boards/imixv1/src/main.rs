@@ -443,10 +443,6 @@ pub unsafe fn reset_handler() {
 
     rf233.start();
 
-    // Test USB
-    imixv1.usb.enable();
-    imixv1.usb.attach();
-
     debug!("Initialization complete. Entering main loop");
     kernel::main(&imixv1, &mut chip, load_processes(), &imixv1.ipc);
 }

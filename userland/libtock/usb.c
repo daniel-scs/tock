@@ -8,7 +8,7 @@ int usb_subscribe(subscribe_cb callback, void *ud) {
   return subscribe(DRIVER_NUM_USB, 0, callback, ud);
 }
 
-int usb_enable_and_attach_async() {
+int usb_enable_and_attach_async(void) {
   return command(DRIVER_NUM_USB, 1, 0);
 }
 
@@ -26,7 +26,7 @@ static void callback(int status, __attribute__((unused)) int v1,
   d->status = status;
 }
 
-int usb_enable_and_attach()
+int usb_enable_and_attach(void)
 {
   struct data d = { .fired = false };
   usb_subscribe(callback, (void *) &d);
