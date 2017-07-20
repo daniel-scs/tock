@@ -12,7 +12,7 @@ use kernel::process::Error;
 use kernel::hil;
 
 #[derive(Default)]
-pub struct App { 
+pub struct App {
     callback: Option<Callback>,
     awaiting: Option<Request>,
 }
