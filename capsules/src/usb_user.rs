@@ -45,6 +45,7 @@ impl<'a, C> UsbSyscallDriver<'a, C>
         for app in self.apps.iter() {
             app.enter(|app, _| {
                 if let Some(request) = app.awaiting {
+                    found = true;
                     match request {
                         Request::EnableAndAttach => {
                             // Enable and attach (synchronously)
