@@ -19,7 +19,6 @@ use kernel::hil::Controller;
 use kernel::hil::radio;
 use kernel::hil::radio::{RadioConfig, RadioData};
 use kernel::hil::spi::SpiMaster;
-use kernel::hil::usb::Client;
 use kernel::mpu::MPU;
 
 #[macro_use]
@@ -53,7 +52,6 @@ struct Imix {
                                                  capsules::rf233::RF233<'static,
                                                  VirtualSpiMasterDevice<'static, sam4l::spi::Spi>>>,
     crc: &'static capsules::crc::Crc<'static, sam4l::crccu::Crccu<'static>>,
-    usb: &'static capsules::usbc_client::Client<'static, sam4l::usbc::Usbc<'static>>,
     usb_driver: &'static capsules::usb_user::UsbSyscallDriver<'static,
                         capsules::usbc_client::Client<'static, sam4l::usbc::Usbc<'static>>>,
 }
@@ -416,7 +414,6 @@ pub unsafe fn reset_handler() {
         ipc: kernel::ipc::IPC::new(),
         ninedof: ninedof,
         radio: radio_capsule,
-        usb: usb_client,
         usb_driver: usb_driver,
     };
 
@@ -430,10 +427,6 @@ pub unsafe fn reset_handler() {
     //    rf233.config_commit();
 
     rf233.start();
-
-    // Test USB
-    imix.usb.enable();
-    imix.usb.attach();
 
     debug!("Initialization complete. Entering main loop");
     kernel::main(&imix, &mut chip, load_processes(), &imix.ipc);
