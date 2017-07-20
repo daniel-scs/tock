@@ -99,11 +99,12 @@ simultaneously) support for generic sensor interfaces.
 These allow for multiple users of shared hardware resources in the kernel.
 
 - **[Virtual Alarm](src/virtual_alarm.rs)**: Shared alarm resource.
+- **[Virtual Flash](src/virtual_flash.rs)**: Shared flash resource.
 - **[Virtual I2C](src/virtual_i2c.rs)**: Shared I2C and fixed addresses.
 - **[Virtual SPI](src/virtual_spi.rs)**: Shared SPI and fixed chip select pins.
 
 
-### Utilty Capsules
+### Utility Capsules
 
 Other capsules that implement reusable logic.
 

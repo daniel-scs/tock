@@ -30,7 +30,9 @@ int radio_init(void) {
   return 0;
 } // Do nothing for now
 
-int tx_acked = 0;
+int rx_result      = 0;
+int rx_payload_len = 0;
+int tx_acked       = 0;
 
 static void cb_tx(__attribute__ ((unused)) int len,
                   int acked,
@@ -40,11 +42,13 @@ static void cb_tx(__attribute__ ((unused)) int len,
   *((bool*)ud) = true;
 }
 
-static void cb_rx(__attribute__ ((unused)) int unused0,
-                  __attribute__ ((unused)) int unused1,
+static void cb_rx(int result,
+                  int payload_len,
                   __attribute__ ((unused)) int unused2,
                   void* ud) {
-  *((bool*)ud) = true;
+  rx_result      = result;
+  rx_payload_len = payload_len;
+  *((bool*)ud)   = true;
 }
 
 static void cb_config(__attribute__ ((unused)) int unused0,
@@ -128,7 +132,10 @@ int radio_receive(const char* packet, unsigned char len) {
     return err;
   }
   yield_for(&cond);
-  return (int)packet[1];
+  if (rx_result < 0) {
+    return rx_result;
+  }
+  return rx_payload_len;
 }
 
 int radio_receive_callback(subscribe_cb callback,
