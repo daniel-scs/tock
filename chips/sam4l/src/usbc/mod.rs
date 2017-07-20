@@ -39,7 +39,9 @@ pub struct Usbc<'a> {
 }
 
 #[derive(Default)]
-pub struct EP { index: u32 }
+pub struct EP {
+    pub index: u32
+}
 
 impl<'a> UsbController for Usbc<'a> {
     type EndpointState = Cell<Option<EP>>;
