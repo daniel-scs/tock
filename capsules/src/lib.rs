@@ -42,6 +42,7 @@ pub mod max17205;
 pub mod pca9544a;
 pub mod nonvolatile_to_pages;
 pub mod nonvolatile_storage_driver;
+pub mod app_flash_driver;
 pub mod usb;
 pub mod usbc_client;
 pub mod usb_user;
