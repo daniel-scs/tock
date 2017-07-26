@@ -69,6 +69,8 @@ struct Hail {
     crc: &'static capsules::crc::Crc<'static, sam4l::crccu::Crccu<'static>>,
     dac: &'static capsules::dac::Dac<'static>,
     aes: &'static capsules::symmetric_encryption::Crypto<'static, sam4l::aes::Aes>,
+    usb_driver: &'static capsules::usb_user::UsbSyscallDriver<'static,
+                        capsules::usbc_client::Client<'static, sam4l::usbc::Usbc<'static>>>,
 }
 
 impl Platform for Hail {
@@ -96,6 +98,8 @@ impl Platform for Hail {
             17 => f(Some(self.aes)),
 
             26 => f(Some(self.dac)),
+
+            34 => f(Some(self.usb_driver)),
 
             0xff => f(Some(&self.ipc)),
             _ => f(None),
@@ -136,8 +140,10 @@ unsafe fn set_pin_primary_functions() {
     // PA[23].configure(Some(B)); // D4 - TWIMS0 SDA
     // PA[24].configure(Some(B)); // D5 - TWIMS0 SCL
     // UART Mode
-    PA[25].configure(Some(B)); // RX - USART2 RXD
-    PA[26].configure(Some(B)); // TX - USART2 TXD
+    // PA[25].configure(Some(B)); // RX - USART2 RXD
+    // PA[26].configure(Some(B)); // TX - USART2 TXD
+    PA[25].configure(Some(A)); // RX - USB DM
+    PA[26].configure(Some(B)); // TX - USB DP
 
     PB[00].configure(Some(A)); // SENSORS_SDA - TWIMS1 SDA
     PB[01].configure(Some(A)); // SENSORS_SCL - TWIMS1 SCL
@@ -354,6 +360,19 @@ pub unsafe fn reset_handler() {
                                                     &mut capsules::symmetric_encryption::IV));
     hil::symmetric_encryption::SymmetricEncryption::set_client(&sam4l::aes::AES, aes);
 
+    // Configure the USB controller
+    let usb_client = static_init!(
+        capsules::usbc_client::Client<'static, sam4l::usbc::Usbc<'static>>,
+        capsules::usbc_client::Client::new(&sam4l::usbc::USBC));
+    sam4l::usbc::USBC.set_client(usb_client);
+
+    // Configure the USB userspace driver
+    let usb_driver = static_init!(
+        capsules::usb_user::UsbSyscallDriver<'static,
+            capsules::usbc_client::Client<'static, sam4l::usbc::Usbc<'static>>>,
+        capsules::usb_user::UsbSyscallDriver::new(
+            usb_client, kernel::Container::create()));
+
     let hail = Hail {
         console: console,
         gpio: gpio,
@@ -371,6 +390,7 @@ pub unsafe fn reset_handler() {
         crc: crc,
         dac: dac,
         aes: aes,
+        usb_driver: usb_driver,
     };
 
     // Need to reset the nRF on boot

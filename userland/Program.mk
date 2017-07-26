@@ -12,7 +12,7 @@ endif
 
 .PHONY: program
 program: $(BUILDDIR)/$(PACKAGE_NAME).tab
-	$(APP_TOCKLOADER) $(TOCKLOADER_GENERAL_FLAGS) install $<
+	$(APP_TOCKLOADER) $(TOCKLOADER_GENERAL_FLAGS) install --arch cortex-m4 $<
 
 # Upload programs over JTAG
 .PHONY: flash
