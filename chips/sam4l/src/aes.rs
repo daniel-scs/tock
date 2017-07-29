@@ -54,6 +54,15 @@ pub struct Aes {
 
 pub static mut AES: Aes = Aes::new();
 
+#[allow(dead_code)]
+enum ConfidentialityMode {
+    ECB = 0,
+    CBC,
+    CFB,
+    OFB,
+    Ctr,
+}
+
 impl Aes {
     pub const fn new() -> Aes {
         Aes {
@@ -103,12 +112,13 @@ impl Aes {
         self.disable_clock();
     }
 
-    fn enable_ctr_mode(&self) {
+    fn set_confidentiality_mode(&self, mode: ConfidentialityMode) {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
 
-        //         encrypt    dma        mode       cmeasure
-        let mode = (1 << 0) | (0 << 3) | (4 << 4) | (0xF << 16);
-        regs.mode.set(mode);
+        let encrypt = 1;
+        let dma = 0;
+        let cmeasure = 0xF;
+        regs.mode.set(encrypt << 0 | dma << 3 | (mode as u32) << 4 | cmeasure << 16);
     }
 
     fn enable_interrupts(&self) {
@@ -132,6 +142,37 @@ impl Aes {
 
         // Notify of a new message.
         regs.ctrl.set((1 << 2) | (1 << 0));
+    }
+
+    fn encrypt_mode(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize,
+                    mode: ConfidentialityMode)
+    {
+        let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
+        self.enable();
+        self.enable_interrupts();
+        self.set_confidentiality_mode(mode);
+        self.notify_new_message();
+
+        // Set the CTR value from the array.
+        for i in 0..4 {
+            let mut c = init_ctr[i * 4 + 0] as usize;
+            c |= (init_ctr[i * 4 + 1] as usize) << 8;
+            c |= (init_ctr[i * 4 + 2] as usize) << 16;
+            c |= (init_ctr[i * 4 + 3] as usize) << 24;
+            match i {
+                0 => regs.initvect0.set(c as u32),
+                1 => regs.initvect1.set(c as u32),
+                2 => regs.initvect2.set(c as u32),
+                3 => regs.initvect3.set(c as u32),
+                _ => {}
+            }
+        }
+        self.iv.replace(init_ctr);
+
+        self.data.replace(data);
+        self.remaining_length.set(len);
+        self.data_index.set(0);
+        self.write_block();
     }
 
     fn write_block(&self) {
@@ -195,7 +236,7 @@ impl Aes {
     }
 }
 
-impl hil::symmetric_encryption::SymmetricEncryption for Aes {
+impl hil::symmetric_encryption::Encryptor for Aes {
     fn set_client(&self, client: &'static hil::symmetric_encryption::Client) {
         self.client.set(Some(client));
     }
@@ -223,36 +264,21 @@ impl hil::symmetric_encryption::SymmetricEncryption for Aes {
         }
         key
     }
+}
 
-    fn aes128_crypt_ctr(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize) {
-
-        let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
-        self.enable();
-        self.enable_interrupts();
-        self.enable_ctr_mode();
-        self.notify_new_message();
-
-        // Set the CTR value from the array.
-        for i in 0..4 {
-            let mut c = init_ctr[i * 4 + 0] as usize;
-            c |= (init_ctr[i * 4 + 1] as usize) << 8;
-            c |= (init_ctr[i * 4 + 2] as usize) << 16;
-            c |= (init_ctr[i * 4 + 3] as usize) << 24;
-            match i {
-                0 => regs.initvect0.set(c as u32),
-                1 => regs.initvect1.set(c as u32),
-                2 => regs.initvect2.set(c as u32),
-                3 => regs.initvect3.set(c as u32),
-                _ => {}
-            }
-        }
-        self.iv.replace(init_ctr);
-
-        self.data.replace(data);
-        self.remaining_length.set(len);
-        self.data_index.set(0);
-        self.write_block();
+impl hil::symmetric_encryption::AES128Ctr for Aes {
+    fn encrypt(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize) {
+        self.encrypt_mode(data, init_ctr, len, ConfidentialityMode::Ctr)
     }
+}
+
+impl hil::symmetric_encryption::AES128CBC for Aes {
+    fn encrypt(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize) {
+        self.encrypt_mode(data, init_ctr, len, ConfidentialityMode::CBC)
+    }
+}
+
+impl hil::symmetric_encryption::SymmetricEncryption for Aes {
 }
 
 interrupt_handler!(aes_handler, AESA);

@@ -9,11 +9,11 @@
 //!
 //! 1. `init()`
 //! 2. `set_key()`
-//! 3. `aes128_crypt_ctr()`: can be used arbitrary number of times.
+//! 3. `encrypt()`: can be used arbitrary number of times.
 
 use returncode::ReturnCode;
 
-pub trait SymmetricEncryption {
+pub trait Encryptor {
     /// Set the callback client.
     fn set_client(&self, client: &'static Client);
 
@@ -23,11 +23,17 @@ pub trait SymmetricEncryption {
     /// Configure encryption/decryption key
     /// assumes that key size is 16, 24 or 32 bytes
     fn set_key(&self, key: &'static mut [u8], len: usize) -> &'static mut [u8];
+}
 
+pub trait AES128Ctr {
     /// encryption and decryption for aes in counter mode
     /// because only the encryption-mode of the cipher only one method is needed
     /// other chips perhaps only ignore "init_ctr" and assume all is performed in HW
-    fn aes128_crypt_ctr(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize);
+    fn encrypt(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize);
+}
+
+pub trait AES128CBC {
+    fn encrypt(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize);
 }
 
 pub trait Client {
@@ -39,4 +45,13 @@ pub trait Client {
                   dmy: &'static mut [u8],
                   len: usize)
                   -> ReturnCode;
+}
+
+// Legacy
+
+pub trait SymmetricEncryption: Encryptor + AES128Ctr {
+    #[inline]
+    fn aes128_crypt_ctr(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize) {
+        self.encrypt(data, init_ctr, len)
+    }
 }
