@@ -110,7 +110,7 @@ impl Platform for Hail {
 
 unsafe fn set_pin_primary_functions() {
     use sam4l::gpio::{PA, PB};
-    use sam4l::gpio::PeripheralFunction::{A, B};
+    use sam4l::gpio::PeripheralFunction::{A};
 
     PA[04].configure(Some(A)); // A0 - ADC0
     PA[05].configure(Some(A)); // A1 - ADC1
@@ -139,11 +139,12 @@ unsafe fn set_pin_primary_functions() {
     // PA[22].configure(None); // D2
     // PA[23].configure(Some(B)); // D4 - TWIMS0 SDA
     // PA[24].configure(Some(B)); // D5 - TWIMS0 SCL
-    // UART Mode
+    // UART Mode:
     // PA[25].configure(Some(B)); // RX - USART2 RXD
     // PA[26].configure(Some(B)); // TX - USART2 TXD
+    // USBC Mode:
     PA[25].configure(Some(A)); // RX - USB DM
-    PA[26].configure(Some(B)); // TX - USB DP
+    PA[26].configure(Some(A)); // TX - USB DP
 
     PB[00].configure(Some(A)); // SENSORS_SDA - TWIMS1 SDA
     PB[01].configure(Some(A)); // SENSORS_SCL - TWIMS1 SCL
