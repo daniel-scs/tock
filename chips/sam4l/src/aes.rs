@@ -6,10 +6,69 @@ use core::mem;
 use kernel::common::VolatileCell;
 use kernel::common::take_cell::TakeCell;
 use kernel::hil;
-use kernel::hil::symmetric_encryption::{Client, Request, BLOCK_SIZE, ConfidentialityMode};
+use kernel::hil::symmetric_encryption::{Client, BLOCK_SIZE};
 use nvic;
 use pm;
 use scif;
+
+#[allow(dead_code)]
+#[derive(Copy, Clone)]
+pub enum ConfidentialityMode {
+    ECB = 0,
+    CBC,
+    CFB,
+    OFB,
+    Ctr,
+}
+
+// A structure to represent a particular encryption request
+struct Request {
+    client: &'static Client,
+
+    mode: ConfidentialityMode,
+    encrypting: bool,
+    key: &'static [u8; BLOCK_SIZE],
+    iv: &'static [u8; BLOCK_SIZE],
+    data: &'static mut [u8],
+
+    // The index of the first byte in `data` to encrypt
+    start_index: usize,
+  
+    // The index just after the last byte to encrypt
+    stop_index: usize,
+}
+
+impl Request {
+    // Create a request structure, or None if the arguments are invalid
+    pub fn new(client: &'static Client,
+               mode: ConfidentialityMode,
+               encrypting: bool,
+               key: &'static [u8; BLOCK_SIZE],
+               iv: &'static [u8; BLOCK_SIZE],
+               data: &'static mut [u8],
+               start_index: usize,
+               stop_index: usize) -> Option<Request>
+    {
+        let len = data.len();
+        if len % BLOCK_SIZE != 0
+            || start_index > len
+            || stop_index > len
+            || start_index > stop_index {
+            None
+        } else {
+            Some(Request {
+                client: client,
+                mode: mode,
+                encrypting: encrypting,
+                key: key,
+                iv: iv,
+                data: data,
+                start_index: start_index,
+                stop_index: stop_index,
+            })
+        }
+    }
+}
 
 /// The registers used to interface with the hardware
 #[repr(C, packed)]
@@ -47,12 +106,12 @@ const AES_BASE: u32 = 0x400B0000;
 const IBUFRDY: u32 = 1 << 16;
 const ODATARDY: u32 = 1 << 0;
 
-pub struct Aes<'a> {
+pub struct Aes {
     registers: *mut AesRegisters,
 
     // The request in progress, if any.
     // (This may be extended in future to hold multiple outstanding requests.)
-    request: TakeCell<'a, Request<'a>>,
+    request: TakeCell<'static, Request>,
 
     // An index into the request buffer marking how much data
     // has been written to the AESA
@@ -65,8 +124,8 @@ pub struct Aes<'a> {
 
 pub static mut AES: Aes = Aes::new();
 
-impl<'a> Aes<'a> {
-    pub const fn new() -> Aes<'a> {
+impl Aes {
+    pub const fn new() -> Aes {
         Aes {
             registers: AES_BASE as *mut AesRegisters,
             request: TakeCell::empty(),
@@ -222,7 +281,7 @@ impl<'a> Aes<'a> {
             }
 
             let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
-            let data = request.data;
+            let data = &request.data;
             for i in 0..4 {
                 let mut v = data[index + (i * 4) + 0] as usize;
                 v |= (data[index + (i * 4) + 1] as usize) << 8;
@@ -255,7 +314,7 @@ impl<'a> Aes<'a> {
             }
 
             let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
-            let data = request.data;
+            let data = &mut request.data;
             for i in 0..4 {
                 let v = regs.odata.get();
                 data[index + (i * 4) + 0] = (v >> 0) as u8;
@@ -273,7 +332,7 @@ impl<'a> Aes<'a> {
 
     // Enqueue an encryption request.  Returns true if request is accepted and
     // the client will be alerted upon completion.
-    fn enqueue_request(&self, request: &mut Request<'a>) -> bool {
+    fn enqueue_request(&self, request: &'static mut Request) -> bool {
         if self.request.is_some() {
             // In future, append this request to a linked list
             false
@@ -329,7 +388,7 @@ impl<'a> Aes<'a> {
             debug!("Received interrupt with no request pending");
             self.disable_interrupts();
         },
-        |request| {
+        |_request| {
             if self.input_buffer_ready() {
                 // The AESA says it is ready to receive another block
 
@@ -353,50 +412,56 @@ impl<'a> Aes<'a> {
     }
 }
 
-impl<'a> hil::symmetric_encryption::AES128Ctr<'a> for Aes<'a> {
-    fn create_request(client: &'a hil::symmetric_encryption::Client<'a>,
-                      encrypting: bool,
-                      key: &'a [u8; BLOCK_SIZE],
-                      init_ctr: &'a [u8; BLOCK_SIZE],
-                      data: &'a mut [u8],
-                      start_index: usize,
-                      stop_index: usize) -> Option<Request<'a>> {
-        Request::new(client,
-                     ConfidentialityMode::Ctr,
-                     encrypting,
-                     key,
-                     init_ctr,
-                     data,
-                     start_index,
-                     stop_index)
-    }
-
-    fn crypt(&self, request: &mut Request<'a>) -> bool {
-        self.enqueue_request(request)
-    }
-}
-
-impl<'a> hil::symmetric_encryption::AES128CBC<'a> for Aes<'a> {
-    fn create_request(client: &'a hil::symmetric_encryption::Client<'a>,
-                      encrypting: bool,
-                      key: &'a [u8; BLOCK_SIZE],
-                      iv: &'a [u8; BLOCK_SIZE],
-                      data: &'a mut [u8],
-                      start_index: usize,
-                      stop_index: usize) -> Option<Request<'a>> {
-        Request::new(client,
-                     ConfidentialityMode::CBC,
-                     encrypting,
-                     key,
-                     iv,
-                     data,
-                     start_index,
-                     stop_index)
-    }
-
-    fn crypt(&self, request: &mut Request<'a>) -> bool {
-        self.enqueue_request(request)
+impl hil::symmetric_encryption::AES128Ctr for Aes {
+    fn crypt(&self,
+             client: &'static hil::symmetric_encryption::Client,
+             encrypting: bool,
+             key: &'static [u8; BLOCK_SIZE],
+             init_ctr: &'static [u8; BLOCK_SIZE],
+             data: &'static mut [u8],
+             start_index: usize,
+             stop_index: usize) -> bool
+    {
+        let request = unsafe {
+            static_init!(Option<Request>,
+                Request::new(client,
+                             ConfidentialityMode::Ctr,
+                             encrypting,
+                             key,
+                             init_ctr,
+                             data,
+                             start_index,
+                             stop_index))
+        };
+        match *request {
+            Some(ref mut request) => self.enqueue_request(request),
+            None => false
+        }
     }
 }
+
+/*
+impl<'a> hil::symmetric_encryption::AES128CBC for Aes<'a> {
+    fn crypt(&self,
+             client: &hil::symmetric_encryption::Client<'a>,
+             encrypting: bool,
+             key: &[u8; BLOCK_SIZE],
+             iv: &[u8; BLOCK_SIZE],
+             data: &mut [u8],
+             start_index: usize,
+             stop_index: usize) -> bool {
+        static request: Option<Request<'a>> =
+            Request::new(client,
+                         ConfidentialityMode::CBC,
+                         encrypting,
+                         key,
+                         iv,
+                         data,
+                         start_index,
+                         stop_index);
+        request.and_then(|request| { self.enqueue_request(&request) })
+    }
+}
+*/
 
 interrupt_handler!(aes_handler, AESA);
