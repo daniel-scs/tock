@@ -43,17 +43,69 @@ struct AesRegisters {
 // Section 7.1 of datasheet
 const AES_BASE: u32 = 0x400B0000;
 
-pub struct Aes {
+pub struct Aes<'a> {
     registers: *mut AesRegisters,
-    client: Cell<Option<&'static hil::symmetric_encryption::Client>>,
-    data: TakeCell<'static, [u8]>,
-    iv: TakeCell<'static, [u8]>,
+
+    // The request in progress, if any.
+    // (This may be extended in future to hold multiple outstanding requests.)
+    request: Cell<Option<Request<'a>>>,
+
+    // An index into the request buffer marking how far an encryption has
+    // proceeded
     data_index: Cell<usize>,
-    remaining_length: Cell<usize>,
 }
 
 pub static mut AES: Aes = Aes::new();
 
+const usize BLOCK_SIZE = 16;
+
+// A structure to represent a particular encryption request
+struct Request<'a> {
+    client: &'a hil::symmetric_encryption::Client,
+
+    key: &'a [u8; BLOCK_SIZE],
+    iv: &'a [u8; BLOCK_SIZE],
+    data: &'a mut [u8],
+
+    // The index of the first byte in `data` to encrypt
+    start_index: usize,
+  
+    // The index just after the last byte to encrypt
+    stop_index: usize,
+}
+
+impl Request<'a> {
+    // Create a request structure, or None if the arguments are invalid
+    fn new(client: &'a hil::symmetric_encryption::Client,
+           mode: ConfidentialityMode,
+           key: &'a [u8; BLOCK_SIZE],
+           iv: &'a [u8; BLOCK_SIZE],
+           data: &'a mut [u8],
+           start_index: usize,
+           stop_index: usize) -> Option<Request>
+    {
+        let len = data.len();
+        if (len % BLOCK_SIZE != 0
+            || start_index > len
+            || stop_index > len
+            || start_index > stop_index)
+        {
+            None
+        } else {
+            Some(Request {
+                client: client,
+                mode: mode,
+                key: key,
+                iv: iv,
+                data: data,
+                start_index: start_index,
+                stop_index: stop_index,
+            })
+        }
+    }
+}
+
+// Mode values for the SAM4L
 #[allow(dead_code)]
 enum ConfidentialityMode {
     ECB = 0,
@@ -67,11 +119,7 @@ impl Aes {
     pub const fn new() -> Aes {
         Aes {
             registers: AES_BASE as *mut AesRegisters,
-            client: Cell::new(None),
-            data: TakeCell::empty(),
-            iv: TakeCell::empty(),
-            data_index: Cell::new(0),
-            remaining_length: Cell::new(0),
+            request: Cell::new(None),
         }
     }
 
@@ -112,15 +160,6 @@ impl Aes {
         self.disable_clock();
     }
 
-    fn set_confidentiality_mode(&self, mode: ConfidentialityMode) {
-        let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
-
-        let encrypt = 1;
-        let dma = 0;
-        let cmeasure = 0xF;
-        regs.mode.set(encrypt << 0 | dma << 3 | (mode as u32) << 4 | cmeasure << 16);
-    }
-
     fn enable_interrupts(&self) {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
 
@@ -134,31 +173,29 @@ impl Aes {
 
     fn disable_interrupts(&self) {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
+
+        // Clear both interrupts
         regs.idr.set((1 << 16) | (1 << 0));
     }
 
-    fn notify_new_message(&self) {
+    fn set_mode(&self, encrypting: bool, mode: ConfidentialityMode) {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
 
-        // Notify of a new message.
-        regs.ctrl.set((1 << 2) | (1 << 0));
+        let encrypt = if encrypting { 1 } else { 0 };
+        let dma = 0;
+        let cmeasure = 0xF;
+        regs.mode.set(encrypt << 0 | dma << 3 | (mode as u32) << 4 | cmeasure << 16);
     }
 
-    fn encrypt_mode(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize,
-                    mode: ConfidentialityMode)
-    {
+    fn set_iv(&self, iv: &[u8; BLOCK_SIZE]) {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
-        self.enable();
-        self.enable_interrupts();
-        self.set_confidentiality_mode(mode);
-        self.notify_new_message();
 
-        // Set the CTR value from the array.
+        // Set the initial value from the array.
         for i in 0..4 {
-            let mut c = init_ctr[i * 4 + 0] as usize;
-            c |= (init_ctr[i * 4 + 1] as usize) << 8;
-            c |= (init_ctr[i * 4 + 2] as usize) << 16;
-            c |= (init_ctr[i * 4 + 3] as usize) << 24;
+            let mut c = iv[i * 4 + 0] as usize;
+            c |= (iv[i * 4 + 1] as usize) << 8;
+            c |= (iv[i * 4 + 2] as usize) << 16;
+            c |= (iv[i * 4 + 3] as usize) << 24;
             match i {
                 0 => regs.initvect0.set(c as u32),
                 1 => regs.initvect1.set(c as u32),
@@ -167,70 +204,168 @@ impl Aes {
                 _ => {}
             }
         }
-        self.iv.replace(init_ctr);
-
-        self.data.replace(data);
-        self.remaining_length.set(len);
-        self.data_index.set(0);
-        self.write_block();
     }
 
-    fn write_block(&self) {
+    // Alert the AESA that we are beginning a new message
+    fn notify_new_message(&self) {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
 
-        self.data.map(|data| {
-            let index = self.data_index.get();
-            for i in 0..4 {
-                let mut v = data[index + (i * 4) + 0] as usize;
-                v |= (data[index + (i * 4) + 1] as usize) << 8;
-                v |= (data[index + (i * 4) + 2] as usize) << 16;
-                v |= (data[index + (i * 4) + 3] as usize) << 24;
-                regs.idata.set(v as u32);
-            }
-            self.data_index.set(index + 16);
-            self.remaining_length.set(self.remaining_length.get() - 16);
-        });
+        // Notify of a new message.
+        regs.ctrl.set((1 << 2) | (1 << 0));
     }
 
-    pub fn handle_interrupt(&self) {
+    fn input_buffer_ready(&self) -> bool {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
-
         let status = regs.sr.get();
 
-        if status & 0x01 == 0x01 {
-            // Incoming data ready. Copy it into the same buffer we got
-            // data from.
+        status & (1 << 16) != 0
+    }
 
-            self.data.take().map(|data| {
-                // We need to go back to overwrite the previous 16 bytes.
-                let index = self.data_index.get() - 16;
-                for i in 0..4 {
-                    let v = regs.odata.get();
-                    data[index + (i * 4) + 0] = (v >> 0) as u8;
-                    data[index + (i * 4) + 1] = (v >> 8) as u8;
-                    data[index + (i * 4) + 2] = (v >> 16) as u8;
-                    data[index + (i * 4) + 3] = (v >> 24) as u8;
-                }
-                // Check if we processed all of the data.
-                if self.remaining_length.get() == 0 {
-                    self.disable_interrupts();
-                    self.iv.take().map(|iv| {
-                        self.client
-                            .get()
-                            .map(move |client| { client.crypt_done(data, iv, index + 16); });
-                    });
-                } else {
-                    // Need to put the data buffer back
-                    self.data.replace(data);
-                }
-            });
+    fn output_data_ready(&self) -> bool {
+        let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
+        let status = regs.sr.get();
 
+        status & (1 << 0) != 0
+    }
+
+    // Copy a block from the request buffer to the AESA input register,
+    // if there is a block left in the buffer.  Either way, this function
+    // returns true if more blocks remain to send
+    fn write_block(&self) -> bool {
+        if self.request.get().is_none() {
+            debug("Called write_block() with no request");
+            return false;
+        }
+        let request = self.request.get().unwrap();
+
+        let index = self.write_index.get();
+        let more = index + BLOCK_BYTES <= request.stop_index;
+        if !more {
+            return false;
         }
 
-        if status & (1 << 16) == (1 << 16) {
-            // Check if we have more data to send.
-            if self.remaining_length.get() > 0 {
-                self.write_block();
+        let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
+        for i in 0..4 {
+            let mut v = data[index + (i * 4) + 0] as usize;
+            v |= (data[index + (i * 4) + 1] as usize) << 8;
+            v |= (data[index + (i * 4) + 2] as usize) << 16;
+            v |= (data[index + (i * 4) + 3] as usize) << 24;
+            regs.idata.set(v as u32);
+        }
+
+        self.write_index.set(index + BLOCK_SIZE);
+
+        let more = self.write_index.get() + BLOCK_BYTES <= request.stop_index;
+        more
+    }
+
+    // Copy a block from the AESA output register back into the request buffer
+    // if there is any room left.  Return true if we are still waiting for more
+    // blocks after this
+    fn read_block(&self) -> bool
+    {
+        if self.request.get().is_none() {
+            debug("Called read_block() with no request");
+            return false;
+        }
+        let request = self.request.get().unwrap();
+
+        let index = self.read_index.get();
+        let more = index + BLOCK_BYTES <= request.stop_index;
+        if !more {
+            return false;
+        }
+
+        let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
+        for i in 0..4 {
+            let v = regs.odata.get();
+            data[index + (i * 4) + 0] = (v >> 0) as u8;
+            data[index + (i * 4) + 1] = (v >> 8) as u8;
+            data[index + (i * 4) + 2] = (v >> 16) as u8;
+            data[index + (i * 4) + 3] = (v >> 24) as u8;
+        }
+
+        self.read_index.set(index + BLOCK_SIZE);
+
+        let more = self.read_index.get() + BLOCK_SIZE <= request.stop_index;
+        more
+    }
+
+    // Enqueue an encryption request.  Returns true if request is accepted and
+    // the client will be alerted upon completion.
+    fn enqueue_request(&self, request: Request) -> bool {
+        if self.request.get().is_some() {
+            // In future, append this request to a linked list
+            return false;
+        } else {
+            self.request.set(Some(request));
+
+            // The queue is now non-empty, so begin processing
+            self.process_waiting_requests();
+        }
+    }
+
+    // Dequeue a completed request and begin processing another
+    fn dequeue_request(&self) {
+        // Remove the completed request
+        self.request.set(None);
+
+        self.process_waiting_requests();
+    }
+
+    // Begin processing the request at the head of the "queue"
+    fn process_waiting_requests(&self) {
+        if self.request.get().is_none() {
+            self.disable_interrupts();
+            self.disable();
+            return;
+        }
+
+        let request = self.request.get().unwrap();
+
+        self.enable();
+        self.set_mode(request.encrypting, request.mode);
+        self.set_iv(request.iv);
+        self.notify_new_message();
+
+        self.write_index.set(request.start_index);
+        self.read_index.set(request.start_index);
+
+        self.enable_interrupts();
+    }
+
+    // Handle an interrupt, which will indicate either that the AESA's input
+    // buffer is ready for more data, or that it has completed a block of output
+    // for us to consume
+    pub fn handle_interrupt(&self) {
+        if self.request.get().is_none() {
+            debug!("Received interrupt with no request pending");
+            self.disable_interrupts();
+            return;
+        }
+        let request = self.request.get().unwrap();
+
+        if self.input_buffer_ready() {
+            // The AESA says it is ready to receive another block
+
+            if !self.write_block() {
+                // We've now written the entirety of the request buffer
+                self.disable_input_interrupt();
+            }
+        }
+
+        if self.output_data_ready() {
+            // The AESA says it has a completed block to give us
+
+            if !self.read_block() {
+                // We've read back all the blocks
+                self.disable_interrupts();
+
+                // Alert the client of the completion and return the buffer
+                request.client.crypt_done(request.data);
+
+                // Remove this request, which is at the head of the queue
+                self.dequeue_request();
             }
         }
     }
@@ -267,18 +402,41 @@ impl hil::symmetric_encryption::Encryptor for Aes {
 }
 
 impl hil::symmetric_encryption::AES128Ctr for Aes {
-    fn encrypt(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize) {
-        self.encrypt_mode(data, init_ctr, len, ConfidentialityMode::Ctr)
+    fn crypt(&self,
+             encrypting: bool,
+             key: &'static [u8; BLOCK_SIZE],
+             init_ctr: &'static [u8; BLOCK_SIZE]
+             data: &'static mut [u8],
+             start_index: usize,
+             stop_index: usize) {
+        Request::new(client,
+                     ConfidentialityMode::Ctr,
+                     encrypting,
+                     key,
+                     init_ctr,
+                     data,
+                     start_index,
+                     stop_index).and_then(|request| self.enqueue_request(request))
     }
 }
 
 impl hil::symmetric_encryption::AES128CBC for Aes {
-    fn encrypt(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize) {
-        self.encrypt_mode(data, init_ctr, len, ConfidentialityMode::CBC)
+    fn crypt(&self,
+             encrypting: bool,
+             key: &'static [u8; BLOCK_SIZE],
+             iv: &'static [u8; BLOCK_SIZE]
+             data: &'static mut [u8],
+             start_index: usize,
+             stop_index: usize) {
+        Request::new(client,
+                     ConfidentialityMode::CBC,
+                     encrypting,
+                     key,
+                     iv,
+                     data,
+                     start_index,
+                     stop_index).and_then(|request| self.enqueue_request(request))
     }
-}
-
-impl hil::symmetric_encryption::SymmetricEncryption for Aes {
 }
 
 interrupt_handler!(aes_handler, AESA);
