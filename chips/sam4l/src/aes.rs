@@ -206,6 +206,24 @@ impl Aes {
         }
     }
 
+    fn set_key(&self, key: &[u8; BLOCK_SIZE]) {
+        let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
+
+        for i in 0..4 {
+            let mut k = key[i * 4 + 0] as usize;
+            k |= (key[i * 4 + 1] as usize) << 8;
+            k |= (key[i * 4 + 2] as usize) << 16;
+            k |= (key[i * 4 + 3] as usize) << 24;
+            match i {
+                0 => regs.key0.set(k as u32),
+                1 => regs.key1.set(k as u32),
+                2 => regs.key2.set(k as u32),
+                3 => regs.key3.set(k as u32),
+                _ => {}
+            }
+        }
+    }
+
     // Alert the AESA that we are beginning a new message
     fn notify_new_message(&self) {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
@@ -325,6 +343,7 @@ impl Aes {
 
         self.enable();
         self.set_mode(request.encrypting, request.mode);
+        self.set_key(request.key);
         self.set_iv(request.iv);
         self.notify_new_message();
 
@@ -371,38 +390,9 @@ impl Aes {
     }
 }
 
-impl hil::symmetric_encryption::Encryptor for Aes {
-    fn set_client(&self, client: &'static hil::symmetric_encryption::Client) {
-        self.client.set(Some(client));
-    }
-
-    fn init(&self) {}
-
-    fn set_key(&self, key: &'static mut [u8], len: usize) -> &'static mut [u8] {
-        let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
-        self.enable();
-
-        if len == 16 {
-            for i in 0..4 {
-                let mut k = key[i * 4 + 0] as usize;
-                k |= (key[i * 4 + 1] as usize) << 8;
-                k |= (key[i * 4 + 2] as usize) << 16;
-                k |= (key[i * 4 + 3] as usize) << 24;
-                match i {
-                    0 => regs.key0.set(k as u32),
-                    1 => regs.key1.set(k as u32),
-                    2 => regs.key2.set(k as u32),
-                    3 => regs.key3.set(k as u32),
-                    _ => {}
-                }
-            }
-        }
-        key
-    }
-}
-
-impl hil::symmetric_encryption::AES128Ctr for Aes {
+impl hil::symmetric_encryption::AES128Ctr for Aes<'a> {
     fn crypt(&self,
+             client: &'a hil::symmetric_encryption::Client,
              encrypting: bool,
              key: &'static [u8; BLOCK_SIZE],
              init_ctr: &'static [u8; BLOCK_SIZE]
@@ -420,8 +410,9 @@ impl hil::symmetric_encryption::AES128Ctr for Aes {
     }
 }
 
-impl hil::symmetric_encryption::AES128CBC for Aes {
+impl hil::symmetric_encryption::AES128CBC for Aes<'a> {
     fn crypt(&self,
+             client: &'a hil::symmetric_encryption::Client,
              encrypting: bool,
              key: &'static [u8; BLOCK_SIZE],
              iv: &'static [u8; BLOCK_SIZE]

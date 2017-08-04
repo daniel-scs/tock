@@ -1,57 +1,35 @@
 //! Interfaces for accessing encryption and decryption of symmetric ciphers.
-//!
-//! Only AES-128-ctr supported at the moment.
-//!
-//! The interface is supposed to work for hardware supported crypto but should
-//! work for software implemented crypto as well.
-//!
-//! State Machine:
-//!
-//! 1. `init()`
-//! 2. `set_key()`
-//! 3. `encrypt()`: can be used arbitrary number of times.
 
 use returncode::ReturnCode;
 
-pub trait Encryptor {
-    /// Set the callback client.
-    fn set_client(&self, client: &'static Client);
-
-    /// Initialization of the chip register
-    fn init(&self);
-
-    /// Configure encryption/decryption key
-    /// assumes that key size is 16, 24 or 32 bytes
-    fn set_key(&self, key: &'static mut [u8], len: usize) -> &'static mut [u8];
+pub trait Client {
+    fn crypt_done(&self, data: &'static mut [u8]);
 }
 
 pub trait AES128Ctr {
-    /// encryption and decryption for aes in counter mode
-    /// because only the encryption-mode of the cipher only one method is needed
-    /// other chips perhaps only ignore "init_ctr" and assume all is performed in HW
-    fn encrypt(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize);
+    // Request an encryption/decryption.
+    // Returns true if the request is valid and the client will
+    // eventually receive a callback.
+    fn crypt(&self,
+             client: &'a hil::symmetric_encryption::Client,
+             encrypting: bool,
+             key: &'static [u8; BLOCK_SIZE],
+             init_ctr: &'static [u8; BLOCK_SIZE]
+             data: &'static mut [u8],
+             start_index: usize,
+             stop_index: usize) -> bool;
 }
 
 pub trait AES128CBC {
-    fn encrypt(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize);
-}
-
-pub trait Client {
-    /// send back to result of the encryption/decryption to the capsule
-    /// this should be hardware independent if the cryptostate is used for all
-    /// implementations
-    fn crypt_done(&self,
-                  data: &'static mut [u8],
-                  dmy: &'static mut [u8],
-                  len: usize)
-                  -> ReturnCode;
-}
-
-// Legacy
-
-pub trait SymmetricEncryption: Encryptor + AES128Ctr {
-    #[inline]
-    fn aes128_crypt_ctr(&self, data: &'static mut [u8], init_ctr: &'static mut [u8], len: usize) {
-        self.encrypt(data, init_ctr, len)
-    }
+    // Request an encryption/decryption.
+    // Returns true if the request is valid and the client will
+    // eventually receive a callback.
+    fn crypt(&self,
+             client: &'a hil::symmetric_encryption::Client,
+             encrypting: bool,
+             key: &'static [u8; BLOCK_SIZE],
+             iv: &'static [u8; BLOCK_SIZE]
+             data: &'static mut [u8],
+             start_index: usize,
+             stop_index: usize) -> bool;
 }
