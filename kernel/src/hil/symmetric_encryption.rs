@@ -1,4 +1,4 @@
-//! Interfaces for accessing encryption and decryption of symmetric ciphers.
+//! Interfaces for encryption and decryption using symmetric ciphers
 
 pub trait Client {
     fn crypt_done(&self, data: &'static mut [u8]);
