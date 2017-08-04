@@ -24,9 +24,10 @@ enum ConfidentialityMode {
 
 // A structure to represent a particular encryption request
 struct Request<'a> {
-    client: &'a hil::symmetric_encryption::Client,
+    client: &'a hil::symmetric_encryption::Client<'a>,
 
     mode: ConfidentialityMode,
+    encrypting: bool,
     key: &'a [u8; BLOCK_SIZE],
     iv: &'a [u8; BLOCK_SIZE],
     data: &'a mut [u8],
@@ -40,8 +41,9 @@ struct Request<'a> {
 
 impl<'a> Request<'a> {
     // Create a request structure, or None if the arguments are invalid
-    fn new(client: &'a hil::symmetric_encryption::Client,
+    fn new(client: &'a hil::symmetric_encryption::Client<'a>,
            mode: ConfidentialityMode,
+           encrypting: bool,
            key: &'a [u8; BLOCK_SIZE],
            iv: &'a [u8; BLOCK_SIZE],
            data: &'a mut [u8],
@@ -58,6 +60,7 @@ impl<'a> Request<'a> {
             Some(Request {
                 client: client,
                 mode: mode,
+                encrypting: encrypting,
                 key: key,
                 iv: iv,
                 data: data,
@@ -101,12 +104,15 @@ struct AesRegisters {
 // Section 7.1 of datasheet
 const AES_BASE: u32 = 0x400B0000;
 
+const IBUFRDY: u32 = 1 << 16;
+const ODATARDY: u32 = 1 << 0;
+
 pub struct Aes<'a> {
     registers: *mut AesRegisters,
 
     // The request in progress, if any.
     // (This may be extended in future to hold multiple outstanding requests.)
-    request: Cell<Option<Request<'a>>>,
+    request: Cell<Option<&'a mut Request<'a>>>,
 
     // An index into the request buffer marking how much data
     // has been written to the AESA
@@ -174,14 +180,21 @@ impl<'a> Aes<'a> {
         }
 
         // We want both interrupts.
-        regs.ier.set((1 << 16) | (1 << 0));
+        regs.ier.set(IBUFRDY | ODATARDY);
     }
 
     fn disable_interrupts(&self) {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
 
-        // Clear both interrupts
-        regs.idr.set((1 << 16) | (1 << 0));
+        // Disable both interrupts
+        regs.idr.set(IBUFRDY | ODATARDY);
+    }
+
+    fn disable_input_interrupt(&self) {
+        let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
+
+        // Tell the AESA not to send an interrupt looking for more input
+        regs.idr.set(IBUFRDY);
     }
 
     fn set_mode(&self, encrypting: bool, mode: ConfidentialityMode) {
@@ -252,37 +265,44 @@ impl<'a> Aes<'a> {
         status & (1 << 0) != 0
     }
 
+    fn get_request(&self) -> Option<&'a mut Request> {
+        match *self.request.get_mut() {
+            None => None,
+            Some(request) => Some(request)
+        }
+    }
+
     // Copy a block from the request buffer to the AESA input register,
     // if there is a block left in the buffer.  Either way, this function
     // returns true if more blocks remain to send
     fn write_block(&self) -> bool {
-        let request_opt = self.request.get_mut();
-        if request_opt.is_none() {
+        self.get_request().map_or_else(|| {
             debug!("Called write_block() with no request");
-            return false;
-        }
-        let request = request_opt.unwrap();
+            false
+        },
+        |request| {
 
-        let index = self.write_index.get();
-        let more = index + BLOCK_SIZE <= request.stop_index;
-        if !more {
-            return false;
-        }
+            let index = self.write_index.get();
+            let more = index + BLOCK_SIZE <= request.stop_index;
+            if !more {
+                return false;
+            }
 
-        let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
-        let data = request.data;
-        for i in 0..4 {
-            let mut v = data[index + (i * 4) + 0] as usize;
-            v |= (data[index + (i * 4) + 1] as usize) << 8;
-            v |= (data[index + (i * 4) + 2] as usize) << 16;
-            v |= (data[index + (i * 4) + 3] as usize) << 24;
-            regs.idata.set(v as u32);
-        }
+            let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
+            let data = request.data;
+            for i in 0..4 {
+                let mut v = data[index + (i * 4) + 0] as usize;
+                v |= (data[index + (i * 4) + 1] as usize) << 8;
+                v |= (data[index + (i * 4) + 2] as usize) << 16;
+                v |= (data[index + (i * 4) + 3] as usize) << 24;
+                regs.idata.set(v as u32);
+            }
 
-        self.write_index.set(index + BLOCK_SIZE);
+            self.write_index.set(index + BLOCK_SIZE);
 
-        let more = self.write_index.get() + BLOCK_SIZE <= request.stop_index;
-        more
+            let more = self.write_index.get() + BLOCK_SIZE <= request.stop_index;
+            more
+        })
     }
 
     // Copy a block from the AESA output register back into the request buffer
@@ -321,13 +341,13 @@ impl<'a> Aes<'a> {
 
     // Enqueue an encryption request.  Returns true if request is accepted and
     // the client will be alerted upon completion.
-    fn enqueue_request(&self, request: &Request) -> bool {
-        if self.request.get_mut().is_some() {
+    fn enqueue_request(&self, request: &'a mut Request<'a>) -> bool {
+        if self.get_request().is_some() {
             // In future, append this request to a linked list
             false
         } else {
-            let request_opt = self.request.get_mut();
-            *request_opt = Some(request);
+            // "Enqueue" the request
+            self.request.set(Some(request));
 
             // The queue is now non-empty, so begin processing
             self.process_waiting_requests();

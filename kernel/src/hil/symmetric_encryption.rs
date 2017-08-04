@@ -2,8 +2,8 @@
 
 pub const BLOCK_SIZE: usize = 16;
 
-pub trait Client {
-    fn crypt_done(&self, data: &'static mut [u8]);
+pub trait Client<'a> {
+    fn crypt_done(&self, data: &'a mut [u8]);
 }
 
 pub trait AES128Ctr {
