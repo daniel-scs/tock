@@ -440,28 +440,32 @@ impl hil::symmetric_encryption::AES128Ctr for Aes {
     }
 }
 
-/*
-impl<'a> hil::symmetric_encryption::AES128CBC for Aes<'a> {
+impl hil::symmetric_encryption::AES128CBC for Aes {
     fn crypt(&self,
-             client: &hil::symmetric_encryption::Client<'a>,
+             client: &'static hil::symmetric_encryption::Client,
              encrypting: bool,
-             key: &[u8; BLOCK_SIZE],
-             iv: &[u8; BLOCK_SIZE],
-             data: &mut [u8],
+             key: &'static [u8; BLOCK_SIZE],
+             iv: &'static [u8; BLOCK_SIZE],
+             data: &'static mut [u8],
              start_index: usize,
-             stop_index: usize) -> bool {
-        static request: Option<Request<'a>> =
-            Request::new(client,
-                         ConfidentialityMode::CBC,
-                         encrypting,
-                         key,
-                         iv,
-                         data,
-                         start_index,
-                         stop_index);
-        request.and_then(|request| { self.enqueue_request(&request) })
+             stop_index: usize) -> bool
+    {
+        let request = unsafe {
+            static_init!(Option<Request>,
+                Request::new(client,
+                             ConfidentialityMode::CBC,
+                             encrypting,
+                             key,
+                             iv,
+                             data,
+                             start_index,
+                             stop_index))
+        };
+        match *request {
+            Some(ref mut request) => self.enqueue_request(request),
+            None => false
+        }
     }
 }
-*/
 
 interrupt_handler!(aes_handler, AESA);
