@@ -6,69 +6,10 @@ use core::mem;
 use kernel::common::VolatileCell;
 use kernel::common::take_cell::TakeCell;
 use kernel::hil;
-use kernel::hil::symmetric_encryption::{BLOCK_SIZE};
+use kernel::hil::symmetric_encryption::{Client, Request, BLOCK_SIZE, ConfidentialityMode};
 use nvic;
 use pm;
 use scif;
-
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
-enum ConfidentialityMode {
-    ECB = 0,
-    CBC,
-    CFB,
-    OFB,
-    Ctr,
-}
-
-// A structure to represent a particular encryption request
-pub struct Request<'a> {
-    client: &'a hil::symmetric_encryption::Client<'a>,
-
-    mode: ConfidentialityMode,
-    encrypting: bool,
-    key: &'a [u8; BLOCK_SIZE],
-    iv: &'a [u8; BLOCK_SIZE],
-    data: &'a mut [u8],
-
-    // The index of the first byte in `data` to encrypt
-    start_index: usize,
-  
-    // The index just after the last byte to encrypt
-    stop_index: usize,
-}
-
-impl<'a> Request<'a> {
-    // Create a request structure, or None if the arguments are invalid
-    fn new(client: &'a hil::symmetric_encryption::Client<'a>,
-           mode: ConfidentialityMode,
-           encrypting: bool,
-           key: &'a [u8; BLOCK_SIZE],
-           iv: &'a [u8; BLOCK_SIZE],
-           data: &'a mut [u8],
-           start_index: usize,
-           stop_index: usize) -> Option<Request<'a>>
-    {
-        let len = data.len();
-        if len % BLOCK_SIZE != 0
-            || start_index > len
-            || stop_index > len
-            || start_index > stop_index {
-            None
-        } else {
-            Some(Request {
-                client: client,
-                mode: mode,
-                encrypting: encrypting,
-                key: key,
-                iv: iv,
-                data: data,
-                start_index: start_index,
-                stop_index: stop_index,
-            })
-        }
-    }
-}
 
 /// The registers used to interface with the hardware
 #[repr(C, packed)]
@@ -332,7 +273,7 @@ impl<'a> Aes<'a> {
 
     // Enqueue an encryption request.  Returns true if request is accepted and
     // the client will be alerted upon completion.
-    fn enqueue_request(&self, request: &'a mut Request<'a>) -> bool {
+    fn enqueue_request(&self, request: &mut Request<'a>) -> bool {
         if self.request.is_some() {
             // In future, append this request to a linked list
             false
@@ -412,14 +353,12 @@ impl<'a> Aes<'a> {
     }
 }
 
-impl<'a> hil::symmetric_encryption::AES128Ctr for Aes<'a> {
-    type Request = Request<'a>;
-
-    fn create_request(client: &hil::symmetric_encryption::Client,
+impl<'a> hil::symmetric_encryption::AES128Ctr<'a> for Aes<'a> {
+    fn create_request(client: &'a hil::symmetric_encryption::Client<'a>,
                       encrypting: bool,
-                      key: &[u8; BLOCK_SIZE],
-                      init_ctr: &[u8; BLOCK_SIZE],
-                      data: &mut [u8],
+                      key: &'a [u8; BLOCK_SIZE],
+                      init_ctr: &'a [u8; BLOCK_SIZE],
+                      data: &'a mut [u8],
                       start_index: usize,
                       stop_index: usize) -> Option<Request<'a>> {
         Request::new(client,
@@ -432,19 +371,17 @@ impl<'a> hil::symmetric_encryption::AES128Ctr for Aes<'a> {
                      stop_index)
     }
 
-    fn crypt(&self, request: &mut Request) -> bool {
+    fn crypt(&self, request: &mut Request<'a>) -> bool {
         self.enqueue_request(request)
     }
 }
 
-impl<'a> hil::symmetric_encryption::AES128CBC for Aes<'a> {
-    type Request = Request<'a>;
-
-    fn create_request(client: &hil::symmetric_encryption::Client,
+impl<'a> hil::symmetric_encryption::AES128CBC<'a> for Aes<'a> {
+    fn create_request(client: &'a hil::symmetric_encryption::Client<'a>,
                       encrypting: bool,
-                      key: &[u8; BLOCK_SIZE],
-                      iv: &[u8; BLOCK_SIZE],
-                      data: &mut [u8],
+                      key: &'a [u8; BLOCK_SIZE],
+                      iv: &'a [u8; BLOCK_SIZE],
+                      data: &'a mut [u8],
                       start_index: usize,
                       stop_index: usize) -> Option<Request<'a>> {
         Request::new(client,
@@ -457,7 +394,7 @@ impl<'a> hil::symmetric_encryption::AES128CBC for Aes<'a> {
                      stop_index)
     }
 
-    fn crypt(&self, request: &mut Request) -> bool {
+    fn crypt(&self, request: &mut Request<'a>) -> bool {
         self.enqueue_request(request)
     }
 }
