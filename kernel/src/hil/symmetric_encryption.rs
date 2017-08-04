@@ -9,9 +9,21 @@ pub trait Client {
 pub const AES128_BLOCK_SIZE: usize = 16;
 
 pub trait AES128Ctr {
-    // Request an encryption/decryption.
-    // If no buffer is returned, the client's `crypt_done` callback
-    // will eventually be invoked with the same buffer that was passed.
+    /// Request an encryption/decryption
+    ///
+    /// The length `stop_index - start_index` must be a multiple of 16, the
+    /// cipher's block size.  If the indices are out of range or out of order,
+    /// INVAL will be returned.
+    ///
+    /// If no buffer is returned, the client's `crypt_done` callback
+    /// will eventually be invoked with the same buffer that was passed.
+    ///
+    /// If SUCCESS is returned, after `crypt_done` is called the portion of the
+    /// buffer between `start_index` and `stop_index` will hold the
+    /// encryption/decryption of its former contents.
+    ///
+    /// For correct operation, the `key` and `init_ctr` arguments must not be
+    /// modified until callback.
     fn crypt(&self,
              client: &'static Client,
              encrypting: bool,
@@ -23,9 +35,21 @@ pub trait AES128Ctr {
 }
 
 pub trait AES128CBC {
-    // Request an encryption/decryption.
-    // If no buffer is returned, the client's `crypt_done` callback
-    // will eventually be invoked with the same buffer that was passed.
+    /// Request an encryption/decryption
+    ///
+    /// The length `stop_index - start_index` must be a multiple of 16, the
+    /// cipher's block size.  If the indices are out of range or out of order,
+    /// INVAL will be returned.
+    ///
+    /// If no buffer is returned, the client's `crypt_done` callback
+    /// will eventually be invoked with the same buffer that was passed.
+    ///
+    /// If SUCCESS is returned, after `crypt_done` is called the portion of the
+    /// buffer between `start_index` and `stop_index` will hold the
+    /// encryption/decryption of its former contents.
+    ///
+    /// For correct operation, the `key` and `iv` arguments must not be
+    /// modified until callback.
     fn crypt(&self,
              client: &'static Client,
              encrypting: bool,

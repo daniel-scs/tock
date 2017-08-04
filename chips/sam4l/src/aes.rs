@@ -51,13 +51,9 @@ impl Request {
                start_index: usize,
                stop_index: usize) -> Result<Request, &'static mut [u8]>
     {
-        let len = data.len();
-        if len % AES128_BLOCK_SIZE != 0
-            || start_index > len
-            || stop_index > len
-            || start_index > stop_index {
-            Result::Err(data)
-        } else {
+        if stop_index.checked_sub(start_index).map_or(false, |sublen| {
+            sublen % AES128_BLOCK_SIZE == 0 && stop_index <= data.len() })
+        {
             Result::Ok(Request {
                 client: client,
                 mode: mode,
@@ -68,6 +64,8 @@ impl Request {
                 start_index: start_index,
                 stop_index: stop_index,
             })
+        } else {
+            Result::Err(data)
         }
     }
 }
