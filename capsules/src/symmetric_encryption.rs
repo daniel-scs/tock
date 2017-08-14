@@ -72,7 +72,7 @@
 use core::cell::Cell;
 use kernel::{AppId, AppSlice, Container, Callback, Driver, ReturnCode, Shared};
 use kernel::common::take_cell::TakeCell;
-use kernel::hil::symmetric_encryption::{SymmetricEncryption, Client};
+use kernel::hil::symmetric_encryption::{AES128Ctr, AES128_BLOCK_SIZE, Client};
 use kernel::process::Error;
 
 pub static mut BUF: [u8; 128] = [0; 128];
@@ -108,23 +108,24 @@ impl Default for App {
     }
 }
 
-pub struct Crypto<'a, E: SymmetricEncryption + 'a> {
+pub struct Crypto<'a, E: AES128Ctr + 'a> {
     crypto: &'a E,
     apps: Container<App>,
-    kernel_key: TakeCell<'static, [u8]>,
+    kernel_key: TakeCell<'static, [u8; AES128_BLOCK_SIZE]>,
     kernel_data: TakeCell<'static, [u8]>,
-    kernel_ctr: TakeCell<'static, [u8]>,
+    kernel_ctr: TakeCell<'static, [u8; AES128_BLOCK_SIZE]>,
+    kernel_data_len: Cell<usize>,
     key_configured: Cell<bool>,
     busy: Cell<bool>,
     state: Cell<CryptoState>,
 }
 
-impl<'a, E: SymmetricEncryption + 'a> Crypto<'a, E> {
+impl<'a, E: AES128Ctr + 'a> Crypto<'a, E> {
     pub fn new(crypto: &'a E,
                container: Container<App>,
-               key: &'static mut [u8],
+               key: &'static mut [u8; AES128_BLOCK_SIZE],
                data: &'static mut [u8],
-               ctr: &'static mut [u8])
+               ctr: &'static mut [u8; AES128_BLOCK_SIZE])
                -> Crypto<'a, E> {
         Crypto {
             crypto: crypto,
@@ -132,6 +133,7 @@ impl<'a, E: SymmetricEncryption + 'a> Crypto<'a, E> {
             kernel_key: TakeCell::new(key),
             kernel_data: TakeCell::new(data),
             kernel_ctr: TakeCell::new(ctr),
+            kernel_data_len: Cell::new(0),
             key_configured: Cell::new(false),
             busy: Cell::new(false),
             state: Cell::new(CryptoState::IDLE),
@@ -151,6 +153,7 @@ impl<'a, E: SymmetricEncryption + 'a> Crypto<'a, E> {
                             for (out, inp) in buf.iter_mut().zip(slice.as_ref()[0..len1].iter()) {
                                 *out = *inp;
                             }
+                            self.kernel_data_len.set(len1);
                             app.ctr_buf.as_ref().map(|slice2| {
                                 let len2 = slice2.len();
                                 // Copy counter value to kernel buffer.
@@ -159,7 +162,10 @@ impl<'a, E: SymmetricEncryption + 'a> Crypto<'a, E> {
                                         .zip(slice2.as_ref()[0..len2].iter()) {
                                         *out = *inp;
                                     }
-                                    self.crypto.aes128_crypt_ctr(buf, ctr, len1);
+                                    self.kernel_ctr.replace(ctr);
+                                    let client = self;
+                                    let encrypting = state == CryptoState::ENCRYPT;
+                                    self.crypto.crypt(self, encrypting, &mut KEY, &mut IV, buf, 0, buf.len());
                                 });
                             });
                         });
@@ -175,15 +181,12 @@ impl<'a, E: SymmetricEncryption + 'a> Crypto<'a, E> {
     }
 }
 
-impl<'a, E: SymmetricEncryption + 'a> Client for Crypto<'a, E> {
-    fn crypt_done(&self,
-                  data: &'static mut [u8],
-                  dmy: &'static mut [u8],
-                  len: usize)
-                  -> ReturnCode {
+impl<'a, E: AES128Ctr + 'a> Client for Crypto<'a, E> {
+    fn crypt_done(&self, data: &'static mut [u8]) {
         for cntr in self.apps.iter() {
             cntr.enter(|app, _| {
                 if app.data_buf.is_some() {
+                    let len = self.kernel_data_len.get();
                     let dest = app.data_buf.as_mut().unwrap();
                     let d = &mut dest.as_mut();
                     // write to buffer in userland
@@ -198,12 +201,10 @@ impl<'a, E: SymmetricEncryption + 'a> Client for Crypto<'a, E> {
         self.busy.set(false);
         self.state.set(CryptoState::IDLE);
         self.kernel_data.replace(data);
-        self.kernel_ctr.replace(dmy);
-        ReturnCode::SUCCESS
     }
 }
 
-impl<'a, E: SymmetricEncryption> Driver for Crypto<'a, E> {
+impl<'a, E: AES128Ctr> Driver for Crypto<'a, E> {
     fn allow(&self, appid: AppId, allow_num: usize, slice: AppSlice<Shared, u8>) -> ReturnCode {
         match allow_num {
             0 => {
@@ -282,7 +283,7 @@ impl<'a, E: SymmetricEncryption> Driver for Crypto<'a, E> {
                                 .as_ref()
                                 .map(|slice| {
                                     let len = slice.len();
-                                    if len == 16 || len == 24 || len == 32 {
+                                    if len == AES128_BLOCK_SIZE {
                                         self.kernel_key
                                             .take()
                                             .map(|buf| {
@@ -290,8 +291,8 @@ impl<'a, E: SymmetricEncryption> Driver for Crypto<'a, E> {
                                                     .zip(slice.as_ref()[0..len].iter()) {
                                                     *out = *inp;
                                                 }
-                                                let tmp = self.crypto.set_key(buf, len);
-                                                self.kernel_key.replace(tmp);
+
+                                                self.kernel_key.replace(buf);
                                                 // indicate that the key is configured
                                                 self.key_configured.set(true);
                                                 // indicate that the encryption driver not busy

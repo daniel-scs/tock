@@ -25,7 +25,7 @@ pub trait AES128Ctr {
     /// For correct operation, the `key` and `init_ctr` arguments must not be
     /// modified until callback.
     fn crypt(&self,
-             client: &'static Client,
+             client: &Client,
              encrypting: bool,
              key: &'static [u8; AES128_BLOCK_SIZE],
              init_ctr: &'static [u8; AES128_BLOCK_SIZE],
@@ -51,7 +51,7 @@ pub trait AES128CBC {
     /// For correct operation, the `key` and `iv` arguments must not be
     /// modified until callback.
     fn crypt(&self,
-             client: &'static Client,
+             client: &Client,
              encrypting: bool,
              key: &'static [u8; AES128_BLOCK_SIZE],
              iv: &'static [u8; AES128_BLOCK_SIZE],
