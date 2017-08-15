@@ -15,7 +15,6 @@
 //! following allow_num's are supported:
 //!
 //! * 0: A buffer with the key to be used for encryption and decryption.
-//!   Currently it can only configured once.
 //! * 1: A buffer with data that will be encrypted and/or decrypted
 //! * 4: A buffer to configure to initial counter when counter mode of block
 //!   cipher is used.
@@ -48,7 +47,6 @@
 //! is used to specify the specific operation, currently the following cmd's are
 //! supported:
 //!
-//! * `0`: configure the key
 //! * `2`: encryption
 //! * `3`: decryption
 //!
@@ -75,154 +73,198 @@ use kernel::common::take_cell::TakeCell;
 use kernel::hil::symmetric_encryption::{AES128Ctr, AES128_BLOCK_SIZE, Client};
 use kernel::process::Error;
 
-pub static mut BUF: [u8; 128] = [0; 128];
-pub static mut KEY: [u8; 16] = [0; 16];
-pub static mut IV: [u8; 16] = [0; 16];
-
-
-/// This enum shall keep track of the state of the AESDriver
-#[derive(Copy, Clone, Debug, PartialEq)]
-#[allow(non_camel_case_types)]
-pub enum CryptoState {
-    IDLE,
-    ENCRYPT,
-    DECRYPT,
-    SETKEY,
+pub struct Request {
+    encrypting: bool,
+    start_index: usize,
+    stop_index: usize,
 }
 
 pub struct App {
     callback: Option<Callback>,
-    key_buf: Option<AppSlice<Shared, u8>>,
-    data_buf: Option<AppSlice<Shared, u8>>,
-    ctr_buf: Option<AppSlice<Shared, u8>>,
+    key: Option<AppSlice<Shared, u8>>,
+    iv: Option<AppSlice<Shared, u8>>,
+    data: Option<AppSlice<Shared, u8>>,
+
+    // If Some, the process has requested an encryption operation
+    request: Option<Request>,
 }
 
 impl Default for App {
     fn default() -> App {
         App {
             callback: None,
-            key_buf: None,
-            data_buf: None,
-            ctr_buf: None,
+            key: None,
+            iv: None,
+            data: None,
+            request: None,
         }
     }
 }
 
 pub struct Crypto<'a, E: AES128Ctr + 'a> {
-    crypto: &'a E,
+    encryptor: &'a E,
     apps: Container<App>,
-    kernel_key: TakeCell<'static, [u8; AES128_BLOCK_SIZE]>,
-    kernel_data: TakeCell<'static, [u8]>,
-    kernel_ctr: TakeCell<'static, [u8; AES128_BLOCK_SIZE]>,
-    kernel_data_len: Cell<usize>,
-    key_configured: Cell<bool>,
-    busy: Cell<bool>,
-    state: Cell<CryptoState>,
+    serving_app: Cell<Option<AppId>>,
 }
 
 impl<'a, E: AES128Ctr + 'a> Crypto<'a, E> {
-    pub fn new(crypto: &'a E,
-               container: Container<App>,
-               key: &'static mut [u8; AES128_BLOCK_SIZE],
-               data: &'static mut [u8],
-               ctr: &'static mut [u8; AES128_BLOCK_SIZE])
-               -> Crypto<'a, E> {
+    pub fn new(encryptor: &'a E, container: Container<App>) -> Crypto<'a, E> {
         Crypto {
-            crypto: crypto,
+            encryptor: encryptor,
             apps: container,
-            kernel_key: TakeCell::new(key),
-            kernel_data: TakeCell::new(data),
-            kernel_ctr: TakeCell::new(ctr),
-            kernel_data_len: Cell::new(0),
-            key_configured: Cell::new(false),
-            busy: Cell::new(false),
-            state: Cell::new(CryptoState::IDLE),
+            serving_app: Cell::new(None),
         }
     }
 
-    fn aes128_crypt_ctr(&self, state: CryptoState) -> ReturnCode {
-        if self.key_configured.get() && !self.busy.get() && self.state.get() == CryptoState::IDLE {
-            for cntr in self.apps.iter() {
-                cntr.enter(|app, _| {
-                    self.busy.set(true);
-                    self.state.set(state);
-                    app.data_buf.as_ref().map(|slice| {
-                        let len1 = slice.len();
-                        // Copy data from app slice to kernel buffer.
-                        self.kernel_data.take().map(|buf| {
-                            for (out, inp) in buf.iter_mut().zip(slice.as_ref()[0..len1].iter()) {
-                                *out = *inp;
+    // Register a process's request for an encryption computation
+    fn request(&self, appid: AppId, encrypting: bool) -> ReturnCode {
+        let result = self.apps.enter(appid, |app, _| {
+                if app.request.is_some() {
+                    // Each app may make only one request at a time
+                    ReturnCode::EBUSY
+                } else {
+                    if app.callback.is_some() &&
+                       app.key.is_some() &&
+                       app.iv.is_some() &&
+                       app.data.is_some()
+                    {
+                        app.request = Some(Request {
+                                             encrypting: encrypting,
+                                             start_index: 0,
+                                             stop_index: app.data.unwrap().len(),
+                                           });
+                        ReturnCode::SUCCESS
+                    } else {
+                        ReturnCode::EINVAL
+                    }
+                }
+            })
+            .unwrap_or_else(|err| match err {
+                Error::OutOfMemory => ReturnCode::ENOMEM,
+                Error::AddressOutOfBounds => ReturnCode::EINVAL,
+                Error::NoSuchApp => ReturnCode::EINVAL,
+            });
+
+        if result == ReturnCode::SUCCESS {
+            self.serve_waiting_apps();
+        }
+        result
+    }
+
+    fn serve_waiting_apps(&self) {
+        if self.serving_app.get().is_some() {
+            // A computation is in progress
+            return;
+        }
+
+        // Find a waiting app and start its requested computation
+        for app in self.apps.iter() {
+            app.enter(|app, _| {
+                if let Some(request) = app.request {
+                    // A failing result that needs to be sent back to the app
+                    let mut result = Some(ReturnCode::EINVAL);
+
+                    if let Some(key) = app.key.take() {
+                    if let Some(iv) = app.iv.take() {
+                    if let Some(data) = app.data.take() {
+                        let (r, data_opt) = self.encryptor.crypt(self,
+                                                                 request.encrypting,
+                                                                 key.as_ref(),
+                                                                 iv.as_ref(),
+                                                                 data.as_mut(),
+                                                                 request.start_index,
+                                                                 request.stop_index);
+                        app.key = Some(key);
+                        app.iv = Some(iv);
+                        app.data = Some(data);
+
+                        if r == ReturnCode::SUCCESS && data_opt.is_none() {
+                            // The encryptor is now performing the encryption
+                            self.serving_app.set(Some(app.appid()));
+
+                            // Don't send a callback until it is complete
+                            result = None;
+                        } else {
+                            // Remove the failed request
+                            app.request = None;
+
+                            // Replace the taken data buffer
+                            if let Some(data) = data_opt {
+                                // XXX app.data = Some(data);
                             }
-                            self.kernel_data_len.set(len1);
-                            app.ctr_buf.as_ref().map(|slice2| {
-                                let len2 = slice2.len();
-                                // Copy counter value to kernel buffer.
-                                self.kernel_ctr.take().map(move |ctr| {
-                                    for (out, inp) in ctr.iter_mut()
-                                        .zip(slice2.as_ref()[0..len2].iter()) {
-                                        *out = *inp;
-                                    }
-                                    self.kernel_ctr.replace(ctr);
-                                    let client = self;
-                                    let encrypting = state == CryptoState::ENCRYPT;
-                                    self.crypto.crypt(self, encrypting, &mut KEY, &mut IV, buf, 0, buf.len());
-                                });
-                            });
-                        });
-                    });
-                });
+
+                            // Arrange for an immediate callback
+                            result = Some(r);
+                        }
+                    }}}
+
+                    if let Some(result) = result {
+                        // Try to return the failing result
+                        if let Some(mut callback) = app.callback {
+                            callback.schedule(From::from(result), 0, 0);
+                        }
+                    }
+                }
+            });
+
+            if self.serving_app.get().is_some() {
+                break;
             }
-            ReturnCode::SUCCESS
-        } else if self.busy.get() == true {
-            ReturnCode::EBUSY
-        } else {
-            ReturnCode::FAIL
         }
     }
 }
 
 impl<'a, E: AES128Ctr + 'a> Client for Crypto<'a, E> {
     fn crypt_done(&self, data: &'static mut [u8]) {
-        for cntr in self.apps.iter() {
-            cntr.enter(|app, _| {
-                if app.data_buf.is_some() {
-                    let len = self.kernel_data_len.get();
-                    let dest = app.data_buf.as_mut().unwrap();
-                    let d = &mut dest.as_mut();
-                    // write to buffer in userland
-                    for (i, c) in data[0..len as usize].iter().enumerate() {
-                        d[i] = *c;
+        if let Some(appid) = self.serving_app.get() {
+            self.apps
+                .enter(appid, |app, _| {
+                    // Restore taken buffer
+                    // XXX app.data = Some(data);
+
+                    if let Some(mut callback) = app.callback {
+                        callback.schedule(From::from(ReturnCode::SUCCESS), 0, 0);
                     }
-                }
-                app.callback
-                    .map(|mut cb| { cb.schedule(self.state.get() as usize, 0, 0); });
-            });
+                    app.request = None;
+                })
+                .unwrap_or_else(|err| match err {
+                    Error::OutOfMemory => {}
+                    Error::AddressOutOfBounds => {}
+                    Error::NoSuchApp => {}
+                });
+
+            self.serving_app.set(None);
+            self.serve_waiting_apps();
+        } else {
+            // Ignore orphaned computation
         }
-        self.busy.set(false);
-        self.state.set(CryptoState::IDLE);
-        self.kernel_data.replace(data);
     }
 }
 
 impl<'a, E: AES128Ctr> Driver for Crypto<'a, E> {
     fn allow(&self, appid: AppId, allow_num: usize, slice: AppSlice<Shared, u8>) -> ReturnCode {
+        // Register one of three buffers: key, data, iv
         match allow_num {
             0 => {
-                self.apps
-                    .enter(appid, |app, _| {
-                        app.key_buf = Some(slice);
-                        ReturnCode::SUCCESS
-                    })
-                    .unwrap_or_else(|err| match err {
-                        Error::OutOfMemory => ReturnCode::ENOMEM,
-                        Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                        Error::NoSuchApp => ReturnCode::EINVAL,
-                    })
+                if slice.len() != AES128_BLOCK_SIZE {
+                    ReturnCode::EINVAL
+                } else {
+                    self.apps
+                        .enter(appid, |app, _| {
+                            app.key = Some(slice);
+                            ReturnCode::SUCCESS
+                        })
+                        .unwrap_or_else(|err| match err {
+                            Error::OutOfMemory => ReturnCode::ENOMEM,
+                            Error::AddressOutOfBounds => ReturnCode::EINVAL,
+                            Error::NoSuchApp => ReturnCode::EINVAL,
+                        })
+                }
             }
             1 => {
                 self.apps
                     .enter(appid, |app, _| {
-                        app.data_buf = Some(slice);
+                        app.data = Some(slice);
                         ReturnCode::SUCCESS
                     })
                     .unwrap_or_else(|err| match err {
@@ -232,16 +274,20 @@ impl<'a, E: AES128Ctr> Driver for Crypto<'a, E> {
                     })
             }
             4 => {
-                self.apps
-                    .enter(appid, |app, _| {
-                        app.ctr_buf = Some(slice);
-                        ReturnCode::SUCCESS
-                    })
-                    .unwrap_or_else(|err| match err {
-                        Error::OutOfMemory => ReturnCode::ENOMEM,
-                        Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                        Error::NoSuchApp => ReturnCode::EINVAL,
-                    })
+                if slice.len() != AES128_BLOCK_SIZE {
+                    ReturnCode::EINVAL
+                } else {
+                    self.apps
+                        .enter(appid, |app, _| {
+                            app.iv = Some(slice);
+                            ReturnCode::SUCCESS
+                        })
+                        .unwrap_or_else(|err| match err {
+                            Error::OutOfMemory => ReturnCode::ENOMEM,
+                            Error::AddressOutOfBounds => ReturnCode::EINVAL,
+                            Error::NoSuchApp => ReturnCode::EINVAL,
+                        })
+                }
             }
             _ => ReturnCode::ENOSUPPORT,
         }
@@ -249,6 +295,7 @@ impl<'a, E: AES128Ctr> Driver for Crypto<'a, E> {
 
     fn subscribe(&self, subscribe_num: usize, callback: Callback) -> ReturnCode {
         match subscribe_num {
+            // Register callback
             0 => {
                 self.apps
                     .enter(callback.app_id(), |app, _| {
@@ -265,73 +312,20 @@ impl<'a, E: AES128Ctr> Driver for Crypto<'a, E> {
         }
     }
 
-    fn command(&self, cmd: usize, sub_cmd: usize, _: AppId) -> ReturnCode {
+    fn command(&self, cmd: usize, sub_cmd: usize, appid: AppId) -> ReturnCode {
         match cmd {
-            // set key, it is assumed to 16, 24 or 32 bytes
-            // e.g. aes-128, aes-128 and aes-256
-            0 => {
-                if !self.key_configured.get() && !self.busy.get() &&
-                   self.state.get() == CryptoState::IDLE {
-                    let mut ret = ReturnCode::SUCCESS;
-                    for cntr in self.apps.iter() {
-                        // indicate busy state
-                        self.busy.set(true);
-                        self.state.set(CryptoState::SETKEY);
-
-                        cntr.enter(|app, _| {
-                            app.key_buf
-                                .as_ref()
-                                .map(|slice| {
-                                    let len = slice.len();
-                                    if len == AES128_BLOCK_SIZE {
-                                        self.kernel_key
-                                            .take()
-                                            .map(|buf| {
-                                                for (out, inp) in buf.iter_mut()
-                                                    .zip(slice.as_ref()[0..len].iter()) {
-                                                    *out = *inp;
-                                                }
-
-                                                self.kernel_key.replace(buf);
-                                                // indicate that the key is configured
-                                                self.key_configured.set(true);
-                                                // indicate that the encryption driver not busy
-                                                self.busy.set(false);
-
-                                                self.state.set(CryptoState::IDLE);
-                                            });
-                                    } else {
-                                        self.busy.set(false);
-                                        self.state.set(CryptoState::IDLE);
-                                        ret = ReturnCode::ESIZE;
-                                    }
-                                });
-                        });
-                    }
-                    ret
-                } else if self.busy.get() {
-                    ReturnCode::EBUSY
-                } else {
-                    ReturnCode::FAIL
-                }
-            }
-            // encryption driver
-            // the sub-command is supposed to be used for selection
-            // encryption algorithm and block cipher mode
+            // Request encryption (sub_cmd indicates algorithm)
             2 => {
                 match sub_cmd {
-                    // aes-ctr-128
-                    0 => self.aes128_crypt_ctr(CryptoState::ENCRYPT),
+                    0 => self.request(appid, true),
                     _ => ReturnCode::ENOSUPPORT,
                 }
             }
-            // decryption driver
-            // command sets decryption mode
-            // sub_command sets algorithm currently only aes-ctr
+
+            // Request decryption (sub_cmd indicates algorithm)
             3 => {
                 match sub_cmd {
-                    // aes-128-ctr
-                    0 => self.aes128_crypt_ctr(CryptoState::DECRYPT),
+                    0 => self.request(appid, false),
                     _ => ReturnCode::ENOSUPPORT,
                 }
             }

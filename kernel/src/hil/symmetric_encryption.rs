@@ -27,8 +27,8 @@ pub trait AES128Ctr {
     fn crypt(&self,
              client: &Client,
              encrypting: bool,
-             key: &'static [u8; AES128_BLOCK_SIZE],
-             init_ctr: &'static [u8; AES128_BLOCK_SIZE],
+             key: &'static [u8],
+             init_ctr: &'static [u8],
              data: &'static mut [u8],
              start_index: usize,
              stop_index: usize) -> (ReturnCode, Option<&'static mut [u8]>);
@@ -53,8 +53,8 @@ pub trait AES128CBC {
     fn crypt(&self,
              client: &Client,
              encrypting: bool,
-             key: &'static [u8; AES128_BLOCK_SIZE],
-             iv: &'static [u8; AES128_BLOCK_SIZE],
+             key: &'static [u8],
+             iv: &'static [u8],
              data: &'static mut [u8],
              start_index: usize,
              stop_index: usize) -> (ReturnCode, Option<&'static mut [u8]>);
