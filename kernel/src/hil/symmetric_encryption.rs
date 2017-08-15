@@ -27,11 +27,11 @@ pub trait AES128Ctr {
     fn crypt(&self,
              client: &Client,
              encrypting: bool,
-             key: &'static [u8],
-             init_ctr: &'static [u8],
-             data: &'static mut [u8],
+             key: &[u8],
+             init_ctr: &[u8],
+             data: &mut [u8],
              start_index: usize,
-             stop_index: usize) -> (ReturnCode, Option<&'static mut [u8]>);
+             stop_index: usize) -> (ReturnCode, Option<&mut [u8]>);
 }
 
 pub trait AES128CBC {
@@ -53,9 +53,9 @@ pub trait AES128CBC {
     fn crypt(&self,
              client: &Client,
              encrypting: bool,
-             key: &'static [u8],
-             iv: &'static [u8],
-             data: &'static mut [u8],
+             key: &[u8],
+             iv: &[u8],
+             data: &mut [u8],
              start_index: usize,
-             stop_index: usize) -> (ReturnCode, Option<&'static mut [u8]>);
+             stop_index: usize) -> (ReturnCode, Option<&mut [u8]>);
 }

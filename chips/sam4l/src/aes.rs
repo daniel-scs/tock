@@ -29,8 +29,8 @@ struct Request {
 
     mode: ConfidentialityMode,
     encrypting: bool,
-    key: &'static [u8; AES128_BLOCK_SIZE],
-    iv: &'static [u8; AES128_BLOCK_SIZE],
+    key: &'static [u8],
+    iv: &'static [u8],
     data: &'static mut [u8],
 
     // The index of the first byte in `data` to encrypt
@@ -45,12 +45,18 @@ impl Request {
     pub fn new(client: &'static Client,
                mode: ConfidentialityMode,
                encrypting: bool,
-               key: &'static [u8; AES128_BLOCK_SIZE],
-               iv: &'static [u8; AES128_BLOCK_SIZE],
+               key: &'static [u8],
+               iv: &'static [u8],
                data: &'static mut [u8],
                start_index: usize,
                stop_index: usize) -> Result<Request, &'static mut [u8]>
     {
+        if key.len() != AES128_BLOCK_SIZE ||
+            iv.len() != AES128_BLOCK_SIZE
+        {
+            return Result::Err(data)
+        }
+
         if stop_index.checked_sub(start_index).map_or(false, |sublen| {
             sublen % AES128_BLOCK_SIZE == 0 && stop_index <= data.len() })
         {
@@ -210,7 +216,7 @@ impl Aes {
         regs.mode.set(encrypt << 0 | dma << 3 | (mode as u32) << 4 | cmeasure << 16);
     }
 
-    fn set_iv(&self, iv: &[u8; AES128_BLOCK_SIZE]) {
+    fn set_iv(&self, iv: &[u8]) {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
 
         // Set the initial value from the array.
@@ -229,7 +235,7 @@ impl Aes {
         }
     }
 
-    fn set_key(&self, key: &[u8; AES128_BLOCK_SIZE]) {
+    fn set_key(&self, key: &[u8]) {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
 
         for i in 0..4 {
@@ -423,13 +429,13 @@ impl Aes {
 
 impl hil::symmetric_encryption::AES128Ctr for Aes {
     fn crypt(&self,
-             client: &'static hil::symmetric_encryption::Client,
+             client: &hil::symmetric_encryption::Client,
              encrypting: bool,
-             key: &'static [u8; AES128_BLOCK_SIZE],
-             init_ctr: &'static [u8; AES128_BLOCK_SIZE],
-             data: &'static mut [u8],
+             key: &[u8],
+             init_ctr: &[u8],
+             data: &mut [u8],
              start_index: usize,
-             stop_index: usize) -> (ReturnCode, Option<&'static mut [u8]>)
+             stop_index: usize) -> (ReturnCode, Option<&mut [u8]>)
     {
         if self.queue_full() {
             (ReturnCode::EBUSY, Some(data))
@@ -458,13 +464,13 @@ impl hil::symmetric_encryption::AES128Ctr for Aes {
 
 impl hil::symmetric_encryption::AES128CBC for Aes {
     fn crypt(&self,
-             client: &'static hil::symmetric_encryption::Client,
+             client: &hil::symmetric_encryption::Client,
              encrypting: bool,
-             key: &'static [u8; AES128_BLOCK_SIZE],
-             iv: &'static [u8; AES128_BLOCK_SIZE],
-             data: &'static mut [u8],
+             key: &[u8],
+             iv: &[u8],
+             data: &mut [u8],
              start_index: usize,
-             stop_index: usize) -> (ReturnCode, Option<&'static mut [u8]>)
+             stop_index: usize) -> (ReturnCode, Option<&mut [u8]>)
     {
         if self.queue_full() {
             (ReturnCode::EBUSY, Some(data))

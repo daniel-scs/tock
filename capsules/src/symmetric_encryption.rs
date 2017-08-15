@@ -69,10 +69,10 @@
 
 use core::cell::Cell;
 use kernel::{AppId, AppSlice, Container, Callback, Driver, ReturnCode, Shared};
-use kernel::common::take_cell::TakeCell;
 use kernel::hil::symmetric_encryption::{AES128Ctr, AES128_BLOCK_SIZE, Client};
 use kernel::process::Error;
 
+#[derive(Copy, Clone)]
 pub struct Request {
     encrypting: bool,
     start_index: usize,
@@ -128,10 +128,14 @@ impl<'a, E: AES128Ctr + 'a> Crypto<'a, E> {
                        app.iv.is_some() &&
                        app.data.is_some()
                     {
+                        let len = match app.data {
+                            Some(ref buf) => buf.len(),
+                            _ => 0,
+                        };
                         app.request = Some(Request {
                                              encrypting: encrypting,
                                              start_index: 0,
-                                             stop_index: app.data.unwrap().len(),
+                                             stop_index: len,
                                            });
                         ReturnCode::SUCCESS
                     } else {
@@ -166,7 +170,7 @@ impl<'a, E: AES128Ctr + 'a> Crypto<'a, E> {
 
                     if let Some(key) = app.key.take() {
                     if let Some(iv) = app.iv.take() {
-                    if let Some(data) = app.data.take() {
+                    if let Some(mut data) = app.data.take() {
                         let (r, data_opt) = self.encryptor.crypt(self,
                                                                  request.encrypting,
                                                                  key.as_ref(),
