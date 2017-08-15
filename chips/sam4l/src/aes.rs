@@ -24,14 +24,14 @@ pub enum ConfidentialityMode {
 }
 
 // A structure to represent a particular encryption request
-struct Request {
-    client: &'static Client,
+struct Request<'a> {
+    client: &'a Client,
 
     mode: ConfidentialityMode,
     encrypting: bool,
-    key: &'static [u8],
-    iv: &'static [u8],
-    data: &'static mut [u8],
+    key: &'a [u8],
+    iv: &'a [u8],
+    data: &'a mut [u8],
 
     // The index of the first byte in `data` to encrypt
     start_index: usize,
@@ -40,38 +40,37 @@ struct Request {
     stop_index: usize,
 }
 
-impl Request {
+impl<'a> Request<'a> {
     // Create a request structure, or return buffer if the arguments are invalid
-    pub fn new(client: &'static Client,
-               mode: ConfidentialityMode,
-               encrypting: bool,
-               key: &'static [u8],
-               iv: &'static [u8],
-               data: &'static mut [u8],
-               start_index: usize,
-               stop_index: usize) -> Result<Request, &'static mut [u8]>
+    pub fn place(request: &'a mut Option<Request<'a>>,
+                 client: &'a Client,
+                 mode: ConfidentialityMode,
+                 encrypting: bool,
+                 key: &'a [u8],
+                 iv: &'a [u8],
+                 data: &'a mut [u8],
+                 start_index: usize,
+                 stop_index: usize) -> Option<(ReturnCode, &'a mut [u8])>
     {
-        if key.len() != AES128_BLOCK_SIZE ||
-            iv.len() != AES128_BLOCK_SIZE
-        {
-            return Result::Err(data)
-        }
-
         if stop_index.checked_sub(start_index).map_or(false, |sublen| {
-            sublen % AES128_BLOCK_SIZE == 0 && stop_index <= data.len() })
+                sublen % AES128_BLOCK_SIZE == 0 &&
+                stop_index <= data.len() &&
+                key.len() == AES128_BLOCK_SIZE &&
+                iv.len() == AES128_BLOCK_SIZE })
         {
-            Result::Ok(Request {
-                client: client,
-                mode: mode,
-                encrypting: encrypting,
-                key: key,
-                iv: iv,
-                data: data,
-                start_index: start_index,
-                stop_index: stop_index,
-            })
+            *request = Some(Request {
+                                client: client,
+                                mode: mode,
+                                encrypting: encrypting,
+                                key: key,
+                                iv: iv,
+                                data: data,
+                                start_index: start_index,
+                                stop_index: stop_index,
+                            });
+            None
         } else {
-            Result::Err(data)
+            Some((ReturnCode::EINVAL, data))
         }
     }
 }
@@ -112,7 +111,7 @@ const AES_BASE: u32 = 0x400B0000;
 const IBUFRDY: u32 = 1 << 16;
 const ODATARDY: u32 = 1 << 0;
 
-pub struct Aes {
+pub struct Aes<'a> {
     registers: *mut AesRegisters,
 
     // The request in progress, if any.
@@ -122,7 +121,7 @@ pub struct Aes {
     // (We treat this as a queue of capacity one.  This could be extended to hold multiple
     // outstanding requests, but perhaps it is better to "virtualize" access in another
     // layer.)
-    request: TakeCell<'static, Request>,
+    request: TakeCell<'a, Request<'a>>,
 
     // An index into the current request buffer marking how much data
     // has been written to the AESA
@@ -133,10 +132,10 @@ pub struct Aes {
     read_index: Cell<usize>,
 }
 
-pub static mut AES: Aes = Aes::new();
+pub static mut AES: Aes<'static> = Aes::new();
 
-impl Aes {
-    pub const fn new() -> Aes {
+impl<'a> Aes<'a> {
+    pub const fn new() -> Aes<'a> {
         Aes {
             registers: AES_BASE as *mut AesRegisters,
             request: TakeCell::empty(),
@@ -347,14 +346,14 @@ impl Aes {
         self.request.is_some()
     }
 
-    fn enqueue_request(&self, request: &'static mut Request) {
+    fn enqueue_request(&self, request: &'a mut Request<'a>) {
         self.request.put(Some(request));
  
         // The queue is now non-empty, so begin processing requests
         self.process_waiting_requests();
     }
 
-    fn dequeue_request(&self) -> Option<&'static mut Request> {
+    fn dequeue_request(&self) -> Option<&mut Request<'a>> {
         let request = self.request.take();
 
         // Continue processing the request queue
@@ -427,74 +426,70 @@ impl Aes {
     }
 }
 
-impl hil::symmetric_encryption::AES128Ctr for Aes {
-    fn crypt(&self,
-             client: &hil::symmetric_encryption::Client,
+impl<'a> hil::symmetric_encryption::AES128Ctr for Aes<'a> {
+    type R = Request<'a>;
+
+    fn crypt(&'a self,
+             client: &'a hil::symmetric_encryption::Client,
+             request: &'a mut Option<Request<'a>>,
              encrypting: bool,
-             key: &[u8],
-             init_ctr: &[u8],
-             data: &mut [u8],
+             key: &'a [u8],
+             init_ctr: &'a [u8],
+             data: &'a mut [u8],
              start_index: usize,
-             stop_index: usize) -> (ReturnCode, Option<&mut [u8]>)
+             stop_index: usize) -> Option<(ReturnCode, &'a mut [u8])>
     {
         if self.queue_full() {
-            (ReturnCode::EBUSY, Some(data))
+            Some((ReturnCode::EBUSY, data))
         } else {
-            match *(unsafe { static_init!(Result<Request, &'static mut [u8]>,
-                                Request::new(client,
-                                             ConfidentialityMode::Ctr,
-                                             encrypting,
-                                             key,
-                                             init_ctr,
-                                             data,
-                                             start_index,
-                                             stop_index)) })
-            {
-                Result::Ok(ref mut request) => {
-                    self.enqueue_request(request);
-                    (ReturnCode::SUCCESS, None)
-                }
-                Result::Err(ref mut data) => {
-                    (ReturnCode::EINVAL, Some(data))
-                }
-            }
+            Request::place(request,
+                           client,
+                           ConfidentialityMode::Ctr,
+                           encrypting,
+                           key,
+                           init_ctr,
+                           data,
+                           start_index,
+                           stop_index).or_else(|| {
+                self.request.map(|r| { self.enqueue_request(r) });
+                None
+            })
         }
     }
 }
 
-impl hil::symmetric_encryption::AES128CBC for Aes {
+/*
+impl<'a> hil::symmetric_encryption::AES128CBC for Aes<'a> {
+    type R = Request<'a>;
+
     fn crypt(&self,
              client: &hil::symmetric_encryption::Client,
+             request: &mut Option<Request<'a>>,
              encrypting: bool,
              key: &[u8],
              iv: &[u8],
              data: &mut [u8],
              start_index: usize,
-             stop_index: usize) -> (ReturnCode, Option<&mut [u8]>)
+             stop_index: usize) -> Option<(ReturnCode, &mut Option<Request<'a>>, &mut [u8])>
     {
         if self.queue_full() {
-            (ReturnCode::EBUSY, Some(data))
+            Some((ReturnCode::EBUSY, request, data))
         } else {
-            match *(unsafe { static_init!(Result<Request, &'static mut [u8]>,
-                                Request::new(client,
-                                             ConfidentialityMode::CBC,
-                                             encrypting,
-                                             key,
-                                             iv,
-                                             data,
-                                             start_index,
-                                             stop_index)) })
-            {
-                Result::Ok(ref mut request) => {
-                    self.enqueue_request(request);
-                    (ReturnCode::SUCCESS, None)
-                }
-                Result::Err(ref mut data) => {
-                    (ReturnCode::EINVAL, Some(data))
-                }
-            }
+            Request::place(request,
+                           client,
+                           ConfidentialityMode::CBC,
+                           encrypting,
+                           key,
+                           iv,
+                           data,
+                           start_index,
+                           stop_index).or_else(|| {
+                self.enqueue_request(request);
+                None
+            });
         }
     }
 }
+*/
 
 interrupt_handler!(aes_handler, AESA);

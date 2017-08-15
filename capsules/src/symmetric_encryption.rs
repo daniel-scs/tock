@@ -79,7 +79,7 @@ pub struct Request {
     stop_index: usize,
 }
 
-pub struct App {
+pub struct App<R> {
     callback: Option<Callback>,
     key: Option<AppSlice<Shared, u8>>,
     iv: Option<AppSlice<Shared, u8>>,
@@ -87,28 +87,32 @@ pub struct App {
 
     // If Some, the process has requested an encryption operation
     request: Option<Request>,
+
+    // Space for the encryption-driver's state
+    driver_request: Option<R>,
 }
 
-impl Default for App {
-    fn default() -> App {
+impl<R> Default for App<R> {
+    fn default() -> App<R> {
         App {
             callback: None,
             key: None,
             iv: None,
             data: None,
             request: None,
+            driver_request: None,
         }
     }
 }
 
 pub struct Crypto<'a, E: AES128Ctr + 'a> {
     encryptor: &'a E,
-    apps: Container<App>,
+    apps: Container<App<E::R>>,
     serving_app: Cell<Option<AppId>>,
 }
 
 impl<'a, E: AES128Ctr + 'a> Crypto<'a, E> {
-    pub fn new(encryptor: &'a E, container: Container<App>) -> Crypto<'a, E> {
+    pub fn new(encryptor: &'a E, container: Container<App<E::R>>) -> Crypto<'a, E> {
         Crypto {
             encryptor: encryptor,
             apps: container,
@@ -171,34 +175,35 @@ impl<'a, E: AES128Ctr + 'a> Crypto<'a, E> {
                     if let Some(key) = app.key.take() {
                     if let Some(iv) = app.iv.take() {
                     if let Some(mut data) = app.data.take() {
-                        let (r, data_opt) = self.encryptor.crypt(self,
+                        match self.encryptor.crypt(self,
+                                                                 &mut app.driver_request,
                                                                  request.encrypting,
                                                                  key.as_ref(),
                                                                  iv.as_ref(),
                                                                  data.as_mut(),
                                                                  request.start_index,
-                                                                 request.stop_index);
-                        app.key = Some(key);
-                        app.iv = Some(iv);
-                        app.data = Some(data);
+                                                                 request.stop_index) {
+                            None => {
+                                app.key = Some(key);
+                                app.iv = Some(iv);
+                                app.data = Some(data);
 
-                        if r == ReturnCode::SUCCESS && data_opt.is_none() {
-                            // The encryptor is now performing the encryption
-                            self.serving_app.set(Some(app.appid()));
+                                // The encryptor is now performing the encryption
+                                self.serving_app.set(Some(app.appid()));
 
-                            // Don't send a callback until it is complete
-                            result = None;
-                        } else {
-                            // Remove the failed request
-                            app.request = None;
-
-                            // Replace the taken data buffer
-                            if let Some(data) = data_opt {
-                                // XXX app.data = Some(data);
+                                // Don't send a callback until it is complete
+                                result = None;
                             }
+                            Some((r, data)) => {
+                                // Remove the failed request
+                                app.request = None;
 
-                            // Arrange for an immediate callback
-                            result = Some(r);
+                                // Replace the taken data buffer
+                                // XXX app.data = Some(data);
+
+                                // Arrange for an immediate callback
+                                result = Some(r);
+                            }
                         }
                     }}}
 
@@ -219,7 +224,7 @@ impl<'a, E: AES128Ctr + 'a> Crypto<'a, E> {
 }
 
 impl<'a, E: AES128Ctr + 'a> Client for Crypto<'a, E> {
-    fn crypt_done(&self, data: &'static mut [u8]) {
+    fn crypt_done(&self, data: &mut [u8]) {
         if let Some(appid) = self.serving_app.get() {
             self.apps
                 .enter(appid, |app, _| {
@@ -230,6 +235,7 @@ impl<'a, E: AES128Ctr + 'a> Client for Crypto<'a, E> {
                         callback.schedule(From::from(ReturnCode::SUCCESS), 0, 0);
                     }
                     app.request = None;
+                    app.driver_request = None;
                 })
                 .unwrap_or_else(|err| match err {
                     Error::OutOfMemory => {}
