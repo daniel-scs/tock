@@ -8,7 +8,7 @@ pub trait Client {
 
 pub const AES128_BLOCK_SIZE: usize = 16;
 
-pub trait AES128Ctr {
+pub trait AES128Ctr<'a> {
     type R;
 
     /// Request an encryption/decryption
@@ -26,7 +26,7 @@ pub trait AES128Ctr {
     ///
     /// For correct operation, the `key` and `init_ctr` arguments must not be
     /// modified until callback.
-    fn crypt<'a>(&'a self,
+    fn crypt(&'a self,
              client: &'a Client,
              request: &'a mut Option<Self::R>,
              encrypting: bool,

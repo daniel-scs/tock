@@ -105,13 +105,13 @@ impl<R> Default for App<R> {
     }
 }
 
-pub struct Crypto<'a, E: AES128Ctr + 'a> {
+pub struct Crypto<'a, E: AES128Ctr<'a> + 'a> {
     encryptor: &'a E,
     apps: Container<App<E::R>>,
     serving_app: Cell<Option<AppId>>,
 }
 
-impl<'a, E: AES128Ctr + 'a> Crypto<'a, E> {
+impl<'a, E: AES128Ctr<'a> + 'a> Crypto<'a, E> {
     pub fn new(encryptor: &'a E, container: Container<App<E::R>>) -> Crypto<'a, E> {
         Crypto {
             encryptor: encryptor,
@@ -159,7 +159,7 @@ impl<'a, E: AES128Ctr + 'a> Crypto<'a, E> {
         result
     }
 
-    fn serve_waiting_apps(&self) {
+    fn serve_waiting_apps(&'a self) {
         if self.serving_app.get().is_some() {
             // A computation is in progress
             return;
@@ -176,13 +176,13 @@ impl<'a, E: AES128Ctr + 'a> Crypto<'a, E> {
                     if let Some(iv) = app.iv.take() {
                     if let Some(mut data) = app.data.take() {
                         match self.encryptor.crypt(self,
-                                                                 &mut app.driver_request,
-                                                                 request.encrypting,
-                                                                 key.as_ref(),
-                                                                 iv.as_ref(),
-                                                                 data.as_mut(),
-                                                                 request.start_index,
-                                                                 request.stop_index) {
+                                                   &mut app.driver_request,
+                                                   request.encrypting,
+                                                   key.as_ref(),
+                                                   iv.as_ref(),
+                                                   data.as_mut(),
+                                                   request.start_index,
+                                                   request.stop_index) {
                             None => {
                                 app.key = Some(key);
                                 app.iv = Some(iv);
@@ -223,7 +223,7 @@ impl<'a, E: AES128Ctr + 'a> Crypto<'a, E> {
     }
 }
 
-impl<'a, E: AES128Ctr + 'a> Client for Crypto<'a, E> {
+impl<'a, E: AES128Ctr<'a> + 'a> Client for Crypto<'a, E> {
     fn crypt_done(&self, data: &mut [u8]) {
         if let Some(appid) = self.serving_app.get() {
             self.apps
@@ -251,7 +251,7 @@ impl<'a, E: AES128Ctr + 'a> Client for Crypto<'a, E> {
     }
 }
 
-impl<'a, E: AES128Ctr> Driver for Crypto<'a, E> {
+impl<'a, E: AES128Ctr<'a>> Driver for Crypto<'a, E> {
     fn allow(&self, appid: AppId, allow_num: usize, slice: AppSlice<Shared, u8>) -> ReturnCode {
         // Register one of three buffers: key, data, iv
         match allow_num {

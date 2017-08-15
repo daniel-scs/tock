@@ -346,7 +346,7 @@ impl<'a> Aes<'a> {
         self.request.is_some()
     }
 
-    fn enqueue_request(&self, request: &'a mut Request<'a>) {
+    fn enqueue_request(&'a self, request: &'a mut Request<'a>) {
         self.request.put(Some(request));
  
         // The queue is now non-empty, so begin processing requests
@@ -426,7 +426,7 @@ impl<'a> Aes<'a> {
     }
 }
 
-impl<'a> hil::symmetric_encryption::AES128Ctr for Aes<'a> {
+impl<'a> hil::symmetric_encryption::AES128Ctr<'a> for Aes<'a> {
     type R = Request<'a>;
 
     fn crypt(&'a self,
