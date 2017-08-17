@@ -23,27 +23,9 @@ pub enum ConfidentialityMode {
     Ctr,
 }
 
-// A structure to represent a particular encryption request
-struct Request<'a> {
-    client: &'a Client,
-
-    mode: ConfidentialityMode,
-    encrypting: bool,
-    key: &'a [u8],
-    iv: &'a [u8],
-    data: &'a mut [u8],
-
-    // The index of the first byte in `data` to encrypt
-    start_index: usize,
-  
-    // The index just after the last byte to encrypt
-    stop_index: usize,
-}
-
 impl<'a> Request<'a> {
     // Create a request structure, or return buffer if the arguments are invalid
-    pub fn place(request: &'a mut Option<Request<'a>>,
-                 client: &'a Client,
+    pub fn place(client: &'a Client,
                  mode: ConfidentialityMode,
                  encrypting: bool,
                  key: &'a [u8],
@@ -111,17 +93,28 @@ const AES_BASE: u32 = 0x400B0000;
 const IBUFRDY: u32 = 1 << 16;
 const ODATARDY: u32 = 1 << 0;
 
+pub struct Request {
+    mode: ConfidentialityMode,
+    encrypting: bool,
+
+    // The index of the first byte in `data` to encrypt
+    start_index: usize,
+  
+    // The index just after the last byte to encrypt
+    stop_index: usize,
+}
+
 pub struct Aes<'a> {
     registers: *mut AesRegisters,
 
-    // The request in progress, if any.
-    // If there is a request here, then we have enabled interrupts and are waiting on the hardware
-    // to service it.
-    //
-    // (We treat this as a queue of capacity one.  This could be extended to hold multiple
-    // outstanding requests, but perhaps it is better to "virtualize" access in another
-    // layer.)
-    request: TakeCell<'a, Request<'a>>,
+    client: Cell<&'a Client>,
+    key: Cell<&'a [u8]>,
+    iv: Cell<&'a [u8]>,
+    data: Cell<&'a mut [u8]>,
+
+    // If there is a value here, then we have enabled interrupts and are waiting on the hardware
+    // to service the request.
+    request: Cell<Option<Request>>;
 
     // An index into the current request buffer marking how much data
     // has been written to the AESA
@@ -427,11 +420,27 @@ impl<'a> Aes<'a> {
 }
 
 impl<'a> hil::symmetric_encryption::AES128Ctr<'a> for Aes<'a> {
-    type R = Request<'a>;
+
+    fn set_key(&'a self, key: &'a [u8]) -> ReturnCode {
+        if key.len() == AES128_BLOCK_SIZE {
+            self.key.set(key);
+            ReturnCode::SUCCESS
+        } else {
+            ReturnCode::EINVAL
+        }
+    }
+
+    fn set_iv(&'a self, iv: &'a [u8]) -> ReturnCode {
+        if iv.len() == AES128_BLOCK_SIZE {
+            self.iv.set(iv);
+            ReturnCode::SUCCESS
+        } else {
+            ReturnCode::EINVAL
+        }
+    }
 
     fn crypt(&'a self,
              client: &'a hil::symmetric_encryption::Client,
-             request: &'a mut Option<Request<'a>>,
              encrypting: bool,
              key: &'a [u8],
              init_ctr: &'a [u8],
@@ -442,6 +451,7 @@ impl<'a> hil::symmetric_encryption::AES128Ctr<'a> for Aes<'a> {
         if self.queue_full() {
             Some((ReturnCode::EBUSY, data))
         } else {
+
             Request::place(request,
                            client,
                            ConfidentialityMode::Ctr,

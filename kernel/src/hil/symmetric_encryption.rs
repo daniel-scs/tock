@@ -8,9 +8,11 @@ pub trait Client {
 
 pub const AES128_BLOCK_SIZE: usize = 16;
 
-pub trait AES128Ctr<'a> {
-    type R;
+pub trait AES128<'a> {
+    fn set_key(&'a self, key: &'a [u8]) -> ReturnCode {
+}
 
+pub trait AES128Ctr<'a>: AES128<'a> {
     /// Request an encryption/decryption
     ///
     /// The length `stop_index - start_index` must be a multiple of 16, the
@@ -28,7 +30,6 @@ pub trait AES128Ctr<'a> {
     /// modified until callback.
     fn crypt(&'a self,
              client: &'a Client,
-             request: &'a mut Option<Self::R>,
              encrypting: bool,
              key: &'a [u8],
              init_ctr: &'a [u8],
@@ -37,9 +38,7 @@ pub trait AES128Ctr<'a> {
              stop_index: usize) -> Option<(ReturnCode, &'a mut [u8])>;
 }
 
-pub trait AES128CBC {
-    type R;
-
+pub trait AES128CBC<'a> {
     /// Request an encryption/decryption
     ///
     /// The length `stop_index - start_index` must be a multiple of 16, the
@@ -55,13 +54,12 @@ pub trait AES128CBC {
     ///
     /// For correct operation, the `key` and `iv` arguments must not be
     /// modified until callback.
-    fn crypt(&self,
-             client: &Client,
-             request: &mut Option<Self::R>,
+    fn crypt(&'a self,
+             client: &'a Client,
              encrypting: bool,
-             key: &[u8],
-             iv: &[u8],
-             data: &mut [u8],
+             key: &'a [u8],
+             iv: &'a [u8],
+             data: &'a mut [u8],
              start_index: usize,
-             stop_index: usize) -> Option<(ReturnCode, &mut [u8])>;
+             stop_index: usize) -> Option<(ReturnCode, &'a mut [u8])>;
 }
