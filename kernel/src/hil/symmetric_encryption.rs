@@ -1,65 +1,71 @@
-//! Interfaces for encryption and decryption using symmetric ciphers
+//! Interface for symmetric-cipher encryption
+//!
+//! Example usage:
+//!
+//! e.enable();
+//! e.set_client(c);
+//! assert!(e.set_key(key) == ReturnCode::SUCCESS);
+//! assert!(e.set_iv(iv) == ReturnCode::SUCCESS);
+//! e.set_mode_aes128ctr(true);
+//! assert!(e.set_data(data1) == ReturnCode::SUCCESS);
+//! e.crypt(start1, stop1);
+//!     // await crypt_done()
+//! data1 = e.return_data.unwrap();
+//! e.set_data(data2);
+//! e.crypt(start2, stop2);
+//!     // await crypt_done()
+//! data2 = e.return_data.unwrap();
+//! e.disable();
 
 use returncode::ReturnCode;
 
 pub trait Client {
-    fn crypt_done(&self, data: &mut [u8]);
+    fn crypt_done(&self);
 }
 
 pub const AES128_BLOCK_SIZE: usize = 16;
 
-pub trait AES128<'a> {
-    fn set_key(&'a self, key: &'a [u8]) -> ReturnCode {
-}
+pub trait AES128<'a, C: Client + 'a> {
+    fn enable(&self);
+    fn disable(&self);
 
-pub trait AES128Ctr<'a>: AES128<'a> {
+    fn set_client(&'a self, client: &'a C);
+    fn set_key(&'a self, key: &'a [u8]) -> ReturnCode;
+    fn set_iv(&'a self, iv: &'a [u8]) -> ReturnCode;
+    fn set_data(&'a self, data: &'a mut [u8]) -> ReturnCode;
+    fn return_data(&self) -> Result<&mut [u8], ReturnCode>;
+
+    /// Begin a new message (with the configured IV) when `crypt()` is next
+    /// called.  Multiple calls to `set_data()` and `crypt()` may be made
+    /// between calls to `start_message()`, allowing the encryption context
+    /// to extend over non-contiguous extents of data.
+    fn start_message();
+
     /// Request an encryption/decryption
     ///
-    /// The length `stop_index - start_index` must be a multiple of 16, the
-    /// cipher's block size.  If the indices are out of range or out of order,
-    /// INVAL will be returned.
+    /// The indices `start_index` and `stop_index` must be valid offsets in
+    /// a buffer previously passed in with `set_data`, and the length
+    /// `stop_index - start_index` must be a multiple of
+    /// `AES128_BLOCK_SIZE`.  Otherwise, INVAL will be returned.
     ///
-    /// If no buffer is returned, the client's `crypt_done` callback
-    /// will eventually be invoked with the same buffer that was passed.
+    /// If SUCCESS is returned, the client's `crypt_done` method will eventually
+    /// be called with the same buffer previously passed in with `set_data`,
+    /// and the portion of the buffer between `start_index` and `stop_index`
+    /// will hold the encryption/decryption of its former contents.
     ///
-    /// If SUCCESS is returned, after `crypt_done` is called the portion of the
-    /// buffer between `start_index` and `stop_index` will hold the
-    /// encryption/decryption of its former contents.
-    ///
-    /// For correct operation, the `key` and `init_ctr` arguments must not be
-    /// modified until callback.
-    fn crypt(&'a self,
-             client: &'a Client,
-             encrypting: bool,
-             key: &'a [u8],
-             init_ctr: &'a [u8],
-             data: &'a mut [u8],
+    /// For correct operation, the methods `set_key` and `set_iv` must have
+    /// previously been called to set the buffers containing the
+    /// key and the IV (or initial counter value), and these buffers must
+    /// not be modified until `crypt_done` is called.
+    fn crypt(&self,
              start_index: usize,
-             stop_index: usize) -> Option<(ReturnCode, &'a mut [u8])>;
+             stop_index: usize) -> ReturnCode;
 }
 
-pub trait AES128CBC<'a> {
-    /// Request an encryption/decryption
-    ///
-    /// The length `stop_index - start_index` must be a multiple of 16, the
-    /// cipher's block size.  If the indices are out of range or out of order,
-    /// INVAL will be returned.
-    ///
-    /// If no buffer is returned, the client's `crypt_done` callback
-    /// will eventually be invoked with the same buffer that was passed.
-    ///
-    /// If SUCCESS is returned, after `crypt_done` is called the portion of the
-    /// buffer between `start_index` and `stop_index` will hold the
-    /// encryption/decryption of its former contents.
-    ///
-    /// For correct operation, the `key` and `iv` arguments must not be
-    /// modified until callback.
-    fn crypt(&'a self,
-             client: &'a Client,
-             encrypting: bool,
-             key: &'a [u8],
-             iv: &'a [u8],
-             data: &'a mut [u8],
-             start_index: usize,
-             stop_index: usize) -> Option<(ReturnCode, &'a mut [u8])>;
+pub trait AES128Ctr {
+    fn set_mode_aes128ctr(&self, encrypting: bool);
+}
+
+pub trait AES128CBC {
+    fn set_mode_aes128cbc(&self, encrypting: bool);
 }
