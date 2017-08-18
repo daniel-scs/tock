@@ -7,14 +7,14 @@
 //! assert!(e.set_key(key) == ReturnCode::SUCCESS);
 //! assert!(e.set_iv(iv) == ReturnCode::SUCCESS);
 //! e.set_mode_aes128ctr(true);
-//! assert!(e.set_data(data1) == ReturnCode::SUCCESS);
+//! e.start_message();
+//! _ = e.replace_data(Some(data1)).unwrap();
 //! e.crypt(start1, stop1);
 //!     // await crypt_done()
-//! data1 = e.return_data.unwrap();
-//! e.set_data(data2);
+//! data1 = e.replace_data(Some(data2)).unwrap().unwrap()
 //! e.crypt(start2, stop2);
 //!     // await crypt_done()
-//! data2 = e.return_data.unwrap();
+//! data2 = e.replace_data(None).unwrap().unwrap()
 //! e.disable();
 
 use returncode::ReturnCode;
@@ -25,21 +25,24 @@ pub trait Client {
 
 pub const AES128_BLOCK_SIZE: usize = 16;
 
-pub trait AES128<'a, C: Client + 'a> {
+pub trait AES128<'a> {
     fn enable(&self);
     fn disable(&self);
 
-    fn set_client(&'a self, client: &'a C);
+    fn set_client(&'a self, client: &'a Client);
     fn set_key(&'a self, key: &'a [u8]) -> ReturnCode;
     fn set_iv(&'a self, iv: &'a [u8]) -> ReturnCode;
-    fn set_data(&'a self, data: &'a mut [u8]) -> ReturnCode;
-    fn return_data(&self) -> Result<&mut [u8], ReturnCode>;
+
+    /// Replace the optional data buffer and return its previous value
+    /// The option should be full whenever `crypt()` is called.
+    fn replace_data(&'a self, data: Option<&'a mut [u8]>) ->
+        Result<Option<&'a mut [u8]>, ReturnCode>;
 
     /// Begin a new message (with the configured IV) when `crypt()` is next
     /// called.  Multiple calls to `set_data()` and `crypt()` may be made
     /// between calls to `start_message()`, allowing the encryption context
     /// to extend over non-contiguous extents of data.
-    fn start_message();
+    fn start_message(&self);
 
     /// Request an encryption/decryption
     ///

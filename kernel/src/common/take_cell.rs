@@ -118,6 +118,8 @@ impl<'a, T: ?Sized> TakeCell<'a, T> {
         })
     }
 
+    /// Performs a `map` or generates a value with the default
+    /// closure if the `TakeCell` is empty
     pub fn map_or_else<U, D, F>(&self, default: D, f: F) -> U
         where D: FnOnce() -> U,
               F: FnOnce(&mut T)-> U

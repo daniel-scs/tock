@@ -7,7 +7,7 @@ use core::result::Result;
 use kernel::common::VolatileCell;
 use kernel::common::take_cell::TakeCell;
 use kernel::hil;
-use kernel::hil::symmetric_encryption::{Client, AES128_BLOCK_SIZE};
+use kernel::hil::symmetric_encryption::{AES128_BLOCK_SIZE};
 use kernel::returncode::ReturnCode;
 use nvic;
 use pm;
@@ -62,8 +62,8 @@ const ODATARDY: u32 = 1 << 0;
 pub struct Aes<'a> {
     registers: *mut AesRegisters,
 
-    client: Cell<Option<&'a Client>>,
-    data: Cell<Option<&'a mut [u8]>>,
+    client: Cell<Option<&'a hil::symmetric_encryption::Client>>,
+    data: TakeCell<'a, &'a mut [u8]>,
 
     // An index into the current request buffer marking how much data
     // has been written to the AESA
@@ -77,14 +77,12 @@ pub struct Aes<'a> {
     stop_index: Cell<usize>,
 }
 
-pub static mut AES: Aes<'static> = Aes::new();
-
 impl<'a> Aes<'a> {
     pub const fn new() -> Aes<'a> {
         Aes {
             registers: AES_BASE as *mut AesRegisters,
             client: Cell::new(None),
-            data: Cell::new(None),
+            data: TakeCell::empty(),
             write_index: Cell::new(0),
             read_index: Cell::new(0),
             stop_index: Cell::new(0),
@@ -133,10 +131,10 @@ impl<'a> Aes<'a> {
         regs.idr.set(IBUFRDY);
     }
 
-    fn some_interrupts_are_set(&self) {
+    fn some_interrupts_are_set(&self) -> bool {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
 
-        regs.imr.get() & (IBUFRDY | ODATARDY) != 0;
+        regs.imr.get() & (IBUFRDY | ODATARDY) != 0
     }
 
     fn set_mode(&self, encrypting: bool, mode: ConfidentialityMode) {
@@ -162,9 +160,9 @@ impl<'a> Aes<'a> {
         status & (1 << 0) != 0
     }
 
-    fn try_set_indices(&self, start_index: usize, stop_index: usize) {
-        if let Some(data) = self.data.get() {
-            if r.stop_index.checked_sub(start_index).map_or(false, |sublen| {
+    fn try_set_indices(&self, start_index: usize, stop_index: usize) -> bool {
+        self.data.map_or(false, |data| {
+            if stop_index.checked_sub(start_index).map_or(false, |sublen| {
                 sublen % AES128_BLOCK_SIZE == 0 &&
                 stop_index <= data.len() })
             {
@@ -178,19 +176,20 @@ impl<'a> Aes<'a> {
                 // Indices invalid
                 false
             }
-        } else {
-            // `data` not set
-            false
-        }
+        })
     }
 
     // Copy a block from the request buffer to the AESA input register,
     // if there is a block left in the buffer.  Either way, this function
     // returns true if more blocks remain to send
     fn write_block(&self) -> bool {
-        if let Some(data) = self.data.get() {
+        self.data.map_or_else(|| {
+            debug!("Called write_block() with no data");
+            false
+        },
+        |data| {
             let index = self.write_index.get();
-            let more = index + AES128_BLOCK_SIZE <= self.stop_index;
+            let more = index + AES128_BLOCK_SIZE <= self.stop_index.get();
             if !more {
                 return false;
             }
@@ -206,22 +205,22 @@ impl<'a> Aes<'a> {
 
             self.write_index.set(index + AES128_BLOCK_SIZE);
 
-            let more = self.write_index.get() + AES128_BLOCK_SIZE <= self.stop_index;
+            let more = self.write_index.get() + AES128_BLOCK_SIZE <= self.stop_index.get();
             more
-        } else {
-            debug!("Called write_block() with no data");
-            false
-        }
+        })
     }
 
     // Copy a block from the AESA output register back into the request buffer
     // if there is any room left.  Return true if we are still waiting for more
     // blocks after this
-    fn read_block(&self) -> bool
-    {
-        if let Some(data) = self.data.get() {
+    fn read_block(&self) -> bool {
+        self.data.map_or_else(|| {
+            debug!("Called read_block() with no data");
+            false
+        },
+        |data| {
             let index = self.read_index.get();
-            let more = index + AES128_BLOCK_SIZE <= self.stop_index;
+            let more = index + AES128_BLOCK_SIZE <= self.stop_index.get();
             if !more {
                 return false;
             }
@@ -237,19 +236,15 @@ impl<'a> Aes<'a> {
 
             self.read_index.set(index + AES128_BLOCK_SIZE);
 
-            let more = self.read_index.get() + AES128_BLOCK_SIZE <= self.stop_index;
+            let more = self.read_index.get() + AES128_BLOCK_SIZE <= self.stop_index.get();
             more
-        } else {
-            debug!("Called read_block() with no request");
-            false
-        }
+        })
     }
  
     /// Handle an interrupt, which will indicate either that the AESA's input
     /// buffer is ready for more data, or that it has completed a block of output
     /// for us to consume
     pub fn handle_interrupt(&self) {
-
         if self.input_buffer_ready() {
             // The AESA says it is ready to receive another block
 
@@ -269,13 +264,15 @@ impl<'a> Aes<'a> {
                 self.disable_interrupts();
 
                 // Alert the client of the completion
-                self.client.map(|client| { client.crypt_done() });
+                if let Some(client) = self.client.get() {
+                    client.crypt_done();
+                }
             }
         }
     }
 }
 
-impl<'a, C: Client + 'a> hil::symmetric_encryption::AES128<'a, C> for Aes<'a, C> {
+impl<'a> hil::symmetric_encryption::AES128<'a> for Aes<'a> {
 
     fn enable(&self) {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
@@ -297,7 +294,7 @@ impl<'a, C: Client + 'a> hil::symmetric_encryption::AES128<'a, C> for Aes<'a, C>
         self.disable_clock();
     }
 
-    fn set_client(&'a self, client: &'a C) {
+    fn set_client(&'a self, client: &'a hil::symmetric_encryption::Client) {
         self.client.set(Some(client));
     }
 
@@ -350,27 +347,21 @@ impl<'a, C: Client + 'a> hil::symmetric_encryption::AES128<'a, C> for Aes<'a, C>
         ReturnCode::SUCCESS
     }
 
-    fn set_data(&'a self, data: &'a mut [u8]) -> ReturnCode {
+    fn replace_data(&'a self, data: Option<&'a mut [u8]>) ->
+        Result<Option<&'a mut [u8]>, ReturnCode>
+    {
         if self.some_interrupts_are_set() {
-            return ReturnCode::EBUSY;
+            return Result::Err(ReturnCode::EBUSY);
         }
 
-        self.data.set(Some(data));
+        let data_prev = self.data.replace(data);
 
         // Make sure these indices are always valid
         self.write_index.set(0);
         self.read_index.set(0);
         self.stop_index.set(0);
 
-        ReturnCode::SUCCESS
-    }
-
-    fn return_data(&self) -> Result<&mut [u8], ReturnCode> {
-        if self.some_interrupts_are_set() {
-            return Result::Err(ReturnCode::EBUSY);
-        }
-
-        Result::Ok(self.data.take())
+        Result::Ok(data_prev)
     }
 
     fn start_message(&self) {
@@ -380,17 +371,32 @@ impl<'a, C: Client + 'a> hil::symmetric_encryption::AES128<'a, C> for Aes<'a, C>
         regs.ctrl.set((1 << 2) | (1 << 0));
     }
 
-    fn crypt(&'a self, start_index: usize, stop_index: usize) -> ReturnCode {
+    fn crypt(&self, start_index: usize, stop_index: usize) -> ReturnCode {
         if self.some_interrupts_are_set() {
             ReturnCode::EBUSY
         } else {
             if self.try_set_indices(start_index, stop_index) {
                 self.enable_interrupts();
+                ReturnCode::SUCCESS
             } else {
                 ReturnCode::EINVAL
             }
         }
     }
 }
+
+impl<'a> hil::symmetric_encryption::AES128Ctr for Aes<'a> {
+    fn set_mode_aes128ctr(&self, encrypting: bool) {
+        self.set_mode(encrypting, ConfidentialityMode::Ctr);
+    }
+}
+
+impl<'a> hil::symmetric_encryption::AES128CBC for Aes<'a> {
+    fn set_mode_aes128cbc(&self, encrypting: bool) {
+        self.set_mode(encrypting, ConfidentialityMode::CBC);
+    }
+}
+
+pub static mut AES: Aes<'static> = Aes::new();
 
 interrupt_handler!(aes_handler, AESA);
