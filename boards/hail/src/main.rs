@@ -68,7 +68,7 @@ struct Hail {
     ipc: kernel::ipc::IPC,
     crc: &'static capsules::crc::Crc<'static, sam4l::crccu::Crccu<'static>>,
     dac: &'static capsules::dac::Dac<'static>,
-    aes: &'static capsules::symmetric_encryption::Crypto<'static, sam4l::aes::Aes>,
+    // aes: &'static capsules::symmetric_encryption::Crypto<'static, sam4l::aes::Aes>,
 }
 
 
@@ -95,7 +95,7 @@ impl Platform for Hail {
             14 => f(Some(self.rng)),
 
             16 => f(Some(self.crc)),
-            17 => f(Some(self.aes)),
+            // 17 => f(Some(self.aes)),
 
             26 => f(Some(self.dac)),
             35 => f(Some(self.humidity)),
@@ -373,6 +373,7 @@ pub unsafe fn reset_handler() {
         capsules::dac::Dac::new(&mut sam4l::dac::DAC));
 
     // AES
+    /*
     let aes = static_init!(
         capsules::symmetric_encryption::Crypto<'static, sam4l::aes::Aes>,
         capsules::symmetric_encryption::Crypto::new(&mut sam4l::aes::AES,
@@ -381,6 +382,7 @@ pub unsafe fn reset_handler() {
                                                     &mut capsules::symmetric_encryption::BUF,
                                                     &mut capsules::symmetric_encryption::IV));
     hil::symmetric_encryption::SymmetricEncryption::set_client(&sam4l::aes::AES, aes);
+    */
 
     let hail = Hail {
         console: console,
@@ -399,7 +401,7 @@ pub unsafe fn reset_handler() {
         ipc: kernel::ipc::IPC::new(),
         crc: crc,
         dac: dac,
-        aes: aes,
+        // aes: aes,
     };
 
     // Need to reset the nRF on boot

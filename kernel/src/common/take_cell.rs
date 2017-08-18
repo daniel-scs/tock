@@ -118,6 +118,20 @@ impl<'a, T: ?Sized> TakeCell<'a, T> {
         })
     }
 
+    /// Performs a `map` or generates a value with the default
+    /// closure if the `TakeCell` is empty
+    pub fn map_or_else<U, D, F>(&self, default: D, f: F) -> U
+        where D: FnOnce() -> U,
+              F: FnOnce(&mut T)-> U
+    {
+        let maybe_val = self.take();
+        maybe_val.map_or_else(|| default(), |mut val| {
+            let res = f(&mut val);
+            self.replace(val);
+            res
+        })
+    }
+
     /// Uses the first closure (`modify`) to modify the value in the `TakeCell`
     /// if it is present, otherwise, fills the `TakeCell` with the result of
     /// `mkval`.
