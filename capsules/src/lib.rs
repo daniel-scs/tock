@@ -34,6 +34,7 @@ pub mod rf233_const;
 pub mod radio;
 pub mod rng;
 pub mod temp_nrf51dk;
+// pub mod symmetric_encryption;
 pub mod ninedof;
 pub mod ltc294x;
 pub mod mcp23008;
@@ -46,5 +47,9 @@ pub mod app_flash_driver;
 pub mod usb;
 pub mod usb_user;
 pub mod usbc_client;
+#[macro_use]
 pub mod net;
 pub mod mac;
+pub mod temperature;
+pub mod humidity;
+//pub mod nrf_internal_temp_sensor;
