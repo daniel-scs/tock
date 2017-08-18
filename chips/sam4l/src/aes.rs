@@ -63,7 +63,7 @@ pub struct Aes<'a> {
     registers: *mut AesRegisters,
 
     client: Cell<Option<&'a hil::symmetric_encryption::Client>>,
-    data: TakeCell<'a, &'a mut [u8]>,
+    data: TakeCell<'a, [u8]>,
 
     // An index into the current request buffer marking how much data
     // has been written to the AESA
@@ -347,21 +347,27 @@ impl<'a> hil::symmetric_encryption::AES128<'a> for Aes<'a> {
         ReturnCode::SUCCESS
     }
 
-    fn replace_data(&'a self, data: Option<&'a mut [u8]>) ->
-        Result<Option<&'a mut [u8]>, ReturnCode>
-    {
+    fn take_data(&'a self) -> Result<Option<&'a mut [u8]>, ReturnCode> {
         if self.some_interrupts_are_set() {
             return Result::Err(ReturnCode::EBUSY);
         }
 
-        let data_prev = self.data.replace(data);
+        Result::Ok(self.data.take())
+    }
+
+    fn put_data(&'a self, data: Option<&'a mut [u8]>) -> ReturnCode {
+        if self.some_interrupts_are_set() {
+            return ReturnCode::EBUSY;
+        }
 
         // Make sure these indices are always valid
         self.write_index.set(0);
         self.read_index.set(0);
         self.stop_index.set(0);
 
-        Result::Ok(data_prev)
+        self.data.put(data);
+
+        ReturnCode::SUCCESS
     }
 
     fn start_message(&self) {

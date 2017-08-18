@@ -33,10 +33,15 @@ pub trait AES128<'a> {
     fn set_key(&'a self, key: &'a [u8]) -> ReturnCode;
     fn set_iv(&'a self, iv: &'a [u8]) -> ReturnCode;
 
-    /// Replace the optional data buffer and return its previous value
+    /// Set the optional data buffer.
     /// The option should be full whenever `crypt()` is called.
-    fn replace_data(&'a self, data: Option<&'a mut [u8]>) ->
-        Result<Option<&'a mut [u8]>, ReturnCode>;
+    /// Returns SUCCESS if the buffer was installed, or EBUSY
+    /// if the encryption unit is still busy.
+    fn put_data(&'a self, data: Option<&'a mut [u8]>) -> ReturnCode;
+
+    /// Return the data buffer, if any.
+    /// Returns EBUSY if the encryption unit is still busy.
+    fn take_data(&'a self) -> Result<Option<&'a mut [u8]>, ReturnCode>;
 
     /// Begin a new message (with the configured IV) when `crypt()` is next
     /// called.  Multiple calls to `set_data()` and `crypt()` may be made
