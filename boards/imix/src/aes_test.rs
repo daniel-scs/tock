@@ -19,7 +19,7 @@ impl hil::symmetric_encryption::Client for Cli {
     fn crypt_done(&self) {
         unsafe {
             let data = AES.take_data().unwrap().unwrap();
-            println!("DATA: {}", data.len());
+            debug!("DATA: {:?}", data);
 
             AES.disable();
         }
@@ -39,7 +39,7 @@ pub fn run() {
 
         let start = 0;
         let stop = AES128_BLOCK_SIZE;
-        AES.crypt(start, stop);
+        assert!(AES.crypt(start, stop) == ReturnCode::SUCCESS);
 
         // await crypt_done()
     }

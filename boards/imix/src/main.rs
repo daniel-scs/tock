@@ -29,6 +29,7 @@ mod i2c_dummy;
 #[allow(dead_code)]
 mod spi_dummy;
 
+#[allow(dead_code)]
 mod aes_test;
 
 #[allow(dead_code)]
@@ -463,9 +464,6 @@ pub unsafe fn reset_handler() {
     rf233.reset();
     rf233.start();
 
-    debug!("Running AES test");
-    aes_test::run();
-
     debug!("Initialization complete. Entering main loop");
     extern "C" {
         /// Beginning of the ROM region containing app images.
@@ -475,5 +473,9 @@ pub unsafe fn reset_handler() {
                                     &mut APP_MEMORY,
                                     &mut PROCESSES,
                                     FAULT_RESPONSE);
+
+    debug!("Running AES test");
+    aes_test::run();
+
     kernel::main(&imix, &mut chip, &mut PROCESSES, &imix.ipc);
 }
