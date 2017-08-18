@@ -1,4 +1,4 @@
-//! Implementation of the AESA peripheral on the SAM4L.
+//! Implementation of the AESA peripheral on the SAM4L
 
 use core::cell::Cell;
 use core::mem;
@@ -373,7 +373,6 @@ impl<'a> hil::symmetric_encryption::AES128<'a> for Aes<'a> {
     fn start_message(&self) {
         let regs: &mut AesRegisters = unsafe { mem::transmute(self.registers) };
 
-        // Notify of a new message.
         regs.ctrl.set((1 << 2) | (1 << 0));
     }
 

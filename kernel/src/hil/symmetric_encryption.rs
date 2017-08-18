@@ -1,21 +1,6 @@
 //! Interface for symmetric-cipher encryption
 //!
-//! Example usage:
-//!
-//! e.enable();
-//! e.set_client(c);
-//! assert!(e.set_key(key) == ReturnCode::SUCCESS);
-//! assert!(e.set_iv(iv) == ReturnCode::SUCCESS);
-//! e.set_mode_aes128ctr(true);
-//! e.start_message();
-//! _ = e.replace_data(Some(data1)).unwrap();
-//! e.crypt(start1, stop1);
-//!     // await crypt_done()
-//! data1 = e.replace_data(Some(data2)).unwrap().unwrap()
-//! e.crypt(start2, stop2);
-//!     // await crypt_done()
-//! data2 = e.replace_data(None).unwrap().unwrap()
-//! e.disable();
+//! see boards/imix/src/aes_test.rs for example usage
 
 use returncode::ReturnCode;
 
@@ -26,7 +11,9 @@ pub trait Client {
 pub const AES128_BLOCK_SIZE: usize = 16;
 
 pub trait AES128<'a> {
+    // Must be called before any other methods
     fn enable(&self);
+
     fn disable(&self);
 
     fn set_client(&'a self, client: &'a Client);
@@ -57,9 +44,9 @@ pub trait AES128<'a> {
     /// `AES128_BLOCK_SIZE`.  Otherwise, INVAL will be returned.
     ///
     /// If SUCCESS is returned, the client's `crypt_done` method will eventually
-    /// be called with the same buffer previously passed in with `set_data`,
-    /// and the portion of the buffer between `start_index` and `stop_index`
-    /// will hold the encryption/decryption of its former contents.
+    /// be called, and the portion of the data buffer between `start_index`
+    /// and `stop_index` will hold the encryption/decryption of its former
+    /// contents.
     ///
     /// For correct operation, the methods `set_key` and `set_iv` must have
     /// previously been called to set the buffers containing the
@@ -71,9 +58,11 @@ pub trait AES128<'a> {
 }
 
 pub trait AES128Ctr {
+    // Call before crypt() to perform AES128Ctr
     fn set_mode_aes128ctr(&self, encrypting: bool);
 }
 
 pub trait AES128CBC {
+    // Call before crypt() to perform AES128CBC
     fn set_mode_aes128cbc(&self, encrypting: bool);
 }
