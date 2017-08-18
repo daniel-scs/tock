@@ -29,6 +29,8 @@ mod i2c_dummy;
 #[allow(dead_code)]
 mod spi_dummy;
 
+mod aes_test;
+
 #[allow(dead_code)]
 mod power;
 
@@ -460,6 +462,9 @@ pub unsafe fn reset_handler() {
     // initialization to work.
     rf233.reset();
     rf233.start();
+
+    debug!("Running AES test");
+    aes_test::run();
 
     debug!("Initialization complete. Entering main loop");
     extern "C" {
