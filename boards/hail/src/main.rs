@@ -69,6 +69,7 @@ struct Hail {
     crc: &'static capsules::crc::Crc<'static, sam4l::crccu::Crccu<'static>>,
     dac: &'static capsules::dac::Dac<'static>,
     aes: &'static capsules::symmetric_encryption::Crypto<'static, sam4l::aes::Aes>,
+    hello: &'static capsules::hello::Hello<'static, VirtualMuxAlarm<'static, sam4l::ast::Ast<'static>>>,
 }
 
 
@@ -234,7 +235,13 @@ pub unsafe fn reset_handler() {
                                                  kernel::Container::create()), 96/8);
     kernel::hil::sensors::HumidityDriver::set_client(si7021, humidity);
 
-
+    let hello_virtual_alarm = static_init!(
+        VirtualMuxAlarm<'static, sam4l::ast::Ast>,
+        VirtualMuxAlarm::new(mux_alarm));
+    let hello = static_init!(
+        capsules::hello::Hello<'static, VirtualMuxAlarm<'static, sam4l::ast::Ast>>,
+        capsules::hello::Hello::new(hello_virtual_alarm));
+    hello_virtual_alarm.set_client(hello);
 
     // Configure the ISL29035, device address 0x44
     let isl29035_i2c = static_init!(I2CDevice, I2CDevice::new(sensors_i2c, 0x44));
@@ -400,6 +407,7 @@ pub unsafe fn reset_handler() {
         crc: crc,
         dac: dac,
         aes: aes,
+        hello: hello,
     };
 
     // Need to reset the nRF on boot
@@ -416,6 +424,8 @@ pub unsafe fn reset_handler() {
     kernel::debug::assign_console_driver(Some(hail.console), kc);
 
     hail.nrf51822.initialize();
+
+    hail.hello.start();
 
     let mut chip = sam4l::chip::Sam4l::new();
 

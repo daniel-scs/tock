@@ -160,7 +160,7 @@ $ tockloader listen
   2. Can you point to the chip on the Hail that runs the Tock kernel? How about
      the processes?
 
-  3. What steps would you follow to program a processes onto Hail? What about
+  3. What steps would you follow to program a process onto Hail? What about
      to replace the kernel?
 
 ## Hands-on: Set-up development environment

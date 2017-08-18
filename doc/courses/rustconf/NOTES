@@ -1,0 +1,15 @@
+
+- loading more than 4 processes leads to kernel panic
+  - could tockloader instead refuse in this case?
+
+- note how to set permissions on USB device (e.g. udev rules)?
+
+- python bins (like tockloader) sometimes not in path on
+  certain distributions
+  - $HOME/.local on linux
+  - what on Mac?
+
+- the sensors app can crash after awhile
+
+- don't debug!() until the first interrupt?
+

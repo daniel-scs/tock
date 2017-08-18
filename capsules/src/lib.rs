@@ -52,3 +52,4 @@ pub mod mac;
 pub mod temperature;
 pub mod humidity;
 //pub mod nrf_internal_temp_sensor;
+pub mod hello;
