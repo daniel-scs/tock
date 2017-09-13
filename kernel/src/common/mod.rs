@@ -4,6 +4,7 @@ pub mod ring_buffer;
 pub mod queue;
 pub mod utils;
 pub mod take_cell;
+pub mod async_take_cell;
 pub mod volatile_cell;
 pub mod static_ref;
 pub mod list;

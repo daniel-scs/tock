@@ -4,7 +4,28 @@ use core::cell::Cell;
 use kernel::ReturnCode;
 use kernel::hil;
 use kernel::hil::symmetric_encryption::{AES128_BLOCK_SIZE, AES128, AES128Ctr};
-use sam4l::aes::{AES};
+use kernel::common::{List, ListLink, ListNode};
+use kernel::common::take_cell::{TakeCell};
+use kernel::common::async_take_cell::*;
+use sam4l;
+
+pub fn run() {
+    unsafe {
+        TEST_CLIENT.run()
+    };
+}
+
+static mut TEST_CLIENT: TestClient<sam4l::aes::Aes<'static>> = TestClient::new();
+
+// A cell holding a reference to the sam4l's AES hardware
+static AES_CELL: AsyncTakeCell<'static, sam4l::aes::Aes> = AsyncTakeCell::new(sam4l::aes::AES);
+
+
+struct TestClient<'a, Hw: 'a> {
+    hw_cell: TakeCell<'a, Hw>,
+    mode: Cell<Mode>,
+    next: ListLink<'a, AsyncTakeCellClient<'a, Hw>>,
+}
 
 #[derive(Copy, Clone)]
 enum Mode {
@@ -12,95 +33,117 @@ enum Mode {
     Decrypting,
 }
 
-struct Cli {
-    mode: Cell<Mode>
+impl<'a, Hw: 'a> TestClient<'a, Hw> {
+    fn new() -> Self {
+        TestClient {
+            hw_cell: TakeCell::empty(),
+            mode: Cell::new(Mode::Encrypting),
+            next: ListLink::empty(),
+        }
+    }
 }
 
-static mut C: Cli = Cli {
-    mode: Cell::new(Mode::Encrypting),
-};
-
-pub fn run() {
-    unsafe {
-        C.run()
-    };
+impl<'a, Hw: 'a> ListNode<'a, AsyncTakeCellClient<'a, Hw>> for TestClient<'a, Hw> {
+    fn next(&self) -> &ListLink<'a, AsyncTakeCellClient<'a, Hw>> {
+        &self.next
+    }
 }
 
-impl Cli {
+impl<'a, Hw: 'a + AES128<'a> + AES128Ctr> TestClient<'a, Hw> {
     pub fn run(&self) {
+        AES_CELL.take(self);
+        // Await callback to taken() ...
+    }
+}
+
+impl<'a, Hw: 'a + AES128<'a> + AES128Ctr> AsyncTakeCellClient<'a, Hw> for TestClient<'a, Hw> {
+    fn taken(&'a self, aes: &'a mut Hw) {
+        // Stash the reference to the hardware so we can access it in crypt_done()
+        self.hw_cell.replace(aes);
+
         match self.mode.get() {
             Mode::Encrypting => {
                 unsafe {
-                    AES.enable();
+                    aes.enable();
 
-                    AES.set_client(&C);
-                    assert!(AES.set_key(&KEY) == ReturnCode::SUCCESS);
-                    assert!(AES.set_iv(&IV) == ReturnCode::SUCCESS);
+                    aes.set_client(self);
+                    assert!(aes.set_key(&KEY) == ReturnCode::SUCCESS);
+                    assert!(aes.set_iv(&IV) == ReturnCode::SUCCESS);
                     let encrypting = true;
-                    AES.set_mode_aes128ctr(encrypting);
-                    AES.start_message();
-                    assert!(AES.put_data(Some(&mut DATA)) == ReturnCode::SUCCESS);
+                    aes.set_mode_aes128ctr(encrypting);
+                    aes.start_message();
+                    assert!(aes.put_data(Some(&mut DATA)) == ReturnCode::SUCCESS);
 
                     let start = 0;
                     let stop = DATA.len();
-                    assert!(AES.crypt(start, stop) == ReturnCode::SUCCESS);
+                    assert!(aes.crypt(start, stop) == ReturnCode::SUCCESS);
 
-                    // await crypt_done()
+                    // Await crypt_done() ...
                 }
             }
             Mode::Decrypting => {
                 unsafe {
-                    AES.enable();
+                    aes.enable();
 
-                    AES.set_client(&C);
-                    assert!(AES.set_key(&KEY) == ReturnCode::SUCCESS);
-                    assert!(AES.set_iv(&IV) == ReturnCode::SUCCESS);
+                    aes.set_client(self);
+                    assert!(aes.set_key(&KEY) == ReturnCode::SUCCESS);
+                    assert!(aes.set_iv(&IV) == ReturnCode::SUCCESS);
                     let encrypting = false;
-                    AES.set_mode_aes128ctr(encrypting);
-                    AES.start_message();
-                    assert!(AES.put_data(Some(&mut DATA)) == ReturnCode::SUCCESS);
+                    aes.set_mode_aes128ctr(encrypting);
+                    aes.start_message();
+                    assert!(aes.put_data(Some(&mut DATA)) == ReturnCode::SUCCESS);
 
                     let start = 0;
                     let stop = DATA.len();
-                    assert!(AES.crypt(start, stop) == ReturnCode::SUCCESS);
+                    assert!(aes.crypt(start, stop) == ReturnCode::SUCCESS);
 
-                    // await crypt_done()
+                    // Await crypt_done() ...
                 }
             }
         }
     }
 }
 
-impl hil::symmetric_encryption::Client for Cli {
+impl<'a, Hw> hil::symmetric_encryption::Client for TestClient<'a, Hw> {
     #[allow(unused_unsafe)]
     fn crypt_done(&self) {
-        match self.mode.get() {
-            Mode::Encrypting => {
-                unsafe {
-                    let data = AES.take_data().unwrap().unwrap();
-                    if data == CTXT.as_ref() {
-                        debug!("Encrypted OK!");
-                    } else {
-                        debug!("*** BAD CTXT");
-                    }
-                    AES.disable();
-                }
+        if let Some(aes) = self.hw_cell.take() {
+            match self.mode.get() {
+                Mode::Encrypting => {
+                    unsafe {
+                        let data = aes.take_data().unwrap().unwrap();
+                        if data == CTXT.as_ref() {
+                            debug!("Encrypted OK!");
+                        } else {
+                            debug!("*** BAD CTXT");
+                        }
+                        aes.disable();
 
-                // Continue with decryption test
-                self.mode.set(Mode::Decrypting);
-                self.run();
-            }
-            Mode::Decrypting => {
-                unsafe {
-                    let data = AES.take_data().unwrap().unwrap();
-                    if data == PTXT.as_ref() {
-                        debug!("Decrypted OK!");
-                    } else {
-                        debug!("*** BAD PTXT");
+                        // Put back the hardware reference
+                        AES_CELL.replace(aes);
                     }
-                    AES.disable();
+
+                    // Continue with decryption test
+                    self.mode.set(Mode::Decrypting);
+                    self.run();
+                }
+                Mode::Decrypting => {
+                    unsafe {
+                        let data = aes.take_data().unwrap().unwrap();
+                        if data == PTXT.as_ref() {
+                            debug!("Decrypted OK!");
+                        } else {
+                            debug!("*** BAD PTXT");
+                        }
+                        aes.disable();
+
+                        // Put back the hardware reference
+                        AES_CELL.replace(aes);
+                    }
                 }
             }
+        } else {
+            debug!("*** Lost hold of the hardware reference!");
         }
     }
 }
