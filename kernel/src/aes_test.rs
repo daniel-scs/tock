@@ -26,10 +26,11 @@ pub struct Test<'a, Hw: 'a> {
     next_client_link: ListLink<'a, AsyncTakeCellClient<'a, Hw> + 'a>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 enum Mode {
     Encrypting,
     Decrypting,
+    Finished,
 }
 
 impl<'a, Hw> Test<'a, Hw>
@@ -46,8 +47,10 @@ impl<'a, Hw> Test<'a, Hw>
     }
 
     pub fn run(&'a self) {
-        self.hw_shared.take(self as &AsyncTakeCellClient<'a, Hw>);
-        // Wait for taken() to be called when the hardware is available ...
+        if self.mode.get() != Mode::Finished {
+            self.hw_shared.take(self as &AsyncTakeCellClient<'a, Hw>);
+            // Wait for taken() to be called when the hardware is available ...
+        }
     }
 }
 
@@ -100,6 +103,7 @@ impl<'a, Hw> AsyncTakeCellClient<'a, Hw> for Test<'a, Hw>
                     assert!(hw.crypt(start, stop) == ReturnCode::SUCCESS);
                 }
             }
+            _ => {}
         }
 
         // Stash the reference to the hardware so we can access it in crypt_done()
@@ -132,7 +136,6 @@ impl<'a, Hw> hil::symmetric_encryption::Client for Test<'a, Hw>
 
                     // Continue with decryption test
                     self.mode.set(Mode::Decrypting);
-                    // self.run();
                 }
                 Mode::Decrypting => {
                     unsafe {
@@ -144,7 +147,10 @@ impl<'a, Hw> hil::symmetric_encryption::Client for Test<'a, Hw>
                         }
                         hw.disable();
                     }
+
+                    self.mode.set(Mode::Finished);
                 }
+                _ => {}
             }
         } else {
             // This shouldn't happen
@@ -155,6 +161,8 @@ impl<'a, Hw> hil::symmetric_encryption::Client for Test<'a, Hw>
             // Put back the hardware reference
             self.hw_shared.replace(hw);
         }
+
+        // XXX self.run();
     }
 }
 
