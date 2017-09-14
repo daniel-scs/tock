@@ -1,14 +1,14 @@
 //! Test the AES hardware
 
-use core::cell::Cell;
-use ReturnCode;
 use hil;
-use hil::symmetric_encryption::{AES128_BLOCK_SIZE, AES128, AES128Ctr};
-use common::{List, ListLink, ListNode};
+use hil::symmetric_encryption::{AES128_BLOCK_SIZE};
+use common::{ListLink};
 use common::take_cell::{TakeCell};
 use common::async_take_cell::{AsyncTakeCell, AsyncTakeCellClient};
+use core::cell::Cell;
+use ReturnCode;
 
-struct Test<'a, Hw: 'a> {
+pub struct Test<'a, Hw: 'a> {
     /// A cell containing a shared mutable reference to the hardware.
     /// When we want to use it, we'll submit a request via `take` and
     /// then wait for the `taken` callback to deliver it to us when it
@@ -33,7 +33,8 @@ enum Mode {
 }
 
 impl<'a, Hw> Test<'a, Hw>
-    where Hw: 'a + AES128<'a> + AES128Ctr {
+    where Hw: 'a + hil::symmetric_encryption::AES128<'a>
+                 + hil::symmetric_encryption::AES128Ctr {
 
     pub fn new(hw: &'a AsyncTakeCell<'a, Hw>) -> Test<'a, Hw> {
         Test {
@@ -44,8 +45,8 @@ impl<'a, Hw> Test<'a, Hw>
         }
     }
 
-    pub fn run(&self) {
-        self.hw_shared.take(self);
+    pub fn run(&'a self) {
+        self.hw_shared.take(self as &AsyncTakeCellClient<'a, Hw>);
         // Wait for taken() to be called when the hardware is available ...
     }
 }
@@ -53,15 +54,16 @@ impl<'a, Hw> Test<'a, Hw>
 /// Provide an `AsyncTakeCellClient` implementation so we can be called
 /// when the hardware is ready for us
 impl<'a, Hw> AsyncTakeCellClient<'a, Hw> for Test<'a, Hw>
-    where Hw: 'a + AES128<'a> + AES128Ctr {
+    where Hw: 'a + hil::symmetric_encryption::AES128<'a>
+                 + hil::symmetric_encryption::AES128Ctr {
 
     fn next_client(&'a self) -> &'a ListLink<'a, AsyncTakeCellClient<'a, Hw> + 'a> {
         &self.next_client_link
     }
 
     fn taken(&'a self, hw: &'a mut Hw) {
-        // Stash the reference to the hardware so we can access it in crypt_done()
-        self.hw_taken.replace(hw);
+        // We only need an immutable reference
+        let hw = &*hw;
 
         match self.mode.get() {
             Mode::Encrypting => {
@@ -79,8 +81,6 @@ impl<'a, Hw> AsyncTakeCellClient<'a, Hw> for Test<'a, Hw>
                     let start = 0;
                     let stop = DATA.len();
                     assert!(hw.crypt(start, stop) == ReturnCode::SUCCESS);
-
-                    // Await crypt_done() ...
                 }
             }
             Mode::Decrypting => {
@@ -98,18 +98,22 @@ impl<'a, Hw> AsyncTakeCellClient<'a, Hw> for Test<'a, Hw>
                     let start = 0;
                     let stop = DATA.len();
                     assert!(hw.crypt(start, stop) == ReturnCode::SUCCESS);
-
-                    // Await crypt_done() ...
                 }
             }
         }
+
+        // Stash the reference to the hardware so we can access it in crypt_done()
+        // XXX self.hw_taken.replace(hw);
+
+        // Await crypt_done() ...
     }
 }
 
 /// Implement the encryption client interface so we can be called
 /// back when the hardware has completed an encryption task.
 impl<'a, Hw> hil::symmetric_encryption::Client for Test<'a, Hw>
-    where Hw: 'a + AES128<'a> + AES128Ctr {
+    where Hw: 'a + hil::symmetric_encryption::AES128<'a>
+                 + hil::symmetric_encryption::AES128Ctr {
 
     #[allow(unused_unsafe)]
     fn crypt_done(&self) {
@@ -124,14 +128,11 @@ impl<'a, Hw> hil::symmetric_encryption::Client for Test<'a, Hw>
                             debug!("*** BAD CTXT");
                         }
                         hw.disable();
-
-                        // Put back the hardware reference
-                        self.hw_shared.replace(hw);
                     }
 
                     // Continue with decryption test
                     self.mode.set(Mode::Decrypting);
-                    self.run();
+                    // self.run();
                 }
                 Mode::Decrypting => {
                     unsafe {
@@ -142,15 +143,17 @@ impl<'a, Hw> hil::symmetric_encryption::Client for Test<'a, Hw>
                             debug!("*** BAD PTXT");
                         }
                         hw.disable();
-
-                        // Put back the hardware reference
-                        self.hw_shared.replace(hw);
                     }
                 }
             }
         } else {
             // This shouldn't happen
             debug!("*** Unexpectedly lost hold of the hardware reference!?");
+        }
+
+        if let Some(hw) = self.hw_taken.take() {
+            // Put back the hardware reference
+            self.hw_shared.replace(hw);
         }
     }
 }

@@ -23,7 +23,9 @@ impl<'a, T> AsyncTakeCell<'a, T> {
     }
 
     pub fn replace(&'a self, value: &'a mut T) -> Option<&'a mut T> {
-        self.cell.replace(value)
+        let prev = self.cell.replace(value);
+        // XXX: pop a waiting client
+        prev
     }
 }
 
