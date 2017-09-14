@@ -53,7 +53,7 @@ impl<'a, Hw> Test<'a, Hw>
         }
     }
 
-    fn step(&'a self, hw: &'a Hw) {
+    fn request_encryption(&'a self, hw: &'a Hw) {
         match self.mode.get() {
             Mode::Encrypting => {
                 unsafe {
@@ -91,7 +91,6 @@ impl<'a, Hw> Test<'a, Hw>
             }
             _ => {}
         }
-        // Await crypt_done() ...
     }
 }
 
@@ -106,11 +105,12 @@ impl<'a, Hw> AsyncTakeCellClient<'a, Hw> for Test<'a, Hw>
     }
 
     fn taken(&'a self, hw: &'a mut Hw) {
+        self.request_encryption(hw);
+
         // Stash the reference to the hardware so we can access it later in crypt_done()
         self.hw_taken.replace(hw);
 
-        // Continue processing
-        self.step(hw);
+        // Await crypt_done() ...
     }
 }
 
