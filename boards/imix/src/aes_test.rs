@@ -1,4 +1,4 @@
-//! Test the AES hardware
+//! Test the sam4l's AES hardware
 
 use kernel::common::async_take_cell::{AsyncTakeCell};
 use kernel::aes_test::{Test};

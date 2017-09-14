@@ -1,4 +1,4 @@
-//! Test the AES hardware
+//! Test the AES hardware via the `symmetric_encryption` HIL
 
 use hil;
 use hil::symmetric_encryption::{AES128_BLOCK_SIZE};
@@ -52,22 +52,8 @@ impl<'a, Hw> Test<'a, Hw>
             // Wait for taken() to be called when the hardware is available ...
         }
     }
-}
 
-/// Provide an `AsyncTakeCellClient` implementation so we can be called
-/// when the hardware is ready for us
-impl<'a, Hw> AsyncTakeCellClient<'a, Hw> for Test<'a, Hw>
-    where Hw: 'a + hil::symmetric_encryption::AES128<'a>
-                 + hil::symmetric_encryption::AES128Ctr {
-
-    fn next_client(&'a self) -> &'a ListLink<'a, AsyncTakeCellClient<'a, Hw> + 'a> {
-        &self.next_client_link
-    }
-
-    fn taken(&'a self, hw: &'a mut Hw) {
-        // We only need an immutable reference
-        let hw = &*hw;
-
+    fn step(&'a self, hw: &'a Hw) {
         match self.mode.get() {
             Mode::Encrypting => {
                 unsafe {
@@ -105,11 +91,26 @@ impl<'a, Hw> AsyncTakeCellClient<'a, Hw> for Test<'a, Hw>
             }
             _ => {}
         }
-
-        // Stash the reference to the hardware so we can access it in crypt_done()
-        // XXX self.hw_taken.replace(hw);
-
         // Await crypt_done() ...
+    }
+}
+
+/// Provide an `AsyncTakeCellClient` implementation so we can be called
+/// when the hardware is ready for us
+impl<'a, Hw> AsyncTakeCellClient<'a, Hw> for Test<'a, Hw>
+    where Hw: 'a + hil::symmetric_encryption::AES128<'a>
+                 + hil::symmetric_encryption::AES128Ctr {
+
+    fn next_client(&'a self) -> &'a ListLink<'a, AsyncTakeCellClient<'a, Hw> + 'a> {
+        &self.next_client_link
+    }
+
+    fn taken(&'a self, hw: &'a mut Hw) {
+        // Stash the reference to the hardware so we can access it later in crypt_done()
+        self.hw_taken.replace(hw);
+
+        // Continue processing
+        self.step(hw);
     }
 }
 
