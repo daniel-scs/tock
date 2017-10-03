@@ -31,7 +31,7 @@ pub trait AES128<'a> {
     fn take_data(&'a self) -> Result<Option<&'a mut [u8]>, ReturnCode>;
 
     /// Begin a new message (with the configured IV) when `crypt()` is next
-    /// called.  Multiple calls to `set_data()` and `crypt()` may be made
+    /// called.  Multiple calls to `put_data()` and `crypt()` may be made
     /// between calls to `start_message()`, allowing the encryption context
     /// to extend over non-contiguous extents of data.
     fn start_message(&self);
