@@ -6,7 +6,7 @@
 //!
 //! The `UsbSyscallDriver` must be created by passing a reference to something
 //! that implements `hil::usb::Client` (that is, something that is connected to
-//! the USBC), as well as a `Container` for managing application requests.  For
+//! the USBC), as well as a `Grant` for managing application requests.  For
 //! example:
 //!
 //! ```rust
@@ -21,13 +21,16 @@
 //!     capsules::usb_user::UsbSyscallDriver<'static,
 //!         capsules::usbc_client::Client<'static, sam4l::usbc::Usbc<'static>>>,
 //!     capsules::usb_user::UsbSyscallDriver::new(
-//!         usb_client, kernel::Container::create()));
+//!         usb_client, kernel::Grant::create()));
 //! ```
 
 use core::cell::Cell;
-use kernel::{AppId, Container, Callback, Driver, ReturnCode};
+use kernel::{AppId, Grant, Callback, Driver, ReturnCode};
 use kernel::hil;
-use kernel::process::Error;
+
+/// Syscall number
+pub const DRIVER_NUM: usize = 0x20005;
+
 
 #[derive(Default)]
 pub struct App {
@@ -37,14 +40,14 @@ pub struct App {
 
 pub struct UsbSyscallDriver<'a, C: hil::usb::Client + 'a> {
     usbc_client: &'a C,
-    apps: Container<App>,
+    apps: Grant<App>,
     serving_app: Cell<Option<AppId>>,
 }
 
 impl<'a, C> UsbSyscallDriver<'a, C>
     where C: hil::usb::Client
 {
-    pub fn new(usbc_client: &'a C, apps: Container<App>) -> Self {
+    pub fn new(usbc_client: &'a C, apps: Grant<App>) -> Self {
         UsbSyscallDriver {
             usbc_client: usbc_client,
             apps: apps,
@@ -107,17 +110,13 @@ impl<'a, C> Driver for UsbSyscallDriver<'a, C>
                         app.callback = Some(callback);
                         ReturnCode::SUCCESS
                     })
-                    .unwrap_or_else(|err| match err {
-                        Error::OutOfMemory => ReturnCode::ENOMEM,
-                        Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                        Error::NoSuchApp => ReturnCode::EINVAL,
-                    })
+                    .unwrap_or_else(|err| err.into())
             }
             _ => ReturnCode::ENOSUPPORT,
         }
     }
 
-    fn command(&self, command_num: usize, _arg: usize, appid: AppId) -> ReturnCode {
+    fn command(&self, command_num: usize, _arg: usize, _: usize, appid: AppId) -> ReturnCode {
         match command_num {
             // This driver is present
             0 => ReturnCode::SUCCESS,
@@ -138,11 +137,7 @@ impl<'a, C> Driver for UsbSyscallDriver<'a, C>
                             }
                         }
                     })
-                    .unwrap_or_else(|err| match err {
-                        Error::OutOfMemory => ReturnCode::ENOMEM,
-                        Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                        Error::NoSuchApp => ReturnCode::EINVAL,
-                    });
+                    .unwrap_or_else(|err| err.into());
 
                 if result == ReturnCode::SUCCESS {
                     self.serve_waiting_apps();

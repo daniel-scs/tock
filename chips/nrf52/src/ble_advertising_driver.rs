@@ -73,6 +73,9 @@ use kernel::process::Error;
 use kernel::returncode::ReturnCode;
 use radio;
 
+/// Syscall Number
+pub const DRIVER_NUM: usize = 0x80_03_00_00;
+
 
 pub static mut BUF: [u8; 32] = [0; 32];
 

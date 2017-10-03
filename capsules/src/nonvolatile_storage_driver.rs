@@ -38,7 +38,7 @@
 //!     capsules::nonvolatile_storage_driver::NonvolatileStorage<'static>,
 //!     capsules::nonvolatile_storage_driver::NonvolatileStorage::new(
 //!         fm25cl,                      // The underlying storage driver.
-//!         kernel::Container::create(), // Storage for app-specific state.
+//!         kernel::Grant::create(), // Storage for app-specific state.
 //!         3000,                        // The byte start address for the userspace
 //!                                      // accessible memory region.
 //!         2000,                        // The length of the userspace region.
@@ -51,10 +51,9 @@
 
 use core::cell::Cell;
 use core::cmp;
-use kernel::{AppId, AppSlice, Callback, Container, Driver, ReturnCode, Shared};
+use kernel::{AppId, AppSlice, Callback, Grant, Driver, ReturnCode, Shared};
 use kernel::common::take_cell::TakeCell;
 use kernel::hil;
-use kernel::process::Error;
 
 pub static mut BUFFER: [u8; 512] = [0; 512];
 
@@ -102,7 +101,7 @@ pub struct NonvolatileStorage<'a> {
     // The underlying physical storage device.
     driver: &'a hil::nonvolatile_storage::NonvolatileStorage,
     // Per-app state.
-    apps: Container<App>,
+    apps: Grant<App>,
 
     // Internal buffer for copying appslices into.
     buffer: TakeCell<'static, [u8]>,
@@ -135,7 +134,7 @@ pub struct NonvolatileStorage<'a> {
 
 impl<'a> NonvolatileStorage<'a> {
     pub fn new(driver: &'a hil::nonvolatile_storage::NonvolatileStorage,
-               container: Container<App>,
+               grant: Grant<App>,
                userspace_start_address: usize,
                userspace_length: usize,
                kernel_start_address: usize,
@@ -144,7 +143,7 @@ impl<'a> NonvolatileStorage<'a> {
                -> NonvolatileStorage<'a> {
         NonvolatileStorage {
             driver: driver,
-            apps: container,
+            apps: grant,
             buffer: TakeCell::new(buffer),
             current_user: Cell::new(None),
             userspace_start_address: userspace_start_address,
@@ -263,11 +262,7 @@ impl<'a> NonvolatileStorage<'a> {
                                 }
                             }
                         })
-                        .unwrap_or_else(|err| match err {
-                            Error::OutOfMemory => ReturnCode::ENOMEM,
-                            Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                            Error::NoSuchApp => ReturnCode::EINVAL,
-                        })
+                        .unwrap_or_else(|err| err.into())
                 })
             }
             NonvolatileCommand::KernelRead |
@@ -475,11 +470,7 @@ impl<'a> Driver for NonvolatileStorage<'a> {
                 }
                 ReturnCode::SUCCESS
             })
-            .unwrap_or_else(|err| match err {
-                Error::OutOfMemory => ReturnCode::ENOMEM,
-                Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                Error::NoSuchApp => ReturnCode::EINVAL,
-            })
+            .unwrap_or_else(|err| err.into())
     }
 
     /// Setup callbacks.
@@ -498,11 +489,7 @@ impl<'a> Driver for NonvolatileStorage<'a> {
                 }
                 ReturnCode::SUCCESS
             })
-            .unwrap_or_else(|err| match err {
-                Error::OutOfMemory => ReturnCode::ENOMEM,
-                Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                Error::NoSuchApp => ReturnCode::EINVAL,
-            })
+            .unwrap_or_else(|err| err.into())
     }
 
     /// Command interface.
@@ -515,7 +502,7 @@ impl<'a> Driver for NonvolatileStorage<'a> {
     /// - `1`: Return the number of bytes available to userspace.
     /// - `2`: Start a read from the nonvolatile storage.
     /// - `3`: Start a write to the nonvolatile_storage.
-    fn command(&self, arg0: usize, arg1: usize, appid: AppId) -> ReturnCode {
+    fn command(&self, arg0: usize, arg1: usize, _: usize, appid: AppId) -> ReturnCode {
         let command_num = arg0 & 0xFF;
 
         match command_num {

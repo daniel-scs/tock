@@ -8,15 +8,17 @@
 //! ``rust
 //! let ninedof = static_init!(
 //!     capsules::ninedof::NineDof<'static>,
-//!     capsules::ninedof::NineDof::new(fxos8700, kernel::Container::create()));
+//!     capsules::ninedof::NineDof::new(fxos8700, kernel::Grant::create()));
 //! hil::sensors::NineDof::set_client(fxos8700, ninedof);
 //! ```
 
 use core::cell::Cell;
-use kernel::{AppId, Callback, Container, Driver};
+use kernel::{AppId, Callback, Grant, Driver};
 use kernel::ReturnCode;
 use kernel::hil;
-use kernel::process::Error;
+
+/// Syscall number
+pub const DRIVER_NUM: usize = 0x60004;
 
 
 #[derive(Clone,Copy,PartialEq)]
@@ -47,15 +49,15 @@ impl Default for App {
 
 pub struct NineDof<'a> {
     driver: &'a hil::sensors::NineDof,
-    apps: Container<App>,
+    apps: Grant<App>,
     current_app: Cell<Option<AppId>>,
 }
 
 impl<'a> NineDof<'a> {
-    pub fn new(driver: &'a hil::sensors::NineDof, container: Container<App>) -> NineDof<'a> {
+    pub fn new(driver: &'a hil::sensors::NineDof, grant: Grant<App>) -> NineDof<'a> {
         NineDof {
             driver: driver,
-            apps: container,
+            apps: grant,
             current_app: Cell::new(None),
         }
     }
@@ -78,11 +80,7 @@ impl<'a> NineDof<'a> {
                     ReturnCode::SUCCESS
                 }
             })
-            .unwrap_or_else(|err| match err {
-                Error::OutOfMemory => ReturnCode::ENOMEM,
-                Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                Error::NoSuchApp => ReturnCode::EINVAL,
-            })
+            .unwrap_or_else(|err| err.into())
     }
 
     fn call_driver(&self, command: NineDofCommand, _: usize) -> ReturnCode {
@@ -146,17 +144,13 @@ impl<'a> Driver for NineDof<'a> {
                         app.callback = Some(callback);
                         ReturnCode::SUCCESS
                     })
-                    .unwrap_or_else(|err| match err {
-                        Error::OutOfMemory => ReturnCode::ENOMEM,
-                        Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                        Error::NoSuchApp => ReturnCode::EINVAL,
-                    })
+                    .unwrap_or_else(|err| err.into())
             }
             _ => ReturnCode::ENOSUPPORT,
         }
     }
 
-    fn command(&self, command_num: usize, arg1: usize, appid: AppId) -> ReturnCode {
+    fn command(&self, command_num: usize, arg1: usize, _: usize, appid: AppId) -> ReturnCode {
         match command_num {
             0 => /* This driver exists. */ ReturnCode::SUCCESS,
 

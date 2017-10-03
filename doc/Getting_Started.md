@@ -7,15 +7,15 @@ developing Tock.
 ## Requirements
 
 1. [Rust](http://www.rust-lang.org/) (install `rustup` so Tock will choose the right version automatically)
-1. [Xargo](http://www.rust-lang.org/) (Rust `cargo` wrapper that installs core library for embedded targets)
-2. [arm-none-eabi toolchain](https://developer.arm.com/open-source/gnu-toolchain/gnu-rm/downloads) (version >= 5.2)
-3. Command line utilities: wget, sed, make, cmake
+2. [Xargo](http://www.rust-lang.org/) (Rust `cargo` wrapper that installs core library for embedded targets)
+3. [arm-none-eabi toolchain](https://developer.arm.com/open-source/gnu-toolchain/gnu-rm/downloads) (version >= 5.2)
+4. Command line utilities: wget, sed, make, cmake
 
 ### Installing Requirements
 
 #### Rust (nightly)
 
-We are using `rustc 1.19.0-nightly (04145943a 2017-06-19)`. We recommend
+We are using `rustc 1.22.0-nightly (325ba23d5 2017-09-19)`. We recommend
 installing it with [rustup](http://www.rustup.rs) so you can manage multiple
 versions of Rust and continue using stable versions for other Rust code:
 
@@ -30,7 +30,7 @@ to your `$PATH`.
 Then install the correct nightly version of Rust:
 
 ```bash
-$ rustup install nightly-2017-06-20
+$ rustup install nightly-2017-09-20
 ```
 
 #### Xargo
@@ -97,8 +97,8 @@ Check that you have a 64-bit version of libc installed.
 
 ```bash
 $ sudo add-apt-repository ppa:team-gcc-arm-embedded/ppa
-$ sudo apt-get update
-$ sudo apt-get install gcc-arm-embedded
+$ sudo apt update
+$ sudo apt install gcc-arm-embedded
 ```
 
 ###### Arch
@@ -125,37 +125,22 @@ you can use the build scripts in the `tools` directory, in this order:
 
 ## Compiling the Kernel
 
-To build the kernel, just type `make` in the root directory.  The root
-Makefile selects a board and architecture to build the kernel for and
-routes all calls to that board's specific Makefile. The root Makefile
-is set up with the following defaults:
+Tock builds a unique kernel for every _board_ it supports. Boards include
+details like pulling together the correct chips and pin assignments. To
+build a kernel, first choose a board, then navigate to that board directory.
+e.g. `cd boards/hail ; make`.
 
-```
-TOCK_BOARD ?= hail
-```
+Some boards have special build options that can only be used within the board's
+directory.  All boards share a few common targets:
 
-Thus it compiles for the Hail board by default. There are two ways to
-build for a different board:
+  - `all` (default): Compile Tock for this board.
+  - `debug`: Generate build(s) for debugging support, details vary per board.
+  - `doc`: Build documentation for this board.
+  - `clean`: Remove built artifacts for this board.
+  - `flash`: Load code using JTAG, if available.
+  - `program`: Load code using a bootloader, if available.
 
- * You can compile the kernel for a specific board by running the command
-   from inside the board's directory:
-
-    ```bash
-    $ cd boards/nrf51dk/
-    $ make
-    ```
-
- * Alternatively, you can add a `TOCK_BOARD` environment variable where
-    `TOCK_BOARD` is the directory name inside `boards/`.
-
-    ```bash
-    $ make TOCK_BOARD=nrf51dk
-    ```
-
-Board specific Makefiles are located in `boards/<BOARD>/`. Some boards have
-special build options that can only be used within the board's directory.
-Generic options such as `clean`, `doc`, `debug`, `program`, and `flash` can be
-accessed from Tock's root.
+The READMEs in each board provide more details for each platform.
 
 ## Compiling applications
 
@@ -185,13 +170,6 @@ $ make
 This will build the app and generate a binary in Tock Binary Format
 (using the `elf2tbf` utility):
 `userland/examples/blink/build/cortex-m4/cortex-m4.bin`.
-
-Alternatively, apps can be built and automatically uploaded from the
-Tock root directory:
-
-```bash
-$ make examples/blink
-```
 
 ## Loading the kernel and applications onto a board
 
@@ -248,7 +226,8 @@ the board specific READMEs:
 
 * [imix](../boards/imix/README.md)
 * [Hail](../boards/hail/README.md)
-* [nRF](../boards/nrf51dk/README.md)
+* [nRF51-DK](../boards/nrf51dk/README.md)
+* [nRF52-DK](../boards/nrf52dk/README.md)
 
 
 ## Formatting Rust Source Code

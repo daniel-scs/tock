@@ -1,4 +1,4 @@
-Platform-Specific Instructions: nRF
+Platform-Specific Instructions: nRF51-DK
 ===================================
 
 The [nRF51 Development
@@ -19,17 +19,25 @@ software](../../doc/Getting_Started.md#optional-requirements).
 ### Programming the kernel
 
 Once you have all software installed, you should be able to simply run
-`make TOCK_BOARD=nrf51dk flash` to install a fresh kernel.
-
-You can omit `TOCK_BOARD` if you run `make flash` in the nrf51dk directory.
+`make flash` in this directory to install a fresh kernel.
 
 ### Programming user-level applications
 
-After building (`make` in the application folder), you can program an
-application using tockloader:
+You can program an application via JTAG and there are two ways to do so:
+ 1. via `tockloader`:
 
-    tockloader install --jtag --board nrf51dk --arch cortex-m0
-    
+    ```bash
+    $ cd userland/examples/<app>
+    $ make
+    $ tockloader install --jtag --board nrf51dk --arch cortex-m0
+    ```
+
+ 2. Alternatively, via `flash`:
+    ```bash
+    $ cd userland/examples/<app>
+    $ make TOCK_BOARD=nrf51dk flash
+    ```
+
 If you run this in the application folder, `tockloader` will automatically
 find the tab to flash, otherwise you need to specify the path.
 
@@ -84,8 +92,8 @@ layout reg
 ```
 
 will give you a 3-window layout, showing the current state of the
-main registers, and the current assembly instruction. 
-Note that Rust support debugging symbols but there is too little memory available on nrf51dk to enable that. 
+main registers, and the current assembly instruction.
+Note that Rust supports debugging symbols but there is too little memory available on nrf51dk to enable that.
 You have to use the generated assembly.
 
 Since Rust heavily optimized and inlines code, it can be difficult to
