@@ -63,6 +63,7 @@ pub struct Aes<'a> {
     registers: *mut AesRegisters,
 
     client: Cell<Option<&'a hil::symmetric_encryption::Client>>,
+    source: Cell<Option<&'a [u8]>>,
     data: TakeCell<'a, [u8]>,
 
     // An index into the current request buffer marking how much data
@@ -82,6 +83,7 @@ impl<'a> Aes<'a> {
         Aes {
             registers: AES_BASE as *mut AesRegisters,
             client: Cell::new(None),
+            source: Cell::new(None),
             data: TakeCell::empty(),
             write_index: Cell::new(0),
             read_index: Cell::new(0),
@@ -167,11 +169,21 @@ impl<'a> Aes<'a> {
                 stop_index <= data.len() })
             {
                 self.write_index.set(start_index);
-                self.read_index.set(start_index);
                 self.stop_index.set(stop_index);
 
-                // Indices OK
-                true
+                if let Some(source) = self.source.get() {
+                    if sublen == source.len() {
+                        self.read_index.set(0);
+                        true
+                    } else {
+                        // Inequal source and dest lengths
+                        false
+                    }
+                }
+                else {
+                    self.read_index.set(start_index);
+                    true
+                }
             } else {
                 // Indices invalid
                 false
@@ -345,6 +357,15 @@ impl<'a> hil::symmetric_encryption::AES128<'a> for Aes<'a> {
         }
 
         ReturnCode::SUCCESS
+    }
+
+    fn set_source(&'a self, buf: &'a [u8]) -> ReturnCode {
+        if buf.len() % AES128_BLOCK_SIZE == 0 {
+            self.source.set(buf);
+            ReturnCode::SUCCESS
+        } else {
+            ReturnCode::EINVAL
+        }
     }
 
     fn take_data(&'a self) -> Result<Option<&'a mut [u8]>, ReturnCode> {

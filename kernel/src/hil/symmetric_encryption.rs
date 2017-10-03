@@ -20,6 +20,8 @@ pub trait AES128<'a> {
     fn set_key(&'a self, key: &'a [u8]) -> ReturnCode;
     fn set_iv(&'a self, iv: &'a [u8]) -> ReturnCode;
 
+    fn set_source(&'a self, buf: &'a [u8]) -> ReturnCode;
+
     /// Set the optional data buffer.
     /// The option should be full whenever `crypt()` is called.
     /// Returns SUCCESS if the buffer was installed, or EBUSY
