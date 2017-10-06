@@ -4,20 +4,30 @@
 
 use returncode::ReturnCode;
 
+/// Implement this trait and use `set_client()` in order to receive callbacks from an `AES128`
+/// instance.
 pub trait Client {
     fn crypt_done(&self);
 }
 
+/// The number of bytes used for AES block operations.  Keys and IVs must have this length,
+/// and encryption/decryption inputs must be have a multiple of this length.
 pub const AES128_BLOCK_SIZE: usize = 16;
 
 pub trait AES128<'a> {
-    // Must be called before any other methods
+    /// Enable the AES hardware; must be called before any other methods
     fn enable(&self);
 
+    /// Disable the AES hardware
     fn disable(&self);
 
+    /// Set the client instance which will receive `crypt_done()` callbacks
     fn set_client(&'a self, client: &'a Client);
+
+    /// Set the encryption key; returns `EINVAL` if length is not `AES128_BLOCK_SIZE`
     fn set_key(&'a self, key: &'a [u8]) -> ReturnCode;
+
+    /// Set the IV (or initial counter); returns `EINVAL` if length is not `AES128_BLOCK_SIZE`
     fn set_iv(&'a self, iv: &'a [u8]) -> ReturnCode;
 
     /// Set the source buffer.  If this is full, the encryption
@@ -27,7 +37,9 @@ pub trait AES128<'a> {
     /// to provide the plaintext input.
     fn set_source(&'a self, buf: Option<&'a [u8]>) -> ReturnCode;
 
-    /// Set the destination buffer.
+    /// Set the destination buffer.  If `set_source()` has not
+    /// been used to pass a source buffer, this buffer will also
+    /// provide the encryption input, which will be overwritten.
     /// The option should be full whenever `crypt()` is called.
     /// Returns SUCCESS if the buffer was installed, or EBUSY
     /// if the encryption unit is still busy.
@@ -52,24 +64,24 @@ pub trait AES128<'a> {
     ///
     /// If SUCCESS is returned, the client's `crypt_done` method will eventually
     /// be called, and the portion of the data buffer between `start_index`
-    /// and `stop_index` will hold the encryption/decryption of its former
-    /// contents.
+    /// and `stop_index` will hold the result of the encryption/decryption.
     ///
     /// For correct operation, the methods `set_key` and `set_iv` must have
     /// previously been called to set the buffers containing the
-    /// key and the IV (or initial counter value), and these buffers must
-    /// not be modified until `crypt_done` is called.
+    /// key and the IV (or initial counter value), and a method `set_mode_*()`
+    /// must have been called to set the desired mode.  These settings persist
+    /// across calls to `crypt()`.
     fn crypt(&self,
              start_index: usize,
              stop_index: usize) -> ReturnCode;
 }
 
 pub trait AES128Ctr {
-    // Call before crypt() to perform AES128Ctr
+    /// Call before `AES128::crypt()` to perform AES128Ctr
     fn set_mode_aes128ctr(&self, encrypting: bool);
 }
 
 pub trait AES128CBC {
-    // Call before crypt() to perform AES128CBC
+    /// Call before `AES128::crypt()` to perform AES128CBC
     fn set_mode_aes128cbc(&self, encrypting: bool);
 }
