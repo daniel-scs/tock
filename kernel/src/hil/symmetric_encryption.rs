@@ -20,17 +20,22 @@ pub trait AES128<'a> {
     fn set_key(&'a self, key: &'a [u8]) -> ReturnCode;
     fn set_iv(&'a self, iv: &'a [u8]) -> ReturnCode;
 
-    fn set_source(&'a self, buf: &'a [u8]) -> ReturnCode;
+    /// Set the source buffer.  If this is full, the encryption
+    /// input will be this entire buffer, and its size must match
+    /// `stop_index - start_index` when `crypt()` is called.
+    /// If this is empty, the destination buffer will be read
+    /// to provide the plaintext input.
+    fn set_source(&'a self, buf: Option<&'a [u8]>) -> ReturnCode;
 
-    /// Set the optional data buffer.
+    /// Set the destination buffer.
     /// The option should be full whenever `crypt()` is called.
     /// Returns SUCCESS if the buffer was installed, or EBUSY
     /// if the encryption unit is still busy.
-    fn put_data(&'a self, data: Option<&'a mut [u8]>) -> ReturnCode;
+    fn put_dest(&'a self, dest: Option<&'a mut [u8]>) -> ReturnCode;
 
-    /// Return the data buffer, if any.
+    /// Return the destination buffer, if any.
     /// Returns EBUSY if the encryption unit is still busy.
-    fn take_data(&'a self) -> Result<Option<&'a mut [u8]>, ReturnCode>;
+    fn take_dest(&'a self) -> Result<Option<&'a mut [u8]>, ReturnCode>;
 
     /// Begin a new message (with the configured IV) when `crypt()` is next
     /// called.  Multiple calls to `put_data()` and `crypt()` may be made

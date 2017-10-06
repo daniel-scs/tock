@@ -39,7 +39,7 @@ impl Cli {
                     let encrypting = true;
                     AES.set_mode_aes128ctr(encrypting);
                     AES.start_message();
-                    assert!(AES.put_data(Some(&mut DATA)) == ReturnCode::SUCCESS);
+                    assert!(AES.put_dest(Some(&mut DATA)) == ReturnCode::SUCCESS);
 
                     let start = 0;
                     let stop = DATA.len();
@@ -58,7 +58,7 @@ impl Cli {
                     let encrypting = false;
                     AES.set_mode_aes128ctr(encrypting);
                     AES.start_message();
-                    assert!(AES.put_data(Some(&mut DATA)) == ReturnCode::SUCCESS);
+                    assert!(AES.put_dest(Some(&mut DATA)) == ReturnCode::SUCCESS);
 
                     let start = 0;
                     let stop = DATA.len();
@@ -77,8 +77,8 @@ impl hil::symmetric_encryption::Client for Cli {
         match self.mode.get() {
             Mode::Encrypting => {
                 unsafe {
-                    let data = AES.take_data().unwrap().unwrap();
-                    if data == CTXT.as_ref() {
+                    let dest = AES.take_dest().unwrap().unwrap();
+                    if dest == CTXT.as_ref() {
                         debug!("Encrypted OK!");
                     } else {
                         debug!("*** BAD CTXT");
@@ -92,8 +92,8 @@ impl hil::symmetric_encryption::Client for Cli {
             }
             Mode::Decrypting => {
                 unsafe {
-                    let data = AES.take_data().unwrap().unwrap();
-                    if data == PTXT.as_ref() {
+                    let dest = AES.take_dest().unwrap().unwrap();
+                    if dest == PTXT.as_ref() {
                         debug!("Decrypted OK!");
                     } else {
                         debug!("*** BAD PTXT");
