@@ -486,8 +486,5 @@ pub unsafe fn reset_handler() {
                                     &mut PROCESSES,
                                     FAULT_RESPONSE);
 
-    debug!("Running AES test");
-    aes_test::run();
-
     kernel::main(&imix, &mut chip, &mut PROCESSES, &imix.ipc);
 }

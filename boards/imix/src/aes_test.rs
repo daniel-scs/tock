@@ -64,7 +64,7 @@ impl Test {
 
             // Copy source into dest and then crypt in-place
             for (i, b) in source.iter().enumerate() {
-                DATA[i] = *b;
+                DATA[DATA_OFFSET + i] = *b;
             }
         }
 
@@ -77,8 +77,8 @@ impl Test {
         }
         AES.start_message();
 
-        let start = 0;
-        let stop = DATA.len();
+        let start = DATA_OFFSET;
+        let stop = DATA_OFFSET + DATA_LEN;
         assert!(AES.crypt(start, stop) == ReturnCode::SUCCESS);
 
         // await crypt_done()
@@ -92,7 +92,7 @@ impl hil::symmetric_encryption::Client for Test {
                                             else { &CTXT_CBC } }
                        else { &PTXT };
 
-        if dest == expected.as_ref() {
+        if &dest[DATA_OFFSET .. DATA_OFFSET + DATA_LEN] == expected.as_ref() {
             debug!("OK!");
         } else {
             debug!("FAIL");
@@ -102,7 +102,10 @@ impl hil::symmetric_encryption::Client for Test {
     }}
 }
 
-static mut DATA: [u8; 4 * AES128_BLOCK_SIZE] = [0; 4 * AES128_BLOCK_SIZE];
+static mut DATA: [u8; 6 * AES128_BLOCK_SIZE] = [0; 6 * AES128_BLOCK_SIZE];
+
+const DATA_OFFSET: usize = AES128_BLOCK_SIZE;
+const DATA_LEN: usize = 4 * AES128_BLOCK_SIZE;
 
 static KEY: [u8; AES128_BLOCK_SIZE] = [
     0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
