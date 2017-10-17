@@ -19,6 +19,7 @@ use kernel::hil::Controller;
 use kernel::hil::radio;
 use kernel::hil::radio::{RadioConfig, RadioData};
 use kernel::hil::spi::SpiMaster;
+use kernel::hil::clock_change::SystemClockChanged;
 
 #[macro_use]
 pub mod io;
@@ -475,6 +476,12 @@ pub unsafe fn reset_handler() {
     // initialization to work.
     rf233.reset();
     rf233.start();
+
+    debug!("Slowing the clock to 16MHz");
+    sam4l::pm::PM.slow_clock();
+
+    debug!("Reconfiguring USART");
+    sam4l::usart::USART3.system_clock_changed();
 
     debug!("Initialization complete. Entering main loop");
     extern "C" {

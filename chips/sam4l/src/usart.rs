@@ -97,6 +97,8 @@ pub struct USART {
     client: Cell<Option<UsartClient<'static>>>,
 
     spi_chip_select: Cell<Option<&'static hil::gpio::Pin>>,
+
+    params: Cell<Option<hil::uart::UARTParams>>,
 }
 
 // USART hardware peripherals on SAM4L
@@ -151,6 +153,8 @@ impl USART {
 
             // This is only used if the USART is in SPI mode.
             spi_chip_select: Cell::new(None),
+
+            params: Cell::new(None),
         }
     }
 
@@ -585,6 +589,18 @@ impl dma::DMAClient for USART {
     }
 }
 
+impl hil::clock_change::SystemClockChanged for USART {
+    fn system_clock_changed(&self) {
+        if let Some(params) = self.params.get() {
+            // Update the USART's bit-clock settings
+            self.set_baud_rate(params.baud_rate);
+        } else {
+            // The `init()` method hasn't been called yet,
+            // so we don't need to change anything
+        }
+    }
+}
+
 /// Implementation of kernel::hil::UART
 impl hil::uart::UART for USART {
     fn set_client(&self, client: &'static hil::uart::Client) {
@@ -593,6 +609,8 @@ impl hil::uart::UART for USART {
     }
 
     fn init(&self, params: hil::uart::UARTParams) {
+        self.params.set(Some(params));
+
         self.usart_mode.set(UsartMode::Uart);
 
         // enable USART clock

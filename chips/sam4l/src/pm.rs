@@ -275,6 +275,14 @@ impl PowerManager {
             }
         }
     }
+
+    // Assuming we have previously done setup_system_clock(PllExternalOscillatorAt48MHz, ...),
+    // downgrade to the PLL by itself (16MHz).
+    // (Temporary hack)
+    pub unsafe fn slow_clock(&self) {
+        self.system_frequency.set(16000000);
+        select_main_clock(MainClock::OSC0);
+    }
 }
 
 unsafe fn unlock(register_offset: u32) {
