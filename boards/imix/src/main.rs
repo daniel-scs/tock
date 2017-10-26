@@ -19,6 +19,7 @@ use kernel::hil::Controller;
 use kernel::hil::radio;
 use kernel::hil::radio::{RadioConfig, RadioData};
 use kernel::hil::spi::SpiMaster;
+use kernel::hil::symmetric_encryption::AES128;
 
 #[macro_use]
 pub mod io;
@@ -454,6 +455,10 @@ pub unsafe fn reset_handler() {
         capsules::usb_user::UsbSyscallDriver::new(
             usb_client, kernel::Grant::create()));
 
+    let aes_test = aes_test::static_init_test(&mut sam4l::aes::AES);
+    sam4l::aes::AES.set_client(aestest);
+    aestest.run();
+
     let imix = Imix {
         console: console,
         alarm: alarm,
@@ -470,6 +475,7 @@ pub unsafe fn reset_handler() {
         ninedof: ninedof,
         radio_driver: radio_driver,
         usb_driver: usb_driver,
+        tests: [&aes_test],
     };
 
     let mut chip = sam4l::chip::Sam4l::new();
@@ -488,8 +494,6 @@ pub unsafe fn reset_handler() {
                                     &mut APP_MEMORY,
                                     &mut PROCESSES,
                                     FAULT_RESPONSE);
-
-    aes_test::run();
 
     kernel::main(&imix, &mut chip, &mut PROCESSES, &imix.ipc);
 }
