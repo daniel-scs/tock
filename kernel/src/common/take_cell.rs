@@ -260,7 +260,7 @@ impl<T> MapCell<T> {
             None
         }
     }
-
+    
     pub fn map_or<F, R>(&self, default: R, closure: F) -> R
         where F: FnOnce(&mut T) -> R
     {
@@ -289,6 +289,15 @@ impl<T> MapCell<T> {
     {
         if self.map(modify).is_none() {
             self.put(mkval());
+        }
+    }
+
+    pub fn modify_owned<F>(&self, modify: F)
+        where F: FnOnce(Option<T>) -> Option<T>
+    {
+        match modify(self.take()) {
+            Some(x) => { self.put(x); }
+            None => { self.take(); }
         }
     }
 }
