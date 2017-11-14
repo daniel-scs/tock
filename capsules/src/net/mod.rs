@@ -8,4 +8,5 @@ pub mod frag_utils;
 #[macro_use]
 pub mod stream;
 pub mod ieee802154;
+pub mod socket;
 pub mod thread;
