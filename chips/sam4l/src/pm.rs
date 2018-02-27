@@ -142,6 +142,14 @@ pub enum PBDClock {
     PICOUART,
 }
 
+#[derive(Copy,Clone,Debug,PartialEq)]
+pub enum RcfastFrequency {
+    /// RCFAST frequencies
+    Frequency4MHz,
+    Frequency8MHz,
+    Frequency12MHz,
+}
+
 /// Frequency of the external oscillator. For the SAM4L, different
 /// configurations are needed for different ranges of oscillator frequency, so
 /// based on the input frequency, various configurations may need to change.
@@ -187,6 +195,10 @@ pub enum SystemClockSource {
     /// system frequency will be 115 kHz. Note that while this is the default,
     /// Tock is NOT guaranteed to work on this setting and will likely fail.
     RcsysAt115kHz,
+
+    RCFAST {
+        frequency: RcfastFrequency,
+    },
 
     /// Use the internal digital frequency locked loop (DFLL) sourced from
     /// the internal RC32K clock. Note this typically requires calibration
@@ -277,6 +289,10 @@ impl PowerManager {
                 configure_external_oscillator_pll(frequency, startup_mode);
                 self.system_frequency.set(48000000);
             }
+
+            SystemClockSource::RCFAST { frequency } => {
+                configure_rcfast(frequency);
+            }
         }
     }
 }
@@ -364,6 +380,29 @@ unsafe fn configure_external_oscillator_pll(
 
     // Set the main clock to be the PLL
     select_main_clock(MainClock::PLL);
+}
+
+unsafe fn configure_rcfast(frequency: RcfastFrequency)
+{
+    match frequency {
+        RcfastFrequency::Frequency4MHz => {
+            scif::setup_rcfast_4mhz();
+            PM.system_frequency.set(4300000);
+        }
+        RcfastFrequency::Frequency8MHz => {
+            scif::setup_rcfast_8mhz();
+            PM.system_frequency.set(8200000);
+        }
+        RcfastFrequency::Frequency12MHz => {
+            scif::setup_rcfast_12mhz();
+            PM.system_frequency.set(12000000);
+        }
+    }
+
+    // Set wait state
+    flashcalw::FLASH_CONTROLLER.set_wait_state(0);
+
+    select_main_clock(MainClock::RCFAST);
 }
 
 pub fn get_system_frequency() -> u32 {

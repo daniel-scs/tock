@@ -1,24 +1,58 @@
 #include <stdbool.h>
 
+#include <stdio.h>
 #include <led.h>
 #include <spi.h>
+#include <timer.h>
 
 #define BUF_SIZE 200
 char rbuf[BUF_SIZE];
 char wbuf[BUF_SIZE];
 bool toggle = true;
+bool got_callback = false;
+
+static int spi_read_write_x(const char* write, char* read, size_t len, subscribe_cb cb, bool* cond) {
+  int r = spi_read_write(write, read, len, cb, cond);
+
+  if (r != 0) {
+    while (1) {
+      led_toggle(0);
+      delay_ms(25);
+      led_toggle(0);
+      delay_ms(25);
+      led_toggle(0);
+      delay_ms(25);
+
+      led_toggle(0);
+      delay_ms(100);
+      led_toggle(0);
+      delay_ms(100);
+      led_toggle(0);
+      delay_ms(100);
+    }
+  }
+
+  return r;
+}
 
 static void write_cb(__attribute__ ((unused)) int arg0,
                      __attribute__ ((unused)) int arg2,
                      __attribute__ ((unused)) int arg3,
                      __attribute__ ((unused)) void* userdata) {
   led_toggle(0);
+  delay_ms(25);
+
   if (toggle) {
-    spi_read_write(rbuf, wbuf, BUF_SIZE, write_cb, NULL);
+    spi_read_write_x(rbuf, wbuf, BUF_SIZE, write_cb, NULL);
   } else {
-    spi_read_write(wbuf, rbuf, BUF_SIZE, write_cb, NULL);
+    spi_read_write_x(wbuf, rbuf, BUF_SIZE, write_cb, NULL);
   }
   toggle = !toggle;
+
+  if (got_callback == false) {
+    printf("*** Got SPI callback!\n");
+    got_callback = true;
+  }
 }
 
 // This function can operate in one of two modes. Either
@@ -50,5 +84,7 @@ int main(void) {
   spi_set_rate(400000);
   spi_set_polarity(false);
   spi_set_phase(false);
-  spi_read_write(wbuf, rbuf, BUF_SIZE, write_cb, NULL);
+  spi_read_write_x(wbuf, rbuf, BUF_SIZE, write_cb, NULL);
+
+  printf("*** Made SPI request\n");
 }

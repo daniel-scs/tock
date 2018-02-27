@@ -394,7 +394,7 @@ impl FLASHCALW {
         }
     }
 
-    fn set_wait_state(&self, wait_state: u32) {
+    pub fn set_wait_state(&self, wait_state: u32) {
         let regs: &FlashcalwRegisters = unsafe { &*self.registers };
         if wait_state == 1 {
             regs.fcr.set(regs.fcr.get() | bit!(6));

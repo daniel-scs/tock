@@ -241,6 +241,47 @@ pub unsafe fn setup_pll_osc_48mhz() {
     while (*SCIF).pclksr.get() & (1 << 6) == 0 {}
 }
 
+pub unsafe fn setup_rcfast_4mhz() {
+    // Let FCD and calibration value by default
+    let mut scif_rcfastcfg = (*SCIF).rcfastcfg.get();
+    // Clear the previous FRANGE value and disable Tuner
+    scif_rcfastcfg &= !((0x3 << 8) | (1 << 1));
+
+    (*SCIF).unlock.set(0xAA000008);
+    // Enable the RCFAST register
+    //open loop mode - tuner is disabled and doesn't need a 32K clock source
+    (*SCIF).rcfastcfg.set(scif_rcfastcfg | (0x0 << 8) | (1 << 0));
+    // Wait for the 4MHz RC to be ready
+    while (*SCIF).rcfastcfg.get() & (1 << 0) == 0 {}
+}
+
+pub unsafe fn setup_rcfast_8mhz() {
+    // Let FCD and calibration value by default
+    let mut scif_rcfastcfg = (*SCIF).rcfastcfg.get();
+    // Clear the previous FRANGE value
+    scif_rcfastcfg &= !((0x3 << 8) | (1 << 1));
+
+    (*SCIF).unlock.set(0xAA000008);
+    // Enable the RCFAST register
+    //open loop mode - tuner is disabled and doesn't need a 32K clock source
+    (*SCIF).rcfastcfg.set(scif_rcfastcfg | (0x1 << 8) | (1 << 0));
+    // Wait for the 8MHz RC to be ready
+    while (*SCIF).rcfastcfg.get() & (1 << 0) == 0 {}
+}
+
+pub unsafe fn setup_rcfast_12mhz() {
+    // Let FCD and calibration value by default
+    let mut scif_rcfastcfg = (*SCIF).rcfastcfg.get();
+    scif_rcfastcfg &= !((0x3 << 8) | (1 << 1));
+
+    (*SCIF).unlock.set(0xAA000008);
+    // Enable the RCFAST register
+    //open loop mode - tuner is disabled and doesn't need a 32K clock source
+    (*SCIF).rcfastcfg.set(scif_rcfastcfg | (0x2 << 8) | (1 << 0));
+    // Wait for the 12MHz RC to be ready
+    while (*SCIF).rcfastcfg.get() & (1 << 0) == 0 {}
+}
+
 pub fn generic_clock_disable(clock: GenericClock) {
     unsafe {
         match clock {
