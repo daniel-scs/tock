@@ -222,6 +222,11 @@ unsafe fn set_pin_primary_functions() {
 pub unsafe fn reset_handler() {
     sam4l::init();
 
+    /*
+    sam4l::pm::PM.setup_system_clock(sam4l::pm::SystemClockSource::RCFAST {
+        frequency: sam4l::pm::RcFastFrequency::Frequency8MHz
+    });
+    */
     sam4l::pm::PM.setup_system_clock(sam4l::pm::SystemClockSource::PllExternalOscillatorAt48MHz {
         frequency: sam4l::pm::OscillatorFrequency::Frequency16MHz,
         startup_mode: sam4l::pm::OscillatorStartup::FastStart,

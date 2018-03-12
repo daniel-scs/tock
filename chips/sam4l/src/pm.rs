@@ -208,6 +208,17 @@ pub enum SystemClockSource {
         frequency: OscillatorFrequency,
         startup_mode: OscillatorStartup,
     },
+
+	RCFAST {
+        frequency: RcFastFrequency,
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum RcFastFrequency {
+    Frequency4MHz,
+    Frequency8MHz,
+    Frequency12MHz,
 }
 
 const PM_BASE: usize = 0x400E0000;
@@ -276,6 +287,10 @@ impl PowerManager {
             } => {
                 configure_external_oscillator_pll(frequency, startup_mode);
                 self.system_frequency.set(48000000);
+            }
+
+            SystemClockSource::RCFAST { frequency } => {
+                configure_rcfast(frequency)
             }
         }
     }
@@ -364,6 +379,29 @@ unsafe fn configure_external_oscillator_pll(
 
     // Set the main clock to be the PLL
     select_main_clock(MainClock::PLL);
+}
+
+unsafe fn configure_rcfast(frequency: RcFastFrequency) {
+
+    match frequency {
+        RcFastFrequency::Frequency4MHz => {
+            scif::setup_rcfast_4mhz();
+            PM.system_frequency.set(4300000);
+        }
+        RcFastFrequency::Frequency8MHz => {
+            scif::setup_rcfast_8mhz();
+            PM.system_frequency.set(8200000);
+        }
+        RcFastFrequency::Frequency12MHz => {
+            scif::setup_rcfast_12mhz();
+            PM.system_frequency.set(12000000);
+        }
+    }
+
+    // Set wait state
+    flashcalw::FLASH_CONTROLLER.set_wait_state(0);
+
+	select_main_clock(MainClock::RCFAST);
 }
 
 pub fn get_system_frequency() -> u32 {

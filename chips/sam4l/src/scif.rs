@@ -25,6 +25,7 @@ pub enum Register {
     DFLL0MUL = 0x30,
     DFLL0STEP = 0x34,
     DFLL0SSG = 0x38,
+	RCFASTCFG = 0x48,
 }
 
 #[allow(non_camel_case_types)]
@@ -88,7 +89,7 @@ struct ScifRegisters {
     dfll0ratio: ReadOnly<u32>,
     dfll0sync: WriteOnly<u32>,
     rccr: ReadWrite<u32>,
-    rcfastcfg: ReadWrite<u32>,
+    rcfastcfg: ReadWrite<u32, RcFastCfg::Register>,
     rcfastsr: ReadOnly<u32>,
     rc80mcr: ReadWrite<u32>,
     _reserved0: [u32; 4],
@@ -184,7 +185,17 @@ register_bitfields![u32,
             // is not clear in which order the bits are stored
         ],
         PLLEN OFFSET(0) NUMBITS(1) []
-    ]
+    ],
+	RcFastCfg [
+        FRANGE OFFSET(8) NUMBITS(2) [
+            Range4MHz = 0,
+            Range8MHz = 1,
+            Range12MHz = 2
+        ],
+        FCD OFFSET(7) NUMBITS(1) [],
+        TUNEEN OFFSET(1) NUMBITS(1) [],
+        EN OFFSET(0) NUMBITS(1) []
+	]
 ];
 
 const SCIF_BASE: usize = 0x400E0800;
@@ -223,6 +234,47 @@ pub fn oscillator_disable() {
     unlock(Register::OSCCTRL0);
     unsafe {
         (*SCIF).oscctrl0.write(Oscillator::OSCEN::CLEAR);
+    }
+}
+
+pub fn setup_rcfast(range: FieldValue<u32, RcFastCfg::Register>) {
+    // Open-loop mode: tuner is disabled and doesn't need a 32K clock source
+    let new_config = range +
+                     RcFastCfg::TUNEEN::CLEAR +
+                     RcFastCfg::EN::SET;
+    unsafe {
+        let new_register_value = new_config.modify((*SCIF).rcfastcfg.get());
+
+        unlock(Register::RCFASTCFG);
+        (*SCIF).rcfastcfg.set(new_register_value);
+
+        // Wait until RCFAST is ready
+        while !(*SCIF).rcfastcfg.is_set(RcFastCfg::EN) {}
+    }
+}
+
+pub fn setup_rcfast_4mhz() {
+    setup_rcfast(RcFastCfg::FRANGE::Range4MHz);
+}
+
+pub fn setup_rcfast_8mhz() {
+    setup_rcfast(RcFastCfg::FRANGE::Range8MHz);
+}
+
+pub fn setup_rcfast_12mhz() {
+    setup_rcfast(RcFastCfg::FRANGE::Range12MHz);
+}
+
+pub fn disable_rcfast() {
+    let new_config = RcFastCfg::EN::CLEAR;
+    unsafe {
+        let new_register_value = new_config.modify((*SCIF).rcfastcfg.get());
+
+        unlock(Register::RCFASTCFG);
+        (*SCIF).rcfastcfg.set(new_register_value);
+
+        // Wait until RCFAST is disabled
+        while (*SCIF).rcfastcfg.is_set(RcFastCfg::EN) {}
     }
 }
 
