@@ -238,6 +238,12 @@ pub fn oscillator_disable() {
 }
 
 pub fn setup_rcfast(range: FieldValue<u32, RcFastCfg::Register>) {
+
+    // Wait for CALIB field to be loaded from flash
+    unsafe {
+        while !(*SCIF).rcfastcfg.is_set(RcFastCfg::FCD) {}
+    }
+
     // Open-loop mode: tuner is disabled and doesn't need a 32K clock source
     let new_config = range +
                      RcFastCfg::TUNEEN::CLEAR +

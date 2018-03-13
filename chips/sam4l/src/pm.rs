@@ -303,6 +303,8 @@ unsafe fn unlock(register_offset: u32) {
 unsafe fn select_main_clock(clock: MainClock) {
     unlock(0);
     (*PM_REGS).mcctrl.set(clock as u32);
+
+    // Wait for clock to become ready
 }
 
 /// Configure the system clock to use the DFLL with the RC32K as the source.

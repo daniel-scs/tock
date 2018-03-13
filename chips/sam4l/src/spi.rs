@@ -297,7 +297,7 @@ impl Spi {
     }
 
     pub fn get_baud_rate(&self) -> u32 {
-        let clock = 48000000;
+        let clock = pm::get_system_frequency();
         let scbr = self.get_active_csr().read(ChipSelectParams::SCBR);
         clock / scbr
     }
