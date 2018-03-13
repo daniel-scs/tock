@@ -90,7 +90,7 @@ struct ScifRegisters {
     dfll0sync: WriteOnly<u32>,
     rccr: ReadWrite<u32>,
     rcfastcfg: ReadWrite<u32, RcFastCfg::Register>,
-    rcfastsr: ReadOnly<u32>,
+    rcfastsr: ReadOnly<u32, RcFastStatus::Register>,
     rc80mcr: ReadWrite<u32>,
     _reserved0: [u32; 4],
     hrpcr: ReadWrite<u32>,
@@ -187,15 +187,25 @@ register_bitfields![u32,
         PLLEN OFFSET(0) NUMBITS(1) []
     ],
 	RcFastCfg [
+        LOCKMARGIN OFFSET(12) NUMBITS(4) [
+            Max = 15
+        ],
         FRANGE OFFSET(8) NUMBITS(2) [
             Range4MHz = 0,
             Range8MHz = 1,
             Range12MHz = 2
         ],
         FCD OFFSET(7) NUMBITS(1) [],
+        NBPERIODS OFFSET(4) NUMBITS(3) [
+            Max = 7
+        ],
         TUNEEN OFFSET(1) NUMBITS(1) [],
         EN OFFSET(0) NUMBITS(1) []
-	]
+	],
+    RcFastStatus [
+        LOCKLOST 25,
+        LOCK 24
+    ]
 ];
 
 const SCIF_BASE: usize = 0x400E0800;
@@ -237,50 +247,91 @@ pub fn oscillator_disable() {
     }
 }
 
-pub fn setup_rcfast(range: FieldValue<u32, RcFastCfg::Register>) {
+pub fn setup_rcfast_4mhz(closed_loop: bool) {
+    setup_rcfast(RcFastCfg::FRANGE::Range4MHz, closed_loop);
+}
 
-    // Wait for CALIB field to be loaded from flash
+pub fn setup_rcfast_8mhz(closed_loop: bool) {
+    setup_rcfast(RcFastCfg::FRANGE::Range8MHz, closed_loop);
+}
+
+pub fn setup_rcfast_12mhz(closed_loop: bool) {
+    setup_rcfast(RcFastCfg::FRANGE::Range12MHz, closed_loop);
+}
+
+pub fn disable_rcfast() {
     unsafe {
-        while !(*SCIF).rcfastcfg.is_set(RcFastCfg::FCD) {}
+        rcfastcfg_modify(RcFastCfg::EN::CLEAR + RcFastCfg::TUNEEN::CLEAR);
+
+        // Wait until RCFAST is disabled
+        while (*SCIF).rcfastcfg.is_set(RcFastCfg::EN) {}
     }
+}
 
-    // Open-loop mode: tuner is disabled and doesn't need a 32K clock source
-    let new_config = range +
-                     RcFastCfg::TUNEEN::CLEAR +
-                     RcFastCfg::EN::SET;
+fn setup_rcfast(range: FieldValue<u32, RcFastCfg::Register>, closed_loop: bool) {
+    if closed_loop {
+        setup_rcfast_closed(range);
+    } else {
+        setup_rcfast_open(range);
+    }
+}
+
+fn setup_rcfast_open(range: FieldValue<u32, RcFastCfg::Register>) {
     unsafe {
-        let new_register_value = new_config.modify((*SCIF).rcfastcfg.get());
+        // Wait for CALIB field to be loaded from flash
+        while !(*SCIF).rcfastcfg.is_set(RcFastCfg::FCD) {}
 
-        unlock(Register::RCFASTCFG);
-        (*SCIF).rcfastcfg.set(new_register_value);
+        // Ensure RCFAST is stopped
+        rcfastcfg_modify(RcFastCfg::EN::CLEAR);
+        while (*SCIF).rcfastcfg.is_set(RcFastCfg::EN) {}
+
+        // Disable tuner
+        rcfastcfg_modify(range + RcFastCfg::TUNEEN::CLEAR);
+
+        // Enable RCFAST
+        rcfastcfg_modify(RcFastCfg::EN::SET);
 
         // Wait until RCFAST is ready
         while !(*SCIF).rcfastcfg.is_set(RcFastCfg::EN) {}
     }
 }
 
-pub fn setup_rcfast_4mhz() {
-    setup_rcfast(RcFastCfg::FRANGE::Range4MHz);
-}
-
-pub fn setup_rcfast_8mhz() {
-    setup_rcfast(RcFastCfg::FRANGE::Range8MHz);
-}
-
-pub fn setup_rcfast_12mhz() {
-    setup_rcfast(RcFastCfg::FRANGE::Range12MHz);
-}
-
-pub fn disable_rcfast() {
-    let new_config = RcFastCfg::EN::CLEAR;
+fn setup_rcfast_closed(range: FieldValue<u32, RcFastCfg::Register>) {
     unsafe {
-        let new_register_value = new_config.modify((*SCIF).rcfastcfg.get());
+        // Wait for CALIB field to be loaded from flash
+        while !(*SCIF).rcfastcfg.is_set(RcFastCfg::FCD) {}
+
+        // Ensure RCFAST is stopped
+        rcfastcfg_modify(RcFastCfg::EN::CLEAR);
+        while (*SCIF).rcfastcfg.is_set(RcFastCfg::EN) {}
+
+        // Configure tuner
+        rcfastcfg_modify(range +
+                         RcFastCfg::NBPERIODS::Max +
+                         RcFastCfg::LOCKMARGIN::Max);
+
+        // Enable RCFAST
+        rcfastcfg_modify(RcFastCfg::EN::SET);
+
+        // Wait until RCFAST is ready
+        while !(*SCIF).rcfastcfg.is_set(RcFastCfg::EN) {}
+
+        // Enable tuner
+        rcfastcfg_modify(RcFastCfg::TUNEEN::SET);
+
+        // Wait for lock
+        // while !(*SCIF).pclksr.is_set(Interrupt::RCFASTLOCK) {}
+        // while !(*SCIF).rcfastsr.is_set(RcFastStatus::LOCK) {}
+    }
+}
+
+fn rcfastcfg_modify(field: FieldValue<u32, RcFastCfg::Register>) {
+    unsafe {
+        let val = (*SCIF).rcfastcfg.get();
+        let val_new = field.modify(val);
 
         unlock(Register::RCFASTCFG);
-        (*SCIF).rcfastcfg.set(new_register_value);
-
-        // Wait until RCFAST is disabled
-        while (*SCIF).rcfastcfg.is_set(RcFastCfg::EN) {}
+        (*SCIF).rcfastcfg.set(val_new);
     }
 }
 

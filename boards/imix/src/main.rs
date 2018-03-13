@@ -223,7 +223,8 @@ pub unsafe fn reset_handler() {
     sam4l::init();
 
     sam4l::pm::PM.setup_system_clock(sam4l::pm::SystemClockSource::RCFAST {
-        frequency: sam4l::pm::RcFastFrequency::Frequency12MHz
+        frequency: sam4l::pm::RcFastFrequency::Frequency12MHz,
+        feedback: sam4l::pm::RcFastFeedback::ClosedLoop,
     });
     /*
     sam4l::pm::PM.setup_system_clock(sam4l::pm::SystemClockSource::PllExternalOscillatorAt48MHz {

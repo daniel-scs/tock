@@ -11,10 +11,7 @@ char wbuf[BUF_SIZE];
 bool toggle = true;
 bool got_callback = false;
 
-static int spi_read_write_x(const char* write, char* read, size_t len, subscribe_cb cb, bool* cond) {
-  int r = spi_read_write(write, read, len, cb, cond);
-
-  if (r != 0) {
+static void sos_loop(void) {
     while (1) {
       led_toggle(0);
       delay_ms(25);
@@ -30,6 +27,13 @@ static int spi_read_write_x(const char* write, char* read, size_t len, subscribe
       led_toggle(0);
       delay_ms(100);
     }
+}
+
+static int spi_read_write_x(const char* write, char* read, size_t len, subscribe_cb cb, bool* cond) {
+  int r = spi_read_write(write, read, len, cb, cond);
+
+  if (r != 0) {
+    sos_loop();
   }
 
   return r;
@@ -81,7 +85,8 @@ int main(void) {
     wbuf[i] = i;
   }
   spi_set_chip_select(0);
-  spi_set_rate(400000);
+  // spi_set_rate(400000);
+  spi_set_rate(40000);
   spi_set_polarity(false);
   spi_set_phase(false);
   spi_read_write_x(wbuf, rbuf, BUF_SIZE, write_cb, NULL);

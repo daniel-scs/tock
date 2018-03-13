@@ -211,6 +211,7 @@ pub enum SystemClockSource {
 
 	RCFAST {
         frequency: RcFastFrequency,
+        feedback: RcFastFeedback,
     }
 }
 
@@ -219,6 +220,12 @@ pub enum RcFastFrequency {
     Frequency4MHz,
     Frequency8MHz,
     Frequency12MHz,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum RcFastFeedback {
+    OpenLoop,
+    ClosedLoop,
 }
 
 const PM_BASE: usize = 0x400E0000;
@@ -289,8 +296,8 @@ impl PowerManager {
                 self.system_frequency.set(48000000);
             }
 
-            SystemClockSource::RCFAST { frequency } => {
-                configure_rcfast(frequency)
+            SystemClockSource::RCFAST { frequency, feedback } => {
+                configure_rcfast(frequency, feedback)
             }
         }
     }
@@ -383,19 +390,29 @@ unsafe fn configure_external_oscillator_pll(
     select_main_clock(MainClock::PLL);
 }
 
-unsafe fn configure_rcfast(frequency: RcFastFrequency) {
+unsafe fn configure_rcfast(frequency: RcFastFrequency, feedback: RcFastFeedback) {
+
+    let closed_loop = match feedback {
+        RcFastFeedback::ClosedLoop => true,
+        RcFastFeedback::OpenLoop => false,
+    };
+
+    if closed_loop {
+        // This is the reference clock for RCFAST feedback
+        bscif::enable_rc32k();
+    }
 
     match frequency {
         RcFastFrequency::Frequency4MHz => {
-            scif::setup_rcfast_4mhz();
+            scif::setup_rcfast_4mhz(closed_loop);
             PM.system_frequency.set(4300000);
         }
         RcFastFrequency::Frequency8MHz => {
-            scif::setup_rcfast_8mhz();
+            scif::setup_rcfast_8mhz(closed_loop);
             PM.system_frequency.set(8200000);
         }
         RcFastFrequency::Frequency12MHz => {
-            scif::setup_rcfast_12mhz();
+            scif::setup_rcfast_12mhz(closed_loop);
             PM.system_frequency.set(12000000);
         }
     }
