@@ -462,6 +462,8 @@ impl Spi {
                 read.do_xfer(DMAPeripheral::SPI_RX, rbuf, count);
             });
         });
+
+        debug_gpio!(0, set);
         ReturnCode::SUCCESS
     }
 }
@@ -673,6 +675,7 @@ impl DMAClient for Spi {
                     });
                 }
             }
+            debug_gpio!(0, clear);
         }
     }
 }

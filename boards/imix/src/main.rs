@@ -444,17 +444,33 @@ pub unsafe fn reset_handler() {
     // # GPIO
     // set GPIO driver controlling remaining GPIO pins
     let gpio_pins = static_init!(
-        [&'static sam4l::gpio::GPIOPin; 7],
+        [&'static sam4l::gpio::GPIOPin; 4],
         [
             &sam4l::gpio::PC[31], // P2
             &sam4l::gpio::PC[30], // P3
             &sam4l::gpio::PC[29], // P4
+
+            /*
             &sam4l::gpio::PC[28], // P5
             &sam4l::gpio::PC[27], // P6
             &sam4l::gpio::PC[26], // P7
+            */
+
             &sam4l::gpio::PA[20]  // P8
         ]
     );
+
+    kernel::debug::assign_gpios(
+        Some(&sam4l::gpio::PC[28]), // D5
+        Some(&sam4l::gpio::PC[27]), // D6
+        Some(&sam4l::gpio::PC[26]), // D7
+    );
+    debug_gpio!(0, make_output);
+    debug_gpio!(0, clear);
+    debug_gpio!(1, make_output);
+    debug_gpio!(1, clear);
+    debug_gpio!(2, make_output);
+    debug_gpio!(2, clear);
 
     let gpio = static_init!(
         capsules::gpio::GPIO<'static, sam4l::gpio::GPIOPin>,

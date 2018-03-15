@@ -86,7 +86,7 @@ int main(void) {
   }
   spi_set_chip_select(0);
   // spi_set_rate(400000);
-  spi_set_rate(40000);
+  // spi_set_rate(40000);
   spi_set_polarity(false);
   spi_set_phase(false);
   spi_read_write_x(wbuf, rbuf, BUF_SIZE, write_cb, NULL);
