@@ -463,7 +463,7 @@ impl Spi {
             });
         });
 
-        debug_gpio!(0, set);
+        debug_gpio!(1, set);
         ReturnCode::SUCCESS
     }
 }
@@ -675,7 +675,7 @@ impl DMAClient for Spi {
                     });
                 }
             }
-            debug_gpio!(0, clear);
+            debug_gpio!(1, clear);
         }
     }
 }

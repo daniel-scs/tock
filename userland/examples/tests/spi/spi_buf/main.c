@@ -30,9 +30,15 @@ static void sos_loop(void) {
 }
 
 static int spi_read_write_x(const char* write, char* read, size_t len, subscribe_cb cb, bool* cond) {
-  int r = spi_read_write(write, read, len, cb, cond);
+  int r;
+
+  // Signal we are about to request a transaction
+  led_set(0);
+
+  r = spi_read_write(write, read, len, cb, cond);
 
   if (r != 0) {
+    // Signal failure
     sos_loop();
   }
 
@@ -43,20 +49,22 @@ static void write_cb(__attribute__ ((unused)) int arg0,
                      __attribute__ ((unused)) int arg2,
                      __attribute__ ((unused)) int arg3,
                      __attribute__ ((unused)) void* userdata) {
-  led_toggle(0);
-  delay_ms(25);
 
+  // Diagnostics
+  led_clear(0);
+  if (got_callback == false) {
+    printf("*** Got SPI callback!\n");
+    got_callback = true;
+  }
+
+  // Start another transaction
+  delay_ms(25);
   if (toggle) {
     spi_read_write_x(rbuf, wbuf, BUF_SIZE, write_cb, NULL);
   } else {
     spi_read_write_x(wbuf, rbuf, BUF_SIZE, write_cb, NULL);
   }
   toggle = !toggle;
-
-  if (got_callback == false) {
-    printf("*** Got SPI callback!\n");
-    got_callback = true;
-  }
 }
 
 // This function can operate in one of two modes. Either
@@ -80,8 +88,10 @@ static void write_cb(__attribute__ ((unused)) int arg0,
 // will be 0..n rather than all 0s.
 
 int main(void) {
+  led_clear(0);
+
   int i;
-  for (i = 0; i < 200; i++) {
+  for (i = 0; i < BUF_SIZE; i++) {
     wbuf[i] = i;
   }
   spi_set_chip_select(0);
@@ -89,6 +99,7 @@ int main(void) {
   // spi_set_rate(40000);
   spi_set_polarity(false);
   spi_set_phase(false);
+
   spi_read_write_x(wbuf, rbuf, BUF_SIZE, write_cb, NULL);
 
   printf("*** Made SPI request\n");
