@@ -11,6 +11,7 @@
 //!     Console::new(&usart::USART0,
 //!                  115200,
 //!                  &mut console::WRITE_BUF,
+//!                  &mut console::READ_BUF,
 //!                  kernel::Grant::create()));
 //! hil::uart::UART::set_client(&usart::USART0, console);
 //! ```
@@ -71,12 +72,15 @@ impl Default for App {
 }
 
 pub static mut WRITE_BUF: [u8; 64] = [0; 64];
+pub static mut READ_BUF: [u8; 64] = [0; 64];
 
 pub struct Console<'a, U: UART + 'a> {
     uart: &'a U,
     apps: Grant<App>,
-    in_progress: Cell<Option<AppId>>,
+    tx_in_progress: Cell<Option<AppId>>,
     tx_buffer: TakeCell<'static, [u8]>,
+    rx_in_progress: Cell<Option<AppId>>,
+    rx_buffer: TakeCell<'static, [u8]>,
     baud_rate: u32,
 }
 
@@ -85,13 +89,16 @@ impl<'a, U: UART> Console<'a, U> {
         uart: &'a U,
         baud_rate: u32,
         tx_buffer: &'static mut [u8],
+        rx_buffer: &'static mut [u8],
         grant: Grant<App>,
     ) -> Console<'a, U> {
         Console {
             uart: uart,
             apps: grant,
-            in_progress: Cell::new(None),
+            tx_in_progress: Cell::new(None),
             tx_buffer: TakeCell::new(tx_buffer),
+            rx_in_progress: Cell::new(None),
+            rx_buffer: TakeCell::new(rx_buffer),
             baud_rate: baud_rate,
         }
     }
@@ -136,8 +143,8 @@ impl<'a, U: UART> Console<'a, U> {
     /// Internal helper function for sending data for an existing transaction.
     /// Cannot fail. If can't send now, it will schedule for sending later.
     fn send(&self, app_id: AppId, app: &mut App, slice: AppSlice<Shared, u8>) {
-        if self.in_progress.get().is_none() {
-            self.in_progress.set(Some(app_id));
+        if self.tx_in_progress.get().is_none() {
+            self.tx_in_progress.set(Some(app_id));
             self.tx_buffer.take().map(|buffer| {
                 let mut transaction_len = app.write_remaining;
                 for (i, c) in slice.as_ref()[slice.len() - app.write_remaining..slice.len()]
@@ -165,6 +172,39 @@ impl<'a, U: UART> Console<'a, U> {
         } else {
             app.pending_write = true;
             app.write_buffer = Some(slice);
+        }
+    }
+
+    /// Internal helper function for starting a receive operation
+    fn receive_new(&self, app_id: AppId, app: &mut App, len: usize) -> ReturnCode {
+        if self.rx_buffer.is_none() {
+            // For now, we tolerate only one concurrent receive operation on this console.
+            // Competing apps will have to retry until success.
+            return ReturnCode::EBUSY;
+        }
+
+        match app.read_buffer {
+            Some(slice) => {
+                let read_len = cmp::min(len, slice.len());
+                if read_len > self.rx_buffer.map_or(0, |buf| buf.len()) {
+                    // For simplicity, impose a small maximum receive length
+                    // instead of doing incremental reads
+                    ReturnCode::EINVAL
+                }
+                else {
+                    // Note: We have ensured above that rx_buffer is present
+                    app.read_len = read_len;
+                    self.rx_buffer.take().map(|buffer| {
+                        self.rx_in_progress.set(Some(app_id));
+                        self.uart.receive(buffer, app.read_len);
+                    });
+                    ReturnCode::SUCCESS
+                }
+            }
+            None => {
+                // Must supply read buffer before performing receive operation
+                ReturnCode::EINVAL
+            }
         }
     }
 }
@@ -266,7 +306,7 @@ impl<'a, U: UART> Driver for Console<'a, U> {
             2 /* getnstr */ => {
                 let len = arg1;
                 self.apps.enter(appid, |app, _| {
-                    self.receive_new(appid, app, len)
+                    self.receive(appid, app, len)
                 }).unwrap_or_else(|err| {
                     match err {
                         Error::OutOfMemory => ReturnCode::ENOMEM,
@@ -285,8 +325,8 @@ impl<'a, U: UART> Client for Console<'a, U> {
         // Either print more from the AppSlice or send a callback to the
         // application.
         self.tx_buffer.replace(buffer);
-        self.in_progress.get().map(|appid| {
-            self.in_progress.set(None);
+        self.tx_in_progress.get().map(|appid| {
+            self.tx_in_progress.set(None);
             self.apps.enter(appid, |app, _| {
                 match self.send_continue(appid, app) {
                     Ok(more_to_send) => {
@@ -315,7 +355,7 @@ impl<'a, U: UART> Client for Console<'a, U> {
 
         // If we are not printing more from the current AppSlice,
         // see if any other applications have pending messages.
-        if self.in_progress.get().is_none() {
+        if self.tx_in_progress.get().is_none() {
             for cntr in self.apps.iter() {
                 let started_tx = cntr.enter(|app, _| {
                     if app.pending_write {
@@ -345,7 +385,46 @@ impl<'a, U: UART> Client for Console<'a, U> {
         }
     }
 
-    fn receive_complete(&self, _rx_buffer: &'static mut [u8], _rx_len: usize, _error: uart::Error) {
-        // this is currently unimplemented for console
+    fn receive_complete(&self, buffer: &'static mut [u8], _rx_len: usize, error: uart::Error) {
+        self.rx_buffer.replace(buffer);
+        self.rx_in_progress.get().map(|appid| {
+            self.rx_in_progress.set(None);
+
+            self.apps.enter(appid, |app, _| {
+                app.read_callback.map(|mut cb| {
+                    let (result, len) = match error {
+                        uart::Error::CommandComplete => {
+                            // Copy the data into the application buffer, if it exists
+                            match app.read_buffer.take() {
+                                Some(app_buffer) => {
+                                    // We used UART::receive(), so we received the requested length
+                                    let len = app.read_len;
+                                    self.rx_buffer.map(|buffer| {
+                                        // Copy our driver's buffer into the app's buffer
+                                        for (i, c) in buffer[0..len].iter().enumerate()
+                                        {
+                                            app_buffer[i] = *c;
+                                        }
+                                    });
+                                    (TOCK_SUCCESS, len)
+                                }
+                                None => {
+                                    (TOCK_EINVAL, 0)
+                                }
+                            }
+                        }
+                        _ => {
+                            // Some UART error occurred
+                            (TOCK_FAIL, 0)
+                        }
+                    }
+
+                    // Schedule the app's callback
+                    cb.schedule(result, len, 0, 0);
+                });
+            });
+            // If the enter() above fails because the app has disappeared,
+            // we simply drop the received data.
+        }
     }
 }
