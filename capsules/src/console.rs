@@ -65,6 +65,7 @@ impl Default for App {
             write_remaining: 0,
             pending_write: false,
 
+            read_callback: None,
             read_buffer: None,
             read_len: 0,
         }
@@ -184,7 +185,7 @@ impl<'a, U: UART> Console<'a, U> {
         }
 
         match app.read_buffer {
-            Some(slice) => {
+            Some(ref slice) => {
                 let read_len = cmp::min(len, slice.len());
                 if read_len > self.rx_buffer.map_or(0, |buf| buf.len()) {
                     // For simplicity, impose a small maximum receive length
@@ -306,7 +307,7 @@ impl<'a, U: UART> Driver for Console<'a, U> {
             2 /* getnstr */ => {
                 let len = arg1;
                 self.apps.enter(appid, |app, _| {
-                    self.receive(appid, app, len)
+                    self.receive_new(appid, app, len)
                 }).unwrap_or_else(|err| {
                     match err {
                         Error::OutOfMemory => ReturnCode::ENOMEM,
@@ -396,35 +397,35 @@ impl<'a, U: UART> Client for Console<'a, U> {
                         uart::Error::CommandComplete => {
                             // Copy the data into the application buffer, if it exists
                             match app.read_buffer.take() {
-                                Some(app_buffer) => {
+                                Some(mut app_buffer) => {
                                     // We used UART::receive(), so we received the requested length
                                     let len = app.read_len;
                                     self.rx_buffer.map(|buffer| {
                                         // Copy our driver's buffer into the app's buffer
-                                        for (i, c) in buffer[0..len].iter().enumerate()
-                                        {
-                                            app_buffer[i] = *c;
+                                        for (i, c) in app_buffer.as_mut()[0..len].iter_mut().enumerate() {
+                                            *c = buffer[i]
                                         }
                                     });
-                                    (TOCK_SUCCESS, len)
+                                    (ReturnCode::SUCCESS, len)
                                 }
                                 None => {
-                                    (TOCK_EINVAL, 0)
+                                    (ReturnCode::EINVAL, 0)
                                 }
                             }
                         }
                         _ => {
                             // Some UART error occurred
-                            (TOCK_FAIL, 0)
+                            (ReturnCode::FAIL, 0)
                         }
-                    }
+                    };
 
                     // Schedule the app's callback
-                    cb.schedule(result, len, 0, 0);
+                    cb.schedule(From::from(result), len, 0);
                 });
-            });
+
             // If the enter() above fails because the app has disappeared,
             // we simply drop the received data.
-        }
+            }).unwrap_or_default();
+        });
     }
 }
