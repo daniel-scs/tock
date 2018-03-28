@@ -135,3 +135,12 @@ int getnstr(char *str, size_t len) {
 
   return getnstr_data.result;
 }
+
+int getch(void) {
+  int r;
+  char buf[1];
+
+  r = getnstr(buf, 1);
+
+  return (r == TOCK_SUCCESS) ? buf[0] : TOCK_FAIL;
+}
