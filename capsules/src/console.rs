@@ -18,8 +18,6 @@
 //! Usage
 //! -----
 //!
-//! Currently, only writing buffers to the serial device is implemented.
-//!
 //! The user must perform three steps in order to write a buffer:
 //!
 //! ```c
@@ -51,6 +49,10 @@ pub struct App {
     write_len: usize,
     write_remaining: usize, // How many bytes didn't fit in the buffer and still need to be printed.
     pending_write: bool,
+
+    read_callback: Option<Callback>,
+    read_buffer: Option<AppSlice<Shared, u8>>,
+    read_len: usize,
 }
 
 impl Default for App {
@@ -61,6 +63,9 @@ impl Default for App {
             write_len: 0,
             write_remaining: 0,
             pending_write: false,
+
+            read_buffer: None,
+            read_len: 0,
         }
     }
 }
@@ -170,6 +175,7 @@ impl<'a, U: UART> Driver for Console<'a, U> {
     /// ### `allow_num`
     ///
     /// - `1`: Writeable buffer for write buffer
+    /// - `2`: Writeable buffer for read buffer
     fn allow(
         &self,
         appid: AppId,
@@ -183,6 +189,12 @@ impl<'a, U: UART> Driver for Console<'a, U> {
                     ReturnCode::SUCCESS
                 })
                 .unwrap_or_else(|err| err.into()),
+            2 => self.apps
+                 .enter(appid, |app, _| {
+                     app.read_buffer = slice;
+                     ReturnCode::SUCCESS
+                 })
+                 .unwrap_or_else(|err| err.into()),
             _ => ReturnCode::ENOSUPPORT,
         }
     }
@@ -211,6 +223,18 @@ impl<'a, U: UART> Driver for Console<'a, U> {
                     }
                 })
             },
+            2 /* getnstr done */ => {
+                self.apps.enter(app_id, |app, _| {
+                    app.read_callback = callback;
+                    ReturnCode::SUCCESS
+                }).unwrap_or_else(|err| {
+                    match err {
+                        Error::OutOfMemory => ReturnCode::ENOMEM,
+                        Error::AddressOutOfBounds => ReturnCode::EINVAL,
+                        Error::NoSuchApp => ReturnCode::EINVAL,
+                    }
+                })
+            },
             _ => ReturnCode::ENOSUPPORT
         }
     }
@@ -220,8 +244,10 @@ impl<'a, U: UART> Driver for Console<'a, U> {
     /// ### `command_num`
     ///
     /// - `0`: Driver check.
-    /// - `1`: Prints a buffer passed through `allow` up to the length passed in
-    ///        `arg1`
+    /// - `1`: Transmits a buffer passed via `allow`, up to the length
+    ///        passed in `arg1`
+    /// - `2`: Receives into a buffer passed via `allow`, up to the length
+    ///        passed in `arg1`
     fn command(&self, cmd_num: usize, arg1: usize, _: usize, appid: AppId) -> ReturnCode {
         match cmd_num {
             0 /* check if present */ => ReturnCode::SUCCESS,
@@ -236,7 +262,19 @@ impl<'a, U: UART> Driver for Console<'a, U> {
                         Error::NoSuchApp => ReturnCode::EINVAL,
                     }
                 })
-            }
+            },
+            2 /* getnstr */ => {
+                let len = arg1;
+                self.apps.enter(appid, |app, _| {
+                    self.receive_new(appid, app, len)
+                }).unwrap_or_else(|err| {
+                    match err {
+                        Error::OutOfMemory => ReturnCode::ENOMEM,
+                        Error::AddressOutOfBounds => ReturnCode::EINVAL,
+                        Error::NoSuchApp => ReturnCode::EINVAL,
+                    }
+                })
+            },
             _ => ReturnCode::ENOSUPPORT
         }
     }
