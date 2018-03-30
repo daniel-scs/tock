@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <stdbool.h>
 
 #include <led.h>
@@ -7,16 +8,37 @@
 char rbuf[BUF_SIZE];
 char wbuf[BUF_SIZE];
 bool toggle = true;
+size_t count = 0;
+
+static int spi_read_write_x(const char* write, char* read, size_t len, subscribe_cb cb, bool* cond)
+{
+  led_on(0);
+  count++;
+
+  int r = spi_read_write(write, read, len, cb, cond);
+
+  if (r != TOCK_SUCCESS) {
+    printf("spi_read_write() failed: %d", r);
+    led_off(0);
+    exit(1);
+  }
+
+  return r;
+}
 
 static void write_cb(__attribute__ ((unused)) int arg0,
                      __attribute__ ((unused)) int arg2,
                      __attribute__ ((unused)) int arg3,
                      __attribute__ ((unused)) void* userdata) {
-  led_toggle(0);
+  led_off(0);
+  if (count == 1) {
+    printf("Got write callback");
+  }
+
   if (toggle) {
-    spi_read_write(rbuf, wbuf, BUF_SIZE, write_cb, NULL);
+    spi_read_write_x(rbuf, wbuf, BUF_SIZE, write_cb, NULL);
   } else {
-    spi_read_write(wbuf, rbuf, BUF_SIZE, write_cb, NULL);
+    spi_read_write_x(wbuf, rbuf, BUF_SIZE, write_cb, NULL);
   }
   toggle = !toggle;
 }
@@ -50,5 +72,8 @@ int main(void) {
   spi_set_rate(400000);
   spi_set_polarity(false);
   spi_set_phase(false);
-  spi_read_write(wbuf, rbuf, BUF_SIZE, write_cb, NULL);
+
+  printf("Starting SPI writes ...");
+  led_off(0);
+  spi_read_write_x(wbuf, rbuf, BUF_SIZE, write_cb, NULL);
 }

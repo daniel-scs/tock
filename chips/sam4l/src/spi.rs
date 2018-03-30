@@ -242,7 +242,9 @@ impl SpiHw {
         }
     }
 
-    fn init_as_role(&self, regs_manager: &SpiRegisterManager, role: SpiRole) {
+    fn init_as_role(&self, role: SpiRole) {
+        let regs_manager = &SpiRegisterManager::new(&self);
+
         self.role.set(role);
 
         if self.role.get() == SpiRole::SpiMaster {
@@ -264,7 +266,11 @@ impl SpiHw {
         regs_manager.registers.mr.modify(mode + Mode::MODFDIS::SET);
     }
 
-    pub fn enable(&self) {
+    pub fn enable_clock(&self) {
+        MMIOClockInterface::<pm::Clock>::get_clock(self).enable();
+    }
+
+    pub fn enable_txrx(&self) {
         let regs_manager = &SpiRegisterManager::new(&self);
 
         regs_manager.registers.cr.write(Control::SPIEN::SET);
@@ -274,7 +280,7 @@ impl SpiHw {
         }
     }
 
-    pub fn disable(&self) {
+    pub fn disable_txrx(&self) {
         let regs_manager = &SpiRegisterManager::new(&self);
 
         self.dma_read.get().map(|read| read.disable());
@@ -440,11 +446,12 @@ impl SpiHw {
         read_buffer: Option<&'static mut [u8]>,
         len: usize,
     ) -> ReturnCode {
-        self.enable();
 
         if write_buffer.is_none() && read_buffer.is_none() {
             return ReturnCode::SUCCESS;
         }
+
+        self.enable_txrx();
 
         let mut opt_len = None;
         write_buffer.as_ref().map(|buf| opt_len = Some(buf.len()));
@@ -482,6 +489,11 @@ impl SpiHw {
                 read.do_xfer(DMAPeripheral::SPI_RX, rbuf, count);
             });
         });
+
+        if !self.is_busy() {
+            panic!("Not busy!");
+        }
+
         ReturnCode::SUCCESS
     }
 }
@@ -496,8 +508,7 @@ impl spi::SpiMaster for SpiHw {
     /// By default, initialize SPI to operate at 40KHz, clock is
     /// idle on low, and sample on the leading edge.
     fn init(&self) {
-        let regs_manager = &SpiRegisterManager::new(&self);
-        self.init_as_role(regs_manager, SpiRole::SpiMaster);
+        self.init_as_role(SpiRole::SpiMaster);
     }
 
     fn is_busy(&self) -> bool {
@@ -509,11 +520,14 @@ impl spi::SpiMaster for SpiHw {
     fn write_byte(&self, out_byte: u8) {
         let regs_manager = &SpiRegisterManager::new(&self);
 
+        self.enable_txrx();
+
         let tdr = (out_byte as u32) & spi_consts::tdr::TD;
         // Wait for data to leave TDR and enter serializer, so TDR is free
         // for this next byte
         while !regs_manager.registers.sr.is_set(Status::TDRE) {}
         regs_manager.registers.tdr.set(tdr);
+        // XXX: still busy?
     }
 
     /// Write 0 to the SPI and return the read; if an
@@ -548,9 +562,6 @@ impl spi::SpiMaster for SpiHw {
         read_buffer: Option<&'static mut [u8]>,
         len: usize,
     ) -> ReturnCode {
-        // TODO: Remove? Included in read_write_bytes call
-        self.enable();
-
         // If busy, don't start.
         if self.is_busy() {
             return ReturnCode::EBUSY;
@@ -616,8 +627,7 @@ impl spi::SpiSlave for SpiHw {
     }
 
     fn init(&self) {
-        let regs_manager = &SpiRegisterManager::new(&self);
-        self.init_as_role(regs_manager, SpiRole::SpiSlave);
+        self.init_as_role(SpiRole::SpiSlave);
     }
 
     /// This sets the value in the TDR register, to be sent as soon as the
@@ -695,6 +705,15 @@ impl DMAClient for SpiHw {
                     });
                 }
             }
+
+            // The below things actually hang the system ...
+
+            // Need to wait for this with an interrupt?
+            // while !regs_manager.registers.sr.is_set(Status::TXEMPTY) {}
+
+            // 26.6.2: It is recommended to disable the SPI before disabling
+            // the clock, to avoid freezing the SPI in an undefined state.
+            // self.disable_txrx();
         }
     }
 }
