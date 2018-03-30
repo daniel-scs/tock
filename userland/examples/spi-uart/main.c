@@ -105,7 +105,8 @@ static void spi_end(void) {
 }
 
 static void spi_continue(void) {
-    printf("SPI Write\n");
+    // printf("SPI Write\n");
+
     spi_write(wbuf, SPI_BUF_SIZE, spi_written, NULL);
 }
 
@@ -113,7 +114,8 @@ static void spi_written(__attribute__ ((unused)) int arg0,
                         __attribute__ ((unused)) int arg2,
                         __attribute__ ((unused)) int arg3,
                         __attribute__ ((unused)) void* userdata) {
-    printf("SPI Written\n");
+    spi_write_count++;
+    // printf("SPI Written\n");
 
     if (spi_running) {
         // Do another write

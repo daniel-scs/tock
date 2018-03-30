@@ -211,10 +211,12 @@ impl PeripheralManagement<pm::Clock> for SpiHw {
         clock.enable();
     }
 
-    fn after_peripheral_access(&self, clock: &pm::Clock, _: &SpiRegisters) {
+    fn after_peripheral_access(&self, _clock: &pm::Clock, _: &SpiRegisters) {
+        /*
         if !self.is_busy() {
             clock.disable();
         }
+        */
     }
 }
 
