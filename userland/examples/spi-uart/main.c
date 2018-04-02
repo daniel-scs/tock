@@ -3,6 +3,14 @@
 #include <spi.h>
 #include <console.h>
 
+/*
+ * This program waits for the USER button to be pressed,
+ * and then reads a one-character instruction from the console.
+ *
+ * If it is 'b', the program begins sending data on the SPI bus.
+ * If it is 'e', the program stops sending data.
+ */
+
 static void button_callback(int, int, int, void *);
 static void spi_initialize(void);
 static void spi_begin(void);
@@ -105,8 +113,6 @@ static void spi_end(void) {
 }
 
 static void spi_continue(void) {
-    // printf("SPI Write\n");
-
     spi_write(wbuf, SPI_BUF_SIZE, spi_written, NULL);
 }
 
@@ -115,7 +121,6 @@ static void spi_written(__attribute__ ((unused)) int arg0,
                         __attribute__ ((unused)) int arg3,
                         __attribute__ ((unused)) void* userdata) {
     spi_write_count++;
-    // printf("SPI Written\n");
 
     if (spi_running) {
         // Do another write
