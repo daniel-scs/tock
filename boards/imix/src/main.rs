@@ -233,10 +233,10 @@ pub unsafe fn reset_handler() {
     set_pin_primary_functions();
 
     power::configure_submodules(power::SubmoduleConfig {
-        rf233: true,
-        nrf51422: true,
-        sensors: true,
-        trng: true,
+        rf233: false,
+        nrf51422: false,
+        sensors: false,
+        trng: false,
     });
 
     // # CONSOLE
