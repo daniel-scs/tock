@@ -71,19 +71,20 @@ type RF233Device =
 
 struct Imix {
     console: &'static capsules::console::Console<'static, sam4l::usart::USART>,
-    gpio: &'static capsules::gpio::GPIO<'static, sam4l::gpio::GPIOPin>,
+    // gpio: &'static capsules::gpio::GPIO<'static, sam4l::gpio::GPIOPin>,
     alarm: &'static AlarmDriver<'static, VirtualMuxAlarm<'static, sam4l::ast::Ast<'static>>>,
-    temp: &'static capsules::temperature::TemperatureSensor<'static>,
-    humidity: &'static capsules::humidity::HumiditySensor<'static>,
-    ambient_light: &'static capsules::ambient_light::AmbientLight<'static>,
+    // temp: &'static capsules::temperature::TemperatureSensor<'static>,
+    // humidity: &'static capsules::humidity::HumiditySensor<'static>,
+    // ambient_light: &'static capsules::ambient_light::AmbientLight<'static>,
     // adc: &'static capsules::adc::Adc<'static, sam4l::adc::Adc>,
-    led: &'static capsules::led::LED<'static, sam4l::gpio::GPIOPin>,
-    button: &'static capsules::button::Button<'static, sam4l::gpio::GPIOPin>,
-    spi: &'static capsules::spi::Spi<'static, VirtualSpiMasterDevice<'static, sam4l::spi::SpiHw>>,
+    // led: &'static capsules::led::LED<'static, sam4l::gpio::GPIOPin>,
+    // button: &'static capsules::button::Button<'static, sam4l::gpio::GPIOPin>,
+    // spi: &'static capsules::spi::Spi<'static, VirtualSpiMasterDevice<'static, sam4l::spi::SpiHw>>,
     ipc: kernel::ipc::IPC,
-    ninedof: &'static capsules::ninedof::NineDof<'static>,
-    radio_driver: &'static capsules::ieee802154::RadioDriver<'static>,
-    crc: &'static capsules::crc::Crc<'static, sam4l::crccu::Crccu<'static>>,
+    // ninedof: &'static capsules::ninedof::NineDof<'static>,
+    // radio_driver: &'static capsules::ieee802154::RadioDriver<'static>,
+    // crc: &'static capsules::crc::Crc<'static, sam4l::crccu::Crccu<'static>>,
+    /*
     usb_driver: &'static capsules::usb_user::UsbSyscallDriver<
         'static,
         capsules::usbc_client::Client<'static, sam4l::usbc::Usbc<'static>>,
@@ -92,8 +93,10 @@ struct Imix {
         'static,
         sam4l::usart::USART,
     >,
+    */
 }
 
+/*
 // The RF233 radio stack requires our buffers for its SPI operations:
 //
 //   1. buf: a packet-sized buffer for SPI operations, which is
@@ -117,6 +120,7 @@ static mut RADIO_BUF: [u8; radio::MAX_BUF_SIZE] = [0x00; radio::MAX_BUF_SIZE];
 // An upper bound on the required size is 3 * BLOCK_SIZE + radio::MAX_BUF_SIZE
 const CRYPT_SIZE: usize = 3 * symmetric_encryption::AES128_BLOCK_SIZE + radio::MAX_BUF_SIZE;
 static mut CRYPT_BUF: [u8; CRYPT_SIZE] = [0x00; CRYPT_SIZE];
+*/
 
 impl kernel::Platform for Imix {
     fn with_driver<F, R>(&self, driver_num: usize, f: F) -> R
@@ -125,10 +129,11 @@ impl kernel::Platform for Imix {
     {
         match driver_num {
             capsules::console::DRIVER_NUM => f(Some(self.console)),
-            capsules::gpio::DRIVER_NUM => f(Some(self.gpio)),
+            // capsules::gpio::DRIVER_NUM => f(Some(self.gpio)),
             capsules::alarm::DRIVER_NUM => f(Some(self.alarm)),
+            /*
             capsules::spi::DRIVER_NUM => f(Some(self.spi)),
-            // capsules::adc::DRIVER_NUM => f(Some(self.adc)),
+            capsules::adc::DRIVER_NUM => f(Some(self.adc)),
             capsules::led::DRIVER_NUM => f(Some(self.led)),
             capsules::button::DRIVER_NUM => f(Some(self.button)),
             capsules::ambient_light::DRIVER_NUM => f(Some(self.ambient_light)),
@@ -139,6 +144,7 @@ impl kernel::Platform for Imix {
             capsules::usb_user::DRIVER_NUM => f(Some(self.usb_driver)),
             capsules::ieee802154::DRIVER_NUM => f(Some(self.radio_driver)),
             capsules::nrf51822_serialization::DRIVER_NUM => f(Some(self.nrf51822)),
+            */
             kernel::ipc::DRIVER_NUM => f(Some(&self.ipc)),
             _ => f(None),
         }
@@ -253,6 +259,7 @@ pub unsafe fn reset_handler() {
     hil::uart::UART::set_client(&sam4l::usart::USART3, console);
     console.initialize();
 
+    /*
     // Attach the kernel debug interface to this console
     let kc = static_init!(capsules::console::App, capsules::console::App::default());
     kernel::debug::assign_console_driver(Some(console), kc);
@@ -268,6 +275,7 @@ pub unsafe fn reset_handler() {
         )
     );
     hil::uart::UART::set_client(&sam4l::usart::USART2, nrf_serialization);
+    */
 
     // # TIMER
 
@@ -291,6 +299,7 @@ pub unsafe fn reset_handler() {
 
     // # I2C Sensors
 
+    /*
     let mux_i2c = static_init!(MuxI2C<'static>, MuxI2C::new(&sam4l::i2c::I2C2));
     sam4l::i2c::I2C2.set_master_client(mux_i2c);
 
@@ -410,6 +419,7 @@ pub unsafe fn reset_handler() {
     // Clear sensors enable pin to enable sensor rail
     // sam4l::gpio::PC[16].enable_output();
     // sam4l::gpio::PC[16].clear();
+    */
 
     /*
     // Setup ADC
@@ -437,6 +447,7 @@ pub unsafe fn reset_handler() {
     sam4l::adc::ADC0.set_client(adc);
     */
 
+    /*
     // # GPIO
     // set GPIO driver controlling remaining GPIO pins
     let gpio_pins = static_init!(
@@ -573,28 +584,34 @@ pub unsafe fn reset_handler() {
         >,
         capsules::usb_user::UsbSyscallDriver::new(usb_client, kernel::Grant::create())
     );
+    */
 
     let imix = Imix {
         console: console,
         alarm: alarm,
+        /*
         gpio: gpio,
         temp: temp,
         humidity: humidity,
         ambient_light: ambient_light,
-        // adc: adc,
+        adc: adc,
         led: led,
         button: button,
         crc: crc,
         spi: spi_syscalls,
+        */
         ipc: kernel::ipc::IPC::new(),
+        /*
         ninedof: ninedof,
         radio_driver: radio_driver,
         usb_driver: usb_driver,
         nrf51822: nrf_serialization,
+        */
     };
 
     let mut chip = sam4l::chip::Sam4l::new();
 
+    /*
     // Need to reset the nRF on boot, toggle it's SWDIO
     sam4l::gpio::PB[07].enable();
     sam4l::gpio::PB[07].enable_output();
@@ -611,6 +628,7 @@ pub unsafe fn reset_handler() {
     // initialization to work.
     rf233.reset();
     rf233.start();
+    */
 
     debug!("Initialization complete. Entering main loop");
     extern "C" {
