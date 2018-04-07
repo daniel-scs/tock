@@ -76,7 +76,7 @@ struct Imix {
     temp: &'static capsules::temperature::TemperatureSensor<'static>,
     humidity: &'static capsules::humidity::HumiditySensor<'static>,
     ambient_light: &'static capsules::ambient_light::AmbientLight<'static>,
-    adc: &'static capsules::adc::Adc<'static, sam4l::adc::Adc>,
+    // adc: &'static capsules::adc::Adc<'static, sam4l::adc::Adc>,
     led: &'static capsules::led::LED<'static, sam4l::gpio::GPIOPin>,
     button: &'static capsules::button::Button<'static, sam4l::gpio::GPIOPin>,
     spi: &'static capsules::spi::Spi<'static, VirtualSpiMasterDevice<'static, sam4l::spi::SpiHw>>,
@@ -128,7 +128,7 @@ impl kernel::Platform for Imix {
             capsules::gpio::DRIVER_NUM => f(Some(self.gpio)),
             capsules::alarm::DRIVER_NUM => f(Some(self.alarm)),
             capsules::spi::DRIVER_NUM => f(Some(self.spi)),
-            capsules::adc::DRIVER_NUM => f(Some(self.adc)),
+            // capsules::adc::DRIVER_NUM => f(Some(self.adc)),
             capsules::led::DRIVER_NUM => f(Some(self.led)),
             capsules::button::DRIVER_NUM => f(Some(self.button)),
             capsules::ambient_light::DRIVER_NUM => f(Some(self.ambient_light)),
@@ -411,6 +411,7 @@ pub unsafe fn reset_handler() {
     // sam4l::gpio::PC[16].enable_output();
     // sam4l::gpio::PC[16].clear();
 
+    /*
     // Setup ADC
     let adc_channels = static_init!(
         [&'static sam4l::adc::AdcChannel; 6],
@@ -434,6 +435,7 @@ pub unsafe fn reset_handler() {
         )
     );
     sam4l::adc::ADC0.set_client(adc);
+    */
 
     // # GPIO
     // set GPIO driver controlling remaining GPIO pins
@@ -579,7 +581,7 @@ pub unsafe fn reset_handler() {
         temp: temp,
         humidity: humidity,
         ambient_light: ambient_light,
-        adc: adc,
+        // adc: adc,
         led: led,
         button: button,
         crc: crc,
