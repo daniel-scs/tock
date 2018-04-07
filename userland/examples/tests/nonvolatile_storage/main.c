@@ -3,10 +3,9 @@
 
 #include <internal/nonvolatile_storage.h>
 
-uint8_t readbuf[256];
-uint8_t writebuf[256];
+static int test(uint8_t *readbuf, uint8_t *writebuf, size_t size, size_t offset, size_t len);
 
-bool done = false;
+static bool done = false;
 
 static void read_done(int length,
                       __attribute__ ((unused)) int arg1,
@@ -25,59 +24,79 @@ static void write_done(int length,
 }
 
 int main (void) {
-  int ret;
+  int r;
+  uint8_t readbuf[512];
+  uint8_t writebuf[512];
 
   printf("[Nonvolatile Storage] Test App\n");
-
-  ret = nonvolatile_storage_internal_read_buffer(readbuf, 256);
-  if (ret != 0) printf("ERROR setting read buffer\n");
-
-  ret = nonvolatile_storage_internal_write_buffer(writebuf, 256);
-  if (ret != 0) printf("ERROR setting write buffer\n");
-
-  // Setup callbacks
-  ret = nonvolatile_storage_internal_read_done_subscribe(read_done, NULL);
-  if (ret != 0) printf("ERROR setting read done callback\n");
-
-  ret = nonvolatile_storage_internal_write_done_subscribe(write_done, NULL);
-  if (ret != 0) printf("ERROR setting write done callback\n");
 
   int num_bytes = nonvolatile_storage_internal_get_number_bytes();
   printf("Have %i bytes of nonvolatile storage\n", num_bytes);
 
-  writebuf[0] = 5;
-  writebuf[1] = 10;
-  writebuf[2] = 20;
-  writebuf[3] = 200;
-  writebuf[4] = 123;
-  writebuf[5] = 88;
+  if ((r = test(readbuf, writebuf, 256, 0,  14)) != 0) return r;
+  if ((r = test(readbuf, writebuf, 256, 20, 14)) != 0) return r;
+  if ((r = test(readbuf, writebuf, 512, 0, 512)) != 0) return r;
+
+  printf("\tAll tests succeeded.\n");
+
+  return 0;
+}
+
+static int test(uint8_t *readbuf, uint8_t *writebuf, size_t size, size_t offset, size_t len) {
+  int ret;
+
+  printf("\tTest with size %d\n", size);
+
+  ret = nonvolatile_storage_internal_read_buffer(readbuf, size);
+  if (ret != 0) {
+    printf("ERROR setting read buffer\n");
+    return ret;
+  }
+
+  ret = nonvolatile_storage_internal_write_buffer(writebuf, size);
+  if (ret != 0) {
+    printf("ERROR setting write buffer\n");
+    return ret;
+  }
+
+  // Setup callbacks
+  ret = nonvolatile_storage_internal_read_done_subscribe(read_done, NULL);
+  if (ret != 0) {
+    printf("ERROR setting read done callback\n");
+    return ret;
+  }
+
+  ret = nonvolatile_storage_internal_write_done_subscribe(write_done, NULL);
+  if (ret != 0) {
+    printf("ERROR setting write done callback\n");
+    return ret;
+  }
+
+  for (size_t i = offset; i < offset + len; i++) {
+    writebuf[i] = i;
+  }
 
   done = false;
-  ret  = nonvolatile_storage_internal_write(0, 6);
-  if (ret != 0) printf("ERROR calling write\n");
-  yield_for(&done);
-
-  writebuf[0] = 33;
-  writebuf[1] = 3;
-  writebuf[2] = 66;
-  writebuf[3] = 6;
-  writebuf[4] = 99;
-  writebuf[5] = 9;
-  writebuf[6] = 100;
-  writebuf[7] = 101;
-
-  done = false;
-  ret  = nonvolatile_storage_internal_write(6, 8);
-  if (ret != 0) printf("ERROR calling write\n");
+  ret = nonvolatile_storage_internal_write(offset, len);
+  if (ret != 0) {
+    printf("ERROR calling write\n");
+    return ret;
+  }
   yield_for(&done);
 
   done = false;
-  ret  = nonvolatile_storage_internal_read(0, 14);
-  if (ret != 0) printf("ERROR calling read\n");
+  ret  = nonvolatile_storage_internal_read(offset, len);
+  if (ret != 0) {
+    printf("ERROR calling read\n");
+    return ret;
+  }
   yield_for(&done);
 
-  for (int i = 0; i < 14; i++) {
-    printf("got[%i]: %i\n", i, readbuf[i]);
+  for (size_t i = offset; i < offset + len; i++) {
+    if (readbuf[i] != writebuf[i]) {
+      printf("Inconsistency between data written and read at index %u\n", i);
+      return -1;
+    }
   }
 
   return 0;

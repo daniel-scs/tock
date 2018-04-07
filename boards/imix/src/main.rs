@@ -574,7 +574,7 @@ pub unsafe fn reset_handler() {
         capsules::usb_user::UsbSyscallDriver::new(usb_client, kernel::Grant::create())
     );
 
-    &sam4l::flashcalw::FLASH_CONTROLLER.configure();
+    sam4l::flashcalw::FLASH_CONTROLLER.configure();
     pub static mut FLASH_PAGEBUFFER: sam4l::flashcalw::Sam4lPage = sam4l::flashcalw::Sam4lPage::new();
     let nv_to_page = static_init!(
         capsules::nonvolatile_to_pages::NonvolatileToPages<'static, sam4l::flashcalw::FLASHCALW>,
