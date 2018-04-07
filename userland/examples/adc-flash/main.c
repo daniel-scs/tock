@@ -4,10 +4,11 @@
 #include <internal/nonvolatile_storage.h>
 #include <adc.h>
 
-uint8_t writebuf[256];
+#define BUFSIZE 512
 
-bool write_done = false;
-bool timer_done = false;
+static uint8_t buf[BUFSIZE];
+
+static bool write_done = false;
 
 static void write_cb(__attribute__ ((unused)) int length,
                      __attribute__ ((unused)) int arg1,
@@ -16,68 +17,33 @@ static void write_cb(__attribute__ ((unused)) int length,
     write_done = true;
 }
 
-static void timer_cb (__attribute__ ((unused)) int arg0,
-                      __attribute__ ((unused)) int arg1,
-                      __attribute__ ((unused)) int arg2,
-                      __attribute__ ((unused)) void* userdata) {
-    timer_done = true;
-}
-
 int main(void) {
     int ret;
 
     printf("Begin test\n");
 
-    // Setup flash
-    ret = nonvolatile_storage_internal_write_buffer(writebuf, 256);
+    ret = nonvolatile_storage_internal_write_buffer(buf, BUFSIZE);
     if (ret != 0) {
         printf("ERROR setting write buffer: %d\n", ret);
         exit(1);
     }
-     
+
     ret = nonvolatile_storage_internal_write_done_subscribe(write_cb, NULL);
     if (ret != 0) {
         printf("ERROR setting write done callback\n");
         exit(1);
     }
     
-    // Timer 
-    tock_timer_t timer;
-    timer_every(1000, timer_cb, NULL, &timer);
-
-    uint8_t channel = 0;
-    uint32_t freq = 300000;
-    uint32_t length = 100;
-    uint16_t buf[length];
-
     while(1){
-        int err = adc_sample_buffer_sync(channel, freq, buf, length);
-
-        // Output adc results
-        if (err < 0) {
-            printf("Error sampling ADC: %d\n", err);
-            exit(1);
-        }
-        else {
-            //printf("\t[ ");
-            for (uint32_t i = 0; i < length; i++) {
-                // convert to millivolts
-                writebuf[i] = (buf[i] * 3300) / 4095;
-               // printf("%u ", writebuf[i]);
-            }
-            //printf("]\n ");
-        }
-        
-        // Write to flash
         write_done = false;
-        ret = nonvolatile_storage_internal_write(0, length);
+        ret = nonvolatile_storage_internal_write(0, BUFSIZE);
         if (ret != 0) {
-            printf("ERROR calling write\n");
+            printf("ERROR calling write: %d\n", ret);
             exit(1);
         }
         yield_for(&write_done);
+        printf("Write success\n");
 
-        yield_for(&timer_done);
-        timer_done = false;
+        delay_ms(1000);
     }
 }
