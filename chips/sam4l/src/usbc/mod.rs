@@ -26,6 +26,70 @@ macro_rules! client_err {
     };
 }
 
+struct UsbcRegisters {
+    udcon: ReadWrite<u32>,
+    udint: ReadOnly<u32>,
+    udintclr: WriteOnly<u32>,
+    udintset: WriteOnly<u32>,
+    udinte: ReadOnly<u32>,
+    udinteclr: WriteOnly<u32>,
+    udinteset: WriteOnly<u32>,
+    uerst: ReadWrite<u32>,
+    udfnum: ReadOnly<u32>,
+    _reserved0: [u8; 0xdc], // 220 bytes
+    // 0x100
+    uecfg: [ReadWrite<u32>; 12],
+    uesta: [ReadOnly<u32>; 12],
+    uestaclr: [WriteOnly<u32>; 12],
+    uestaset: [WriteOnly<u32>; 12],
+    uecon: [ReadOnly<u32>; 12],
+    ueconset: [WriteOnly<u32>; 12],
+    ueconclr: [WriteOnly<u32>; 12],
+    _reserved1: [u8; 0x1b0], // 432 bytes
+    // 0x400 = 1024
+    uhcon: ReadWrite<u32>,
+    uhint: ReadOnly<u32>,
+    uhintclr: WriteOnly<u32>,
+    uhintset: WriteOnly<u32>,
+    uhinte: ReadOnly<u32>,
+    uhinteclr: WriteOnly<u32>,
+    uhinteset: WriteOnly<u32>,
+    uprst: ReadWrite<u32>,
+    uhfnum: ReadWrite<u32>,
+    uhsofc: ReadWrite<u32>,
+    _reserved2: [u8; 0xd8], // 216 bytes
+    // 0x500 = 1280
+    upcfg: [ReadWrite<u32>; 12],
+    upsta: [ReadOnly<u32>; 12],
+    upstaclr: [WriteOnly<u32>; 12],
+    upstaset: [WriteOnly<u32>; 12],
+    upcon: [ReadOnly<u32>; 12],
+    upconset: [WriteOnly<u32>; 12],
+    upconclr: [WriteOnly<u32>; 12],
+    upinrq: [ReadWrite<u32>; 12],
+    _reserved3: [u8; 0x180], // 384 bytes
+    // 0x800 = 2048
+    usbcon: ReadWrite<u32>,
+    usbsta: ReadOnly<u32>,
+    usbstaclr: WriteOnly<u32>,
+    usbstaset: WriteOnly<u32>,
+    _reserved4: [u8; 8],
+    // 0x818
+    uvers: ReadOnly<u32>,
+    ufeatures: ReadOnly<u32>,
+    uaddrsize: ReadOnly<u32>,
+    uname1: ReadOnly<u32>,
+    uname2: ReadOnly<u32>,
+    usbfsm: ReadOnly<u32>,
+    udesc: ReadWrite<u32>,
+}
+
+const USBC_BASE: u32 = 0x400A5000;
+
+const USBC_REGS = unsafe {
+    USBC_BASE as *const UsbcRegisters as &UsbcRegisters
+};
+
 /// State for managing the USB controller
 // This ensures the `descriptors` field is laid out first
 #[repr(C)]
