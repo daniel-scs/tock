@@ -145,6 +145,25 @@ register_bitfields![u32,
         RXSTP OFFSET(2) NUMBITS(1),
         RXOUT OFFSET(1) NUMBITS(1),
         TXIN OFFSET(0) NUMBITS(0)
+    ],
+    EndpointControl [
+        BUSY1E 25,
+        BUSY0E 24,
+        STALLRQ 19,
+        RSTDT 18,
+        FIFOCON 14,
+        KILLBK 13,
+        NBUSYBKE 12,
+        RAMACERE 11,
+        NREPLY 8,
+        STALLEDE 6,
+        CRCERRE 6,
+        NAKINE 4,
+        NAKOUTE 3,
+        RXSTPE 2,
+        ERRORFE 2,
+        RXOUTE 1,
+        TXINE 0
     ]
 ];
 
@@ -461,11 +480,11 @@ impl<'a> Usbc<'a> {
         config: &Option<EndpointConfig>,
         dstate: &mut DeviceState,
     ) {
-        let udint: u32 = USBC_REGS.udint.get();
+        let udint = USBC_REGS.udint.cache();
 
         // debug!("--> UDINT={:?} {:?}", UdintFlags(udint), *dstate);
 
-        if DeviceInterrupt::EORST::is_set(udint) {
+        if udint.is_set(DeviceInterrupt::EORST) {
             // Bus reset
 
             // Reconfigure what has been reset in the USBC
@@ -493,7 +512,7 @@ impl<'a> Usbc<'a> {
             USBC_REGS.udintclr.write(DeviceInterrupt::EORST::SET);
         }
 
-        if DeviceInterrupt::SUSP::is_set(udint) {
+        if udint.is_set(DeviceInterrupt::SUSP) {
             // The transceiver has been suspended due to the bus being idle for 3ms.
             // This condition is over when WAKEUP is set.
 
@@ -516,7 +535,7 @@ impl<'a> Usbc<'a> {
             USBC_REGS.udintclr.write(DeviceInterrupt::SUSP::SET);
         }
 
-        if DeviceInterrupt::WAKEUP::is_set(udint) {
+        if udint.is_set(DeviceInterrupt::WAKEUP) {
             // If we were suspended: Unfreeze the clock (and unsleep the MCU)
 
             // Unsubscribe from WAKEUP
@@ -528,24 +547,24 @@ impl<'a> Usbc<'a> {
             // Continue processing, as WAKEUP is usually set
         }
 
-        if DeviceInterrupt::SOF::is_set(udint) {
+        if udint.is_set(DeviceInterrupt::SOF) {
             // Acknowledge Start of frame
             USBC_REGS.udintclr.write(DeviceInterrupt::SOF::SET);
         }
 
-        if DeviceInterrupt::EORSM::is_set(udint) {
+        if udint.is_set(DeviceInterrupt::EORSM) {
             // Controller received End of Resume
             debug!("UDINT EORSM");
         }
 
-        if DeviceInterrupt::UPRSM::is_set(udint) {
+        if udint.is_set(DeviceInterrupt::UPRSM) {
             // Controller sent Upstream Resume
             debug!("UDINT UPRSM");
         }
 
         // Process per-endpoint interrupt flags
         for endpoint in 0..1 {
-            if udint & (1 << (12 + endpoint)) == 0 {
+            if udint.get() & (1 << (12 + endpoint)) == 0 {
                 // No interrupts for this endpoint
                 continue;
             }
@@ -555,29 +574,29 @@ impl<'a> Usbc<'a> {
             // (Ignoring `again` should not cause incorrect behavior.)
             //
             // let mut again = true;
-            // while again {
-            //    again = false;
-            {
-                let status = USBC_REGS.uesta[endpoint].read();
+            /* while again */ {
+                // again = false;
+
+                let status = USBC_REGS.uesta[endpoint].cache();
                 // debug!("UESTA{}={:?}", endpoint, UestaFlags(status));
 
-                if status & STALLED != 0 {
+                if status.is_set(EndpointStatus::STALLED) {
                     debug!("D({}) STALLED/CRCERR", endpoint);
 
                     // Acknowledge
-                    UESTAnCLR[endpoint].write(STALLED);
+                    USBC_REGS.uestaclr[endpoint].write(EndpointStatus::STALLED::SET);
                 }
 
-                if status & RAMACERR != 0 {
+                if status.is_set(EndpointStatus::RAMACERR) {
                     debug!("D({}) RAMACERR", endpoint);
 
                     // Acknowledge
-                    UESTAnCLR[endpoint].write(RAMACERR);
+                    USBC_REGS.uestaclr[endpoint].write(EndpointStatus::RAMACERR::SET);
                 }
 
                 match *dstate {
                     DeviceState::Init => {
-                        if status & RXSTP != 0 {
+                        if status.is_set(EndpointStatus::RXSTP) {
                             // We received a SETUP transaction
 
                             // debug!("D({}) RXSTP", endpoint);
@@ -593,7 +612,7 @@ impl<'a> Usbc<'a> {
 
                             match result {
                                 Some(CtrlSetupResult::Ok) => {
-                                    if status & CTRLDIR != 0 {
+                                    if status.read(EndpointStatus::CTRLDIR) == EndpointStatus::CTRLDIR::In {
                                         // The following Data stage will be IN
 
                                         *dstate = DeviceState::CtrlReadIn;
@@ -601,7 +620,7 @@ impl<'a> Usbc<'a> {
                                         // Wait until bank is clear to send
                                         // Also, wait for NAKOUT to signal end of IN stage
                                         // (The datasheet incorrectly says NAKIN)
-                                        UESTAnCLR[endpoint].write(NAKOUT);
+                                        USBC_REG.uestaclr[endpoint].write(EndpointStatus::NAKOUT::SET);
                                         endpoint_enable_only_interrupts(
                                             endpoint,
                                             RAMACERR | TXIN | NAKOUT,
@@ -613,8 +632,9 @@ impl<'a> Usbc<'a> {
 
                                         // Wait for OUT packets
                                         // Also, wait for NAKIN to signal end of OUT stage
-                                        UESTAnCLR[endpoint].write(RXOUT);
-                                        UESTAnCLR[endpoint].write(NAKIN);
+                                        USBC_REG.uestaclr[endpoint].write(EndpointStatus::RXOUT::SET +
+                                                                          EndpointStatus::NAKIN::SET);
+
                                         endpoint_enable_only_interrupts(
                                             endpoint,
                                             RAMACERR | RXOUT | NAKIN,
@@ -624,7 +644,7 @@ impl<'a> Usbc<'a> {
                                 failure => {
                                     // Respond with STALL to any following transactions
                                     // in this request
-                                    UECONnSET[endpoint].write(STALLRQ);
+                                    USBC_REG.ueconset[endpoint].write(EndpointControl::STALLRQ::SET);
 
                                     match failure {
                                         None => debug!("D({}) No client to handle Setup", endpoint),
@@ -639,12 +659,12 @@ impl<'a> Usbc<'a> {
                                 }
                             }
 
-                            // Acknowledge
-                            UESTAnCLR[endpoint].write(RXSTP);
+                            // Acknowledge SETUP interrupt
+                            USBC_REG.uestaclr[endpoint].write(EndpointStatus::RXSTP::SET);
                         }
                     }
                     DeviceState::CtrlReadIn => {
-                        if status & NAKOUT != 0 {
+                        if status.is_set(EndpointStatus::NAKOUT) {
                             // The host has completed the IN stage by sending an OUT token
 
                             endpoint_disable_interrupts(endpoint, TXIN | NAKOUT);
