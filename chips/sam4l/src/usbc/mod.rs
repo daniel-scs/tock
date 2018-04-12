@@ -145,7 +145,7 @@ register_bitfields![u32,
         ERRORF OFFSET(2) NUMBITS(1) [],
         RXSTP OFFSET(2) NUMBITS(1) [],
         RXOUT OFFSET(1) NUMBITS(1) [],
-        TXIN OFFSET(0) NUMBITS(0) []
+        TXIN OFFSET(0) NUMBITS(1) []
     ],
     EndpointControl [
         BUSY1E 25,
