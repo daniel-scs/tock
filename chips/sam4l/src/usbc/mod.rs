@@ -680,9 +680,10 @@ impl<'a> Usbc<'a> {
                             // Acknowledge
                             UESTAnCLR[endpoint].write(NAKOUT);
 
-                        // Run handler again in case the RXOUT has already arrived
-                        // again = true;
-                        } else if status & TXIN != 0 {
+                            // Run handler again in case the RXOUT has already arrived
+                            // again = true;
+
+                        } else if status.is_set(EndpointStatus::TXIN) {
                             // The data bank is ready to receive another IN payload
                             // debug!("D({}) TXIN", endpoint);
 
@@ -721,7 +722,7 @@ impl<'a> Usbc<'a> {
 
                                     // Signal to the controller that the IN payload is
                                     // ready to send
-                                    UESTAnCLR[endpoint].write(TXIN);
+                                    USBC_REGS.uestaclr[endpoint].write(EndpointStatus::TXIN::SET);
                                 }
                                 Some(CtrlInResult::Delay) => {
                                     endpoint_disable_interrupts(endpoint, TXIN);
@@ -732,6 +733,7 @@ impl<'a> Usbc<'a> {
                                 _ => {
                                     // Respond with STALL to any following IN/OUT transactions
                                     UECONnSET[endpoint].write(STALLRQ);
+                                    USBC_REGS.ueconset[endpoint].write(EndpointControl::STALLRQ::SET);
 
                                     debug!("D({}) Client IN err => STALL", endpoint);
 
@@ -744,7 +746,7 @@ impl<'a> Usbc<'a> {
                         }
                     }
                     DeviceState::CtrlReadStatus => {
-                        if status & RXOUT != 0 {
+                        if status.is_set(EndpointStatus::RXOUT) {
                             // Host has completed Status stage by sending an OUT packet
 
                             endpoint_disable_interrupts(endpoint, RXOUT);
@@ -758,11 +760,11 @@ impl<'a> Usbc<'a> {
                             endpoint_enable_interrupts(endpoint, RXSTP);
 
                             // Acknowledge
-                            UESTAnCLR[endpoint].write(RXOUT);
+                            USBC_REGS.uestsclr[endpoint].write(EndpointStatus::RXOUT::SET);
                         }
                     }
                     DeviceState::CtrlWriteOut => {
-                        if status & RXOUT != 0 {
+                        if status.is_set(EndpointStatus::RXOUT) {
                             // Received data
 
                             // debug!("D({}) RXOUT: Received Control Write data", endpoint);
@@ -773,7 +775,7 @@ impl<'a> Usbc<'a> {
                             match result {
                                 Some(CtrlOutResult::Ok) => {
                                     // Acknowledge
-                                    UESTAnCLR[endpoint].write(RXOUT);
+                                    USBC_REGS.uestaclr[endpoint].write(EndpointStatus::RXOUT::SET);
                                 }
                                 Some(CtrlOutResult::Delay) => {
                                     // Don't acknowledge; hardware will have to send NAK
@@ -785,7 +787,7 @@ impl<'a> Usbc<'a> {
                                 _ => {
                                     // Respond with STALL to any following transactions
                                     // in this request
-                                    UECONnSET[endpoint].write(STALLRQ);
+                                    USBC_REGS.ueconset[endpoint].write(EndpointControl::STALLRQ::SET);
 
                                     debug!("D({}) Client OUT err => STALL", endpoint);
 
@@ -798,7 +800,7 @@ impl<'a> Usbc<'a> {
 
                             // Continue awaiting RXOUT and NAKIN
                         }
-                        if status & NAKIN != 0 {
+                        if status.is_set(EndpointStatus::NAKIN) {
                             // The host has completed the Data stage by sending an IN token
                             // debug!("D({}) NAKIN: Control Write -> Status stage", endpoint);
 
@@ -810,14 +812,14 @@ impl<'a> Usbc<'a> {
                             endpoint_enable_interrupts(endpoint, TXIN);
 
                             // Acknowledge
-                            UESTAnCLR[endpoint].write(NAKIN);
+                            USBC_REGS.uestaclr[endpoint].write(EndpointStatus::NAKIN::SET);
 
                             // Can probably send the ZLP immediately
                             // again = true;
                         }
                     }
                     DeviceState::CtrlWriteStatus => {
-                        if status & TXIN != 0 {
+                        if status.is_set(EndpointStatus::TXIN) {
                             // debug!("D({}) TXIN for Control Write Status (will send ZLP)",
                             //        endpoint);
 
@@ -831,13 +833,13 @@ impl<'a> Usbc<'a> {
                             *dstate = DeviceState::CtrlWriteStatusWait;
 
                             // Signal to the controller that the IN payload is ready to send
-                            UESTAnCLR[endpoint].write(TXIN);
+                            USBC_REGS.uestaclr[endpoint].write(EndpointStatus::TXIN::SET);
 
                             // Wait for TXIN again to confirm that IN payload has been sent
                         }
                     }
                     DeviceState::CtrlWriteStatusWait => {
-                        if status & TXIN != 0 {
+                        if status.is_set(EndpointStatus::TXIN) {
                             // debug!("D({}) TXIN: Control Write Status Complete", endpoint);
 
                             endpoint_disable_interrupts(endpoint, TXIN);
@@ -915,12 +917,12 @@ impl<'a> Usbc<'a> {
 
 #[inline]
 fn endpoint_disable_interrupts(endpoint: usize, mask: u32) {
-    UECONnCLR[endpoint].write(mask);
+    USBC_REGS.ueconclr[endpoint].write(mask);
 }
 
 #[inline]
 fn endpoint_enable_interrupts(endpoint: usize, mask: u32) {
-    UECONnSET[endpoint].write(mask);
+    USBC_REGS.ueconset[endpoint].write(mask);
 }
 
 #[inline]
@@ -929,6 +931,7 @@ fn endpoint_enable_only_interrupts(endpoint: usize, mask: u32) {
     endpoint_enable_interrupts(endpoint, mask);
 }
 
+/*
 #[allow(dead_code)]
 fn debug_regs() {
     debug!(
@@ -955,6 +958,7 @@ fn debug_regs() {
         UECON0.read()
     );
 }
+*/
 
 #[allow(dead_code)]
 struct UdintFlags(u32);
