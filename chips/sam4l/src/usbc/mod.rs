@@ -39,9 +39,9 @@ struct UsbcRegisters {
     _reserved0: [u8; 0xdc], // 220 bytes
     // 0x100
     uecfg: [ReadWrite<u32>; 12],
-    uesta: [ReadOnly<u32>; 12],
-    uestaclr: [WriteOnly<u32>; 12],
-    uestaset: [WriteOnly<u32>; 12],
+    uesta: [ReadOnly<u32, EndpointStatus>; 12],
+    uestaclr: [WriteOnly<u32, EndpointStatus>; 12],
+    uestaset: [WriteOnly<u32, EndpointStatus>; 12],
     uecon: [ReadOnly<u32>; 12],
     ueconset: [WriteOnly<u32>; 12],
     ueconclr: [WriteOnly<u32>; 12],
@@ -122,6 +122,30 @@ register_bitfields![u32,
         SOF OFFSET(2) NUMBITS(1),
         SUSP OFFSET(0) NUMBITS(1),
     ],
+    EndpointStatus [
+        CTRLDIR OFFSET(17) NUMBITS(1) [
+            Out = 0,
+            In = 1
+        ],
+        CURRBK OFFSET(14) NUMBITS(2) [
+            Bank0 = 0,
+            Bank1 = 1
+        ],
+        NBUSYBK OFFSET(12) NUMBITS(2),
+        RAMACER OFFSET(11) NUMBITS(1),
+        DTSEQ OFFSET(8) NUMBITS(2) [
+            Data0 = 0,
+            Data1 = 1,
+        ],
+        STALLED OFFSET(6) NUMBITS(1),
+        CRCERR OFFSET(6) NUMBITS(1),
+        NAKIN OFFSET(4) NUMBITS(1),
+        NAKOUT OFFSET(3) NUMBITS(1),
+        ERRORF OFFSET(2) NUMBITS(1),
+        RXSTP OFFSET(2) NUMBITS(1),
+        RXOUT OFFSET(1) NUMBITS(1),
+        TXIN OFFSET(0) NUMBITS(0)
+    ]
 ];
 
 const USBC_BASE: u32 = 0x400A5000;
@@ -445,7 +469,12 @@ impl<'a> Usbc<'a> {
             // Bus reset
 
             // Reconfigure what has been reset in the USBC
-            UDCON_LS.write(speed);
+            USBC_REGS.udcon.modify(
+                match speed {
+                    Speed::Full => DeviceConfig::LS::FullSpeed,
+                    Speed::Low => DeviceConfig::LS::LowSpeed,
+                }
+            );
             if let Some(ref config) = *config {
                 self.endpoint_configure(0, *config);
             }
@@ -461,10 +490,10 @@ impl<'a> Usbc<'a> {
             // debug_regs();
 
             // Acknowledge the interrupt
-            UDINTCLR.write(UDINT_EORST);
+            USBC_REGS.udintclr.write(DeviceInterrupt::EORST::SET);
         }
 
-        if udint & UDINT_SUSP != 0 {
+        if DeviceInterrupt::SUSP::is_set(udint) {
             // The transceiver has been suspended due to the bus being idle for 3ms.
             // This condition is over when WAKEUP is set.
 
@@ -481,35 +510,35 @@ impl<'a> Usbc<'a> {
             // suspend mode or not."
 
             // Subscribe to WAKEUP
-            UDINTESET.write(UDINT_WAKEUP);
+            USBC_REGS.udinteset.write(DeviceInterrupt::WAKEUP::SET);
 
             // Acknowledge the "suspend" event
-            UDINTCLR.write(UDINT_SUSP);
+            USBC_REGS.udintclr.write(DeviceInterrupt::SUSP::SET);
         }
 
-        if udint & UDINT_WAKEUP != 0 {
+        if DeviceInterrupt::WAKEUP::is_set(udint) {
             // If we were suspended: Unfreeze the clock (and unsleep the MCU)
 
             // Unsubscribe from WAKEUP
-            UDINTECLR.write(UDINT_WAKEUP);
+            USBC_REGS.udinteclr.write(DeviceInterrupt::WAKEUP::SET);
 
             // Acknowledge the interrupt
-            UDINTCLR.write(UDINT_WAKEUP);
+            USBC_REGS.udintclr.write(DeviceInterrupt::WAKEUP::SET);
 
             // Continue processing, as WAKEUP is usually set
         }
 
-        if udint & UDINT_SOF != 0 {
+        if DeviceInterrupt::SOF::is_set(udint) {
             // Acknowledge Start of frame
-            UDINTCLR.write(UDINT_SOF);
+            USBC_REGS.udintclr.write(DeviceInterrupt::SOF::SET);
         }
 
-        if udint & UDINT_EORSM != 0 {
+        if DeviceInterrupt::EORSM::is_set(udint) {
             // Controller received End of Resume
             debug!("UDINT EORSM");
         }
 
-        if udint & UDINT_UPRSM != 0 {
+        if DeviceInterrupt::UPRSM::is_set(udint) {
             // Controller sent Upstream Resume
             debug!("UDINT UPRSM");
         }
@@ -529,7 +558,7 @@ impl<'a> Usbc<'a> {
             // while again {
             //    again = false;
             {
-                let status = UESTAn[endpoint].read();
+                let status = USBC_REGS.uesta[endpoint].read();
                 // debug!("UESTA{}={:?}", endpoint, UestaFlags(status));
 
                 if status & STALLED != 0 {
