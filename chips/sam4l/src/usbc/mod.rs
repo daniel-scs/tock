@@ -924,7 +924,17 @@ fn endpoint_enable_interrupts(endpoint: usize, mask: u32) {
 
 #[inline]
 fn endpoint_enable_only_interrupts(endpoint: usize, mask: u32) {
-    endpoint_disable_interrupts(endpoint, !0);
+    // Disable all endpoint interrupts
+    endpoint_disable_interrupts(endpoint, From::from(
+            EndpointControl::NBUSYBKE::SET +
+            EndpointControl::RAMACERE::SET +
+            EndpointControl::STALLEDE::SET +
+            EndpointControl::NAKINE::SET +
+            EndpointControl::NAKOUTE::SET +
+            EndpointControl::RXSTPE::SET +
+            EndpointControl::RXOUTE::SET +
+            EndpointControl::TXINE::SET));
+
     endpoint_enable_interrupts(endpoint, mask);
 }
 
