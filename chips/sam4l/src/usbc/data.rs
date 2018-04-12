@@ -53,15 +53,6 @@ pub enum Speed {
     Low,
 }
 
-impl ToWord for Speed {
-    fn to_word(self) -> u32 {
-        match self {
-            Speed::Full => 0,
-            Speed::Low => 1,
-        }
-    }
-}
-
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum State {
     Reset,

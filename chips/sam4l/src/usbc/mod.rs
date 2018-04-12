@@ -27,13 +27,13 @@ macro_rules! client_err {
 }
 
 struct UsbcRegisters {
-    udcon: ReadWrite<u32>,
-    udint: ReadOnly<u32>,
-    udintclr: WriteOnly<u32>,
-    udintset: WriteOnly<u32>,
-    udinte: ReadOnly<u32>,
-    udinteclr: WriteOnly<u32>,
-    udinteset: WriteOnly<u32>,
+    udcon: ReadWrite<u32, DeviceControl>,
+    udint: ReadOnly<u32, DeviceInterrupt>,
+    udintclr: WriteOnly<u32, DeviceInterrupt>,
+    udintset: WriteOnly<u32, DeviceInterrupt>,
+    udinte: ReadOnly<u32, DeviceInterrupt>,
+    udinteclr: WriteOnly<u32, DeviceInterrupt>,
+    udinteset: WriteOnly<u32, DeviceInterrupt>,
     uerst: ReadWrite<u32>,
     udfnum: ReadOnly<u32>,
     _reserved0: [u8; 0xdc], // 220 bytes
@@ -69,7 +69,7 @@ struct UsbcRegisters {
     upinrq: [ReadWrite<u32>; 12],
     _reserved3: [u8; 0x180], // 384 bytes
     // 0x800 = 2048
-    usbcon: ReadWrite<u32>,
+    usbcon: ReadWrite<u32, Control>,
     usbsta: ReadOnly<u32>,
     usbstaclr: WriteOnly<u32>,
     usbstaset: WriteOnly<u32>,
@@ -83,6 +83,46 @@ struct UsbcRegisters {
     usbfsm: ReadOnly<u32>,
     udesc: ReadWrite<u32>,
 }
+
+register_bitfields![u32,
+    Control [
+        UIMOD 25 [
+            HostMode = 0,
+            DeviceMode = 1,
+        ],
+        USBE 15,
+        FRZCLK 14
+    ],
+    Status [
+        SUSPEND OFFSET(16) NUMBITS(1),
+        CLKUSABLE OFFSET(14) NUMBITS(1),
+        SPEED OFFSET(12) NUMBITS(2) [
+            SpeedFull = 0b00,
+            SpeedLow = 0b10
+        ],
+        VBUSRQ OFFSET(9) NUMBITS(1)
+    ]
+    DeviceControl [
+        GNAK OFFSET(17) NUMBITS(1),
+        LS OFFSET(12) NUMBITS(1) [
+            FullSpeed = 0,
+            LowSpeed = 1,
+        ],
+        RMWKUP OFFSET(9) NUMBITS(1),
+        DETACH OFFSET(8) NUMBITS(1),
+        ADDEN OFFSET(7) NUMBITS(1),
+        UADD OFFSET(0) NUMBITS(7)
+    ],
+    DeviceInterrupt [
+        EPINT OFFSET(12) NUMBITS(8),
+        UPRSM OFFSET(6) NUMBITS(1),
+        EORSM OFFSET(5) NUMBITS(1),
+        WAKEUP OFFSET(4) NUMBITS(1),
+        EORST OFFSET(3) NUMBITS(1),
+        SOF OFFSET(2) NUMBITS(1),
+        SUSP OFFSET(0) NUMBITS(1),
+    ],
+];
 
 const USBC_BASE: u32 = 0x400A5000;
 
@@ -141,19 +181,15 @@ impl<'a> UsbController for Usbc<'a> {
     }
 
     fn set_address(&self, addr: u16) {
-        // The hardware can do only 7-bit addresses
-        let addr = (addr as u8) & 0b1111111;
-
-        UDCON_ADDEN.write(false);
-        UDCON_UADD.write(addr);
+        USBC_REGS.udcon.modify(DeviceControl::UADD::val(addr));
 
         debug!("Set Address = {}", addr);
     }
 
     fn enable_address(&self) {
-        UDCON_ADDEN.write(true);
+        USBC_REGS.udcon.modify(DeviceControl::ADDEN::SET);
 
-        debug!("Enable Address = {}", UDCON.read() & 0b1111111);
+        debug!("Enable Address = {}", USBC_REGS.udcon.read(DeviceControl::UADD));
     }
 }
 
@@ -193,9 +229,9 @@ impl<'a> Usbc<'a> {
                             scif::ClockSource::CLK_HSB,
                         );
 
-                        while !USBSTA_CLKUSABLE.read() {}
+                        while !USBC_REGS.usbsta.is_set(Status::CLKUSABLE) {}
 
-                        UDCON_DETACH.write(false);
+                        USBC_REGS.udcon.modify(DeviceControl::DETACH::CLR);
                         debug!("Attached.");
 
                         *state = State::Active(mode);
@@ -217,7 +253,7 @@ impl<'a> Usbc<'a> {
                 client_err!("Not attached");
             }
             State::Active(mode) => {
-                UDCON_DETACH.write(true);
+                USBC_REGS.udcon.modify(DeviceControl::DETACH::SET);
 
                 scif::generic_clock_disable(scif::GenericClock::GCLK7);
 
@@ -244,27 +280,33 @@ impl<'a> Usbc<'a> {
                     // reset to their default values.
 
                     if let Mode::Device { speed, .. } = mode {
-                        UDCON_LS.write(speed)
+                        USBC_REGS.udcon.modify(
+                            match speed {
+                                Speed::Full => DeviceConfig::LS::FullSpeed,
+                                Speed::Low => DeviceConfig::LS::LowSpeed,
+                            }
+                        );
                     }
 
-                    USBCON_UIMOD.write(mode); // see registers.rs: maybe wrong bit?
-                    USBCON_FRZCLK.write(false);
-                    USBCON_USBE.write(true);
+                    USBC_REGS.usbcon.modify(Control::UIMOD::DeviceMode);
+                    USBC_REGS.usbcon.modify(Control::FRZCLK::CLR);
+                    USBC_REGS.usbcon.modify(Control::USBE::SET);
 
-                    UDESC.write(&self.descriptors as *const _ as u32);
-
-                    // Device interrupts
-                    let udints = // UDINT_SUSP |
-                                 // UDINT_SOF |
-                                 UDINT_EORST |
-                                 UDINT_EORSM |
-                                 UDINT_UPRSM;
+                    USBC_REGS.udesc.set(&self.descriptors as *const _ as u32);
 
                     // Clear pending device global interrupts
-                    UDINTCLR.write(udints);
+                    USBC_REGS.udintclr.write(DeviceInterrupt::SUSP::SET +
+                                             DeviceInterrupt::SOF::SET +
+                                             DeviceInterrupt::EORST::SET +
+                                             DeviceInterrupt::EORSM::SET +
+                                             DeviceInterrupt::UPRSM::SET);
 
                     // Enable device global interrupts
-                    UDINTESET.write(udints);
+                    USBC_REGS.udinteset.write(// DeviceInterrupt::SUSP::SET +
+                                              // DeviceInterrupt::SOF::SET +
+                                              DeviceInterrupt::EORST::SET +
+                                              DeviceInterrupt::EORSM::SET +
+                                              DeviceInterrupt::UPRSM::SET);
 
                     debug!("Enabled.");
                     *state = State::Idle(mode);
@@ -289,7 +331,7 @@ impl<'a> Usbc<'a> {
 
         self.state.map(|state| {
             if *state != State::Reset {
-                USBCON_USBE.write(false);
+                USBC_REGS.usbcon.modify(Control::USBE::CLR);
 
                 disable_clock(Clock::PBB(PBBClock::USBC));
                 disable_clock(Clock::HSB(HSBClock::USBC));
@@ -337,19 +379,23 @@ impl<'a> Usbc<'a> {
         });
 
         // Enable the endpoint (meaning the controller will respond to requests)
-        UERST.set_bit(endpoint);
+        val eps = USBC_REGS.uerst.get();
+        eps |= (1 << endpoint);
+        USBC_REGS.uerst.set(eps);
 
         self.endpoint_configure(endpoint as usize, cfg);
 
         // Set EPnINTE, enabling interrupts for this endpoint
-        UDINTESET.set_bit(12 + endpoint);
+        let epints = USBC_REGS.udinteset.get();
+        epints |= (1 << 12 + endpoint);
+        USBC_REGS.udinteset.set(epints);
 
         debug!("Enabled endpoint {}", endpoint);
     }
 
     fn endpoint_configure(&self, endpoint: usize, cfg: EndpointConfig) {
         // Configure the endpoint
-        UECFGn[endpoint].write(From::from(cfg));
+        USBC_REGS.uecfg[endpoint].set(From::from(cfg));
 
         // Specify which endpoint interrupts we want, among:
         //      TXIN | RXOUT | RXSTP | NAKOUT | NAKIN |
@@ -391,11 +437,11 @@ impl<'a> Usbc<'a> {
         config: &Option<EndpointConfig>,
         dstate: &mut DeviceState,
     ) {
-        let udint: u32 = UDINT.read();
+        let udint: u32 = USBC_REGS.udint.get();
 
         // debug!("--> UDINT={:?} {:?}", UdintFlags(udint), *dstate);
 
-        if udint & UDINT_EORST != 0 {
+        if DeviceInterrupt::EORST::is_set(udint) {
             // Bus reset
 
             // Reconfigure what has been reset in the USBC

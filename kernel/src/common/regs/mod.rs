@@ -247,6 +247,11 @@ impl<R: RegisterLongName> Field<u32, R> {
     pub fn val(&self, value: u32) -> FieldValue<u32, R> {
         FieldValue::<u32, R>::new(self.mask, self.shift, value)
     }
+
+    // Is the field non-zero for the given register value?
+    pub fn is_set(&self, value: u32) -> bool {
+        self.value & (self.mask << self.shift) != 0
+    }
 }
 
 /// Values for the specific register fields.
