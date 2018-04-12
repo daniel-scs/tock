@@ -2,16 +2,14 @@
 
 pub mod data;
 
-#[macro_use]
-mod common;
 mod registers;
 
-use self::common::register::*;
 use self::data::*;
 use self::registers::*;
 use core::cell::Cell;
 use core::fmt;
 use core::slice;
+use kernel::common::regs::{ReadOnly, ReadWrite, WriteOnly};
 use kernel::common::VolatileCell;
 use kernel::common::take_cell::MapCell;
 use kernel::hil;
@@ -26,25 +24,26 @@ macro_rules! client_err {
     };
 }
 
+#[repr(C)]
 struct UsbcRegisters {
-    udcon: ReadWrite<u32, DeviceControl>,
-    udint: ReadOnly<u32, DeviceInterrupt>,
-    udintclr: WriteOnly<u32, DeviceInterrupt>,
-    udintset: WriteOnly<u32, DeviceInterrupt>,
-    udinte: ReadOnly<u32, DeviceInterrupt>,
-    udinteclr: WriteOnly<u32, DeviceInterrupt>,
-    udinteset: WriteOnly<u32, DeviceInterrupt>,
+    udcon: ReadWrite<u32, DeviceControl::Register>,
+    udint: ReadOnly<u32, DeviceInterrupt::Register>,
+    udintclr: WriteOnly<u32, DeviceInterrupt::Register>,
+    udintset: WriteOnly<u32, DeviceInterrupt::Register>,
+    udinte: ReadOnly<u32, DeviceInterrupt::Register>,
+    udinteclr: WriteOnly<u32, DeviceInterrupt::Register>,
+    udinteset: WriteOnly<u32, DeviceInterrupt::Register>,
     uerst: ReadWrite<u32>,
     udfnum: ReadOnly<u32>,
     _reserved0: [u8; 0xdc], // 220 bytes
     // 0x100
     uecfg: [ReadWrite<u32>; 12],
-    uesta: [ReadOnly<u32, EndpointStatus>; 12],
-    uestaclr: [WriteOnly<u32, EndpointStatus>; 12],
-    uestaset: [WriteOnly<u32, EndpointStatus>; 12],
-    uecon: [ReadOnly<u32>; 12],
-    ueconset: [WriteOnly<u32>; 12],
-    ueconclr: [WriteOnly<u32>; 12],
+    uesta: [ReadOnly<u32, EndpointStatus::Register>; 12],
+    uestaclr: [WriteOnly<u32, EndpointStatus::Register>; 12],
+    uestaset: [WriteOnly<u32, EndpointStatus::Register>; 12],
+    uecon: [ReadOnly<u32, EndpointControl::Register>; 12],
+    ueconset: [WriteOnly<u32, EndpointControl::Register>; 12],
+    ueconclr: [WriteOnly<u32, EndpointControl::Register>; 12],
     _reserved1: [u8; 0x1b0], // 432 bytes
     // 0x400 = 1024
     uhcon: ReadWrite<u32>,
@@ -69,7 +68,7 @@ struct UsbcRegisters {
     upinrq: [ReadWrite<u32>; 12],
     _reserved3: [u8; 0x180], // 384 bytes
     // 0x800 = 2048
-    usbcon: ReadWrite<u32, Control>,
+    usbcon: ReadWrite<u32, Control::Register>,
     usbsta: ReadOnly<u32>,
     usbstaclr: WriteOnly<u32>,
     usbstaset: WriteOnly<u32>,
@@ -86,32 +85,32 @@ struct UsbcRegisters {
 
 register_bitfields![u32,
     Control [
-        UIMOD 25 [
+        UIMOD OFFSET(25) NUMBITS(1) [
             HostMode = 0,
-            DeviceMode = 1,
+            DeviceMode = 1
         ],
-        USBE 15,
-        FRZCLK 14
+        USBE OFFSET(15) NUMBITS(1) [],
+        FRZCLK OFFSET(14) NUMBITS(1) []
     ],
     Status [
-        SUSPEND OFFSET(16) NUMBITS(1),
-        CLKUSABLE OFFSET(14) NUMBITS(1),
+        SUSPEND OFFSET(16) NUMBITS(1) [],
+        CLKUSABLE OFFSET(14) NUMBITS(1) [],
         SPEED OFFSET(12) NUMBITS(2) [
             SpeedFull = 0b00,
             SpeedLow = 0b10
         ],
-        VBUSRQ OFFSET(9) NUMBITS(1)
-    ]
+        VBUSRQ OFFSET(9) NUMBITS(1) []
+    ],
     DeviceControl [
-        GNAK OFFSET(17) NUMBITS(1),
+        GNAK OFFSET(17) NUMBITS(1) [],
         LS OFFSET(12) NUMBITS(1) [
             FullSpeed = 0,
-            LowSpeed = 1,
+            LowSpeed = 1
         ],
-        RMWKUP OFFSET(9) NUMBITS(1),
-        DETACH OFFSET(8) NUMBITS(1),
-        ADDEN OFFSET(7) NUMBITS(1),
-        UADD OFFSET(0) NUMBITS(7)
+        RMWKUP OFFSET(9) NUMBITS(1) [],
+        DETACH OFFSET(8) NUMBITS(1) [],
+        ADDEN OFFSET(7) NUMBITS(1) [],
+        UADD OFFSET(0) NUMBITS(7) []
     ],
     DeviceInterrupt [
         EPINT OFFSET(12) NUMBITS(8),
@@ -120,7 +119,7 @@ register_bitfields![u32,
         WAKEUP OFFSET(4) NUMBITS(1),
         EORST OFFSET(3) NUMBITS(1),
         SOF OFFSET(2) NUMBITS(1),
-        SUSP OFFSET(0) NUMBITS(1),
+        SUSP OFFSET(0) NUMBITS(1)
     ],
     EndpointStatus [
         CTRLDIR OFFSET(17) NUMBITS(1) [
@@ -131,20 +130,20 @@ register_bitfields![u32,
             Bank0 = 0,
             Bank1 = 1
         ],
-        NBUSYBK OFFSET(12) NUMBITS(2),
-        RAMACER OFFSET(11) NUMBITS(1),
+        NBUSYBK OFFSET(12) NUMBITS(2) [],
+        RAMACER OFFSET(11) NUMBITS(1) [],
         DTSEQ OFFSET(8) NUMBITS(2) [
             Data0 = 0,
-            Data1 = 1,
+            Data1 = 1
         ],
-        STALLED OFFSET(6) NUMBITS(1),
-        CRCERR OFFSET(6) NUMBITS(1),
-        NAKIN OFFSET(4) NUMBITS(1),
-        NAKOUT OFFSET(3) NUMBITS(1),
-        ERRORF OFFSET(2) NUMBITS(1),
-        RXSTP OFFSET(2) NUMBITS(1),
-        RXOUT OFFSET(1) NUMBITS(1),
-        TXIN OFFSET(0) NUMBITS(0)
+        STALLED OFFSET(6) NUMBITS(1) [],
+        CRCERR OFFSET(6) NUMBITS(1) [],
+        NAKIN OFFSET(4) NUMBITS(1) [],
+        NAKOUT OFFSET(3) NUMBITS(1) [],
+        ERRORF OFFSET(2) NUMBITS(1) [],
+        RXSTP OFFSET(2) NUMBITS(1) [],
+        RXOUT OFFSET(1) NUMBITS(1) [],
+        TXIN OFFSET(0) NUMBITS(0) []
     ],
     EndpointControl [
         BUSY1E 25,
@@ -169,7 +168,7 @@ register_bitfields![u32,
 
 const USBC_BASE: u32 = 0x400A5000;
 
-const USBC_REGS = unsafe {
+const USBC_REGS: &'static UsbcRegisters = unsafe {
     USBC_BASE as *const UsbcRegisters as &UsbcRegisters
 };
 
@@ -224,7 +223,7 @@ impl<'a> UsbController for Usbc<'a> {
     }
 
     fn set_address(&self, addr: u16) {
-        USBC_REGS.udcon.modify(DeviceControl::UADD::val(addr));
+        USBC_REGS.udcon.modify(DeviceControl::UADD.val(addr));
 
         debug!("Set Address = {}", addr);
     }
@@ -274,7 +273,7 @@ impl<'a> Usbc<'a> {
 
                         while !USBC_REGS.usbsta.is_set(Status::CLKUSABLE) {}
 
-                        USBC_REGS.udcon.modify(DeviceControl::DETACH::CLR);
+                        USBC_REGS.udcon.modify(DeviceControl::DETACH::CLEAR);
                         debug!("Attached.");
 
                         *state = State::Active(mode);
@@ -325,14 +324,14 @@ impl<'a> Usbc<'a> {
                     if let Mode::Device { speed, .. } = mode {
                         USBC_REGS.udcon.modify(
                             match speed {
-                                Speed::Full => DeviceConfig::LS::FullSpeed,
-                                Speed::Low => DeviceConfig::LS::LowSpeed,
+                                Speed::Full => DeviceControl::LS::FullSpeed,
+                                Speed::Low => DeviceControl::LS::LowSpeed,
                             }
                         );
                     }
 
                     USBC_REGS.usbcon.modify(Control::UIMOD::DeviceMode);
-                    USBC_REGS.usbcon.modify(Control::FRZCLK::CLR);
+                    USBC_REGS.usbcon.modify(Control::FRZCLK::CLEAR);
                     USBC_REGS.usbcon.modify(Control::USBE::SET);
 
                     USBC_REGS.udesc.set(&self.descriptors as *const _ as u32);
@@ -374,7 +373,7 @@ impl<'a> Usbc<'a> {
 
         self.state.map(|state| {
             if *state != State::Reset {
-                USBC_REGS.usbcon.modify(Control::USBE::CLR);
+                USBC_REGS.usbcon.modify(Control::USBE::CLEAR);
 
                 disable_clock(Clock::PBB(PBBClock::USBC));
                 disable_clock(Clock::HSB(HSBClock::USBC));
@@ -422,15 +421,15 @@ impl<'a> Usbc<'a> {
         });
 
         // Enable the endpoint (meaning the controller will respond to requests)
-        val eps = USBC_REGS.uerst.get();
-        eps |= (1 << endpoint);
+        let eps = USBC_REGS.uerst.get();
+        eps |= 1 << endpoint;
         USBC_REGS.uerst.set(eps);
 
         self.endpoint_configure(endpoint as usize, cfg);
 
         // Set EPnINTE, enabling interrupts for this endpoint
         let epints = USBC_REGS.udinteset.get();
-        epints |= (1 << 12 + endpoint);
+        epints |= 1 << (12 + endpoint);
         USBC_REGS.udinteset.set(epints);
 
         debug!("Enabled endpoint {}", endpoint);
@@ -490,8 +489,8 @@ impl<'a> Usbc<'a> {
             // Reconfigure what has been reset in the USBC
             USBC_REGS.udcon.modify(
                 match speed {
-                    Speed::Full => DeviceConfig::LS::FullSpeed,
-                    Speed::Low => DeviceConfig::LS::LowSpeed,
+                    Speed::Full => DeviceControl::LS::FullSpeed,
+                    Speed::Low => DeviceControl::LS::LowSpeed,
                 }
             );
             if let Some(ref config) = *config {
@@ -587,11 +586,11 @@ impl<'a> Usbc<'a> {
                     USBC_REGS.uestaclr[endpoint].write(EndpointStatus::STALLED::SET);
                 }
 
-                if status.is_set(EndpointStatus::RAMACERR) {
+                if status.is_set(EndpointStatus::RAMACER) {
                     debug!("D({}) RAMACERR", endpoint);
 
                     // Acknowledge
-                    USBC_REGS.uestaclr[endpoint].write(EndpointStatus::RAMACERR::SET);
+                    USBC_REGS.uestaclr[endpoint].write(EndpointStatus::RAMACER::SET);
                 }
 
                 match *dstate {
@@ -620,7 +619,7 @@ impl<'a> Usbc<'a> {
                                         // Wait until bank is clear to send
                                         // Also, wait for NAKOUT to signal end of IN stage
                                         // (The datasheet incorrectly says NAKIN)
-                                        USBC_REG.uestaclr[endpoint].write(EndpointStatus::NAKOUT::SET);
+                                        USBC_REGS.uestaclr[endpoint].write(EndpointStatus::NAKOUT::SET);
                                         endpoint_enable_only_interrupts(
                                             endpoint,
                                             RAMACERR | TXIN | NAKOUT,
@@ -632,8 +631,8 @@ impl<'a> Usbc<'a> {
 
                                         // Wait for OUT packets
                                         // Also, wait for NAKIN to signal end of OUT stage
-                                        USBC_REG.uestaclr[endpoint].write(EndpointStatus::RXOUT::SET +
-                                                                          EndpointStatus::NAKIN::SET);
+                                        USBC_REGS.uestaclr[endpoint].write(EndpointStatus::RXOUT::SET +
+                                                                           EndpointStatus::NAKIN::SET);
 
                                         endpoint_enable_only_interrupts(
                                             endpoint,
@@ -644,7 +643,7 @@ impl<'a> Usbc<'a> {
                                 failure => {
                                     // Respond with STALL to any following transactions
                                     // in this request
-                                    USBC_REG.ueconset[endpoint].write(EndpointControl::STALLRQ::SET);
+                                    USBC_REGS.ueconset[endpoint].write(EndpointControl::STALLRQ::SET);
 
                                     match failure {
                                         None => debug!("D({}) No client to handle Setup", endpoint),
@@ -660,7 +659,7 @@ impl<'a> Usbc<'a> {
                             }
 
                             // Acknowledge SETUP interrupt
-                            USBC_REG.uestaclr[endpoint].write(EndpointStatus::RXSTP::SET);
+                            USBC_REGS.uestaclr[endpoint].write(EndpointStatus::RXSTP::SET);
                         }
                     }
                     DeviceState::CtrlReadIn => {
@@ -678,7 +677,7 @@ impl<'a> Usbc<'a> {
                             endpoint_enable_interrupts(endpoint, RXOUT);
 
                             // Acknowledge
-                            UESTAnCLR[endpoint].write(NAKOUT);
+                            USBC_REGS.uestaclr[endpoint].write(EndpointStatus::NAKOUT::SET);
 
                             // Run handler again in case the RXOUT has already arrived
                             // again = true;
@@ -732,7 +731,6 @@ impl<'a> Usbc<'a> {
                                 }
                                 _ => {
                                     // Respond with STALL to any following IN/OUT transactions
-                                    UECONnSET[endpoint].write(STALLRQ);
                                     USBC_REGS.ueconset[endpoint].write(EndpointControl::STALLRQ::SET);
 
                                     debug!("D({}) Client IN err => STALL", endpoint);

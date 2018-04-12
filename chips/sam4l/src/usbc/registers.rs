@@ -1,11 +1,14 @@
 //! Registers of the SAM4L's USB controller
 
+/*
 #![allow(dead_code)]
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
+*/
 
-use usbc::data::{Mode, Speed};
+// use usbc::data::{Mode, Speed};
 
+/*
 // Base address of USBC registers.  See "7.1 Product Mapping"
 const USBC_BASE: u32 = 0x400A5000;
 
@@ -88,6 +91,7 @@ bitfield![UDCON, UDCON_ADDEN, "RW", bool, 7, 1];
 
 #[rustfmt_skip]
 bitfield![USBSTA, USBSTA_CLKUSABLE, "R", bool, 14, 1];
+*/
 
 // Bitfields for UDINT, UDINTCLR, UDINTESET
 pub const UDINT_SUSP: u32 = 1 << 0;
