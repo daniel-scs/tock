@@ -169,6 +169,7 @@ register_bitfields![u32,
 const USBC_BASE: StaticRef<UsbcRegisters> = 
     unsafe { StaticRef::new(0x400A5000 as *const UsbcRegisters) };
 
+#[inline]
 fn usbc_regs() -> &'static UsbcRegisters {
     &*USBC_BASE
 }
@@ -439,9 +440,9 @@ impl<'a> Usbc<'a> {
         // Specify which endpoint interrupts we want, among:
         //      TXIN | RXOUT | RXSTP | NAKOUT | NAKIN |
         //      ERRORF | STALLED | CRCERR | RAMACERR
-        endpoint_enable_only_interrupts(endpoint,
-                                        EndpointControl::RXSTPE::SET +
-                                        EndpointControl::RAMACERE::SET);
+        endpoint_enable_interrupts(endpoint,
+                                   EndpointControl::RXSTPE::SET +
+                                   EndpointControl::RAMACERE::SET);
 
         // XX: Set endpoint state to Init
     }
