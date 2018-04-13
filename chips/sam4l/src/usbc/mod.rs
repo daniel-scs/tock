@@ -579,7 +579,6 @@ impl<'a> Usbc<'a> {
 
             let mut again = true;
             while again {
-
                 again = false;
                 // `again` may be set to true below when it would be
                 // advantageous to process more flags without waiting for
@@ -620,9 +619,9 @@ impl<'a> Usbc<'a> {
 
                             match result {
                                 Some(CtrlSetupResult::Ok) => {
-
                                     // Unsubscribe from SETUP interrupts
-                                    endpoint_disable_interrupts(endpoint,
+                                    endpoint_disable_interrupts(
+                                        endpoint,
                                         EndpointControl::RXSTPE::SET,
                                     );
 
@@ -635,9 +634,10 @@ impl<'a> Usbc<'a> {
                                         // incorrectly says NAKIN).
                                         usbc_regs().uestaclr[endpoint]
                                             .write(EndpointStatus::NAKOUT::SET);
-                                        endpoint_enable_interrupts(endpoint,
-                                            EndpointControl::TXINE::SET +
-                                            EndpointControl::NAKOUTE::SET
+                                        endpoint_enable_interrupts(
+                                            endpoint,
+                                            EndpointControl::TXINE::SET
+                                                + EndpointControl::NAKOUTE::SET,
                                         );
 
                                         *dstate = DeviceState::CtrlReadIn;
@@ -647,12 +647,12 @@ impl<'a> Usbc<'a> {
                                         // Wait for OUT packets (RXOUT).  Also
                                         // wait for NAKIN to signal end of OUT
                                         // stage.
-                                        usbc_regs().uestaclr[endpoint].write(
-                                            EndpointStatus::NAKIN::SET,
-                                        );
-                                        endpoint_enable_interrupts(endpoint,
-                                            EndpointControl::RXOUTE::SET +
-                                            EndpointControl::NAKINE::SET
+                                        usbc_regs().uestaclr[endpoint]
+                                            .write(EndpointStatus::NAKIN::SET);
+                                        endpoint_enable_interrupts(
+                                            endpoint,
+                                            EndpointControl::RXOUTE::SET
+                                                + EndpointControl::NAKINE::SET,
                                         );
 
                                         *dstate = DeviceState::CtrlWriteOut;
@@ -701,7 +701,6 @@ impl<'a> Usbc<'a> {
 
                             // Run handler again in case the RXOUT has already arrived
                             again = true;
-
                         } else if status.is_set(EndpointStatus::TXIN) {
                             // The data bank is ready to receive another IN payload
                             // debug!("D({}) TXIN", endpoint);
