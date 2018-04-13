@@ -32,11 +32,32 @@ const PRODUCT_ID: u16 = 0xabcd;
 const EXPECT_BYTES: &'static [u8] = &[10, 11, 12];
 
 fn main() {
-    let context = Context::new().unwrap();
+    let context = Context::new().expect("Creating context");
 
+    let device_list = context.devices().expect("Getting device list");
+    let mut dev = None;
+    for d in device_list.iter() {
+        let descr = d.device_descriptor().expect("Getting device descriptor");
+        let matches = descr.vendor_id() == VENDOR_ID && descr.product_id() == PRODUCT_ID;
+        println!("{}{:02}:{:02} Vendor:{:04x} Product:{:04x}",
+                 if matches { "*" } else { " " },
+                 d.bus_number(), d.address(),
+                 descr.vendor_id(), descr.product_id());
+
+        if matches {
+            dev = Some(d);
+        }
+    }
+
+    let mut dh = dev.expect("Matching device not found")
+                    .open()
+                    .expect("Opening device");
+
+    /*
     let mut dh = context
         .open_device_with_vid_pid(VENDOR_ID, PRODUCT_ID)
         .expect("Opening device");
+    */
 
     dh.set_active_configuration(0)
         .expect("Setting active configuration");
