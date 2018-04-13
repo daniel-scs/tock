@@ -350,9 +350,12 @@ impl<'a> Usbc<'a> {
                     );
 
                     // Enable device global interrupts
+                    // Note: SOF has been omitted as it is not presently used,
+                    // Note: SUSP has been omitted as SUSPEND/WAKEUP is not yet
+                    //   implemented.
+                    // Note: SOF and SUSP may nevertheless be enabled here
+                    //   without harm, but it makes debugging easier to omit them.
                     usbc_regs().udinteset.write(
-                        // DeviceInterrupt::SUSP::SET +
-                        // DeviceInterrupt::SOF::SET +
                         DeviceInterrupt::EORST::SET + DeviceInterrupt::EORSM::SET
                             + DeviceInterrupt::UPRSM::SET,
                     );
@@ -574,13 +577,13 @@ impl<'a> Usbc<'a> {
                 continue;
             }
 
-            // Set to true to process more flags without waiting for another interrupt
-            // (Using this with debugging messages tends to fill up the console buffer too fast.)
-            // (Ignoring `again` should not cause incorrect behavior.)
-            //
-            // let mut again = true;
-            /* while again */            {
-                // again = false;
+            let mut again = true;
+            while again {
+
+                again = false;
+                // `again` may be set to true below when it would be
+                // advantageous to process more flags without waiting for
+                // another interrupt.
 
                 let status = usbc_regs().uesta[endpoint].cache();
                 // debug!("UESTA{}={:?}", endpoint, UestaFlags(status));
@@ -617,44 +620,47 @@ impl<'a> Usbc<'a> {
 
                             match result {
                                 Some(CtrlSetupResult::Ok) => {
+
+                                    // Unsubscribe from SETUP interrupts
+                                    endpoint_disable_interrupts(endpoint,
+                                        EndpointControl::RXSTPE::SET,
+                                    );
+
                                     if status.matches_all(EndpointStatus::CTRLDIR::In) {
                                         // The following Data stage will be IN
 
-                                        *dstate = DeviceState::CtrlReadIn;
-
                                         // Wait until bank is clear to send
-                                        // Also, wait for NAKOUT to signal end of IN stage
-                                        // (The datasheet incorrectly says NAKIN)
+                                        // (TXIN).  Also wait for NAKOUT to
+                                        // signal end of IN stage (the datasheet
+                                        // incorrectly says NAKIN).
                                         usbc_regs().uestaclr[endpoint]
                                             .write(EndpointStatus::NAKOUT::SET);
-                                        endpoint_enable_only_interrupts(
-                                            endpoint,
-                                            EndpointControl::TXINE::SET
-                                                + EndpointControl::NAKOUTE::SET
-                                                + EndpointControl::RAMACERE::SET,
+                                        endpoint_enable_interrupts(endpoint,
+                                            EndpointControl::TXINE::SET +
+                                            EndpointControl::NAKOUTE::SET
                                         );
+
+                                        *dstate = DeviceState::CtrlReadIn;
                                     } else {
                                         // The following Data stage will be OUT
 
-                                        *dstate = DeviceState::CtrlWriteOut;
-
-                                        // Wait for OUT packets
-                                        // Also, wait for NAKIN to signal end of OUT stage
+                                        // Wait for OUT packets (RXOUT).  Also
+                                        // wait for NAKIN to signal end of OUT
+                                        // stage.
                                         usbc_regs().uestaclr[endpoint].write(
-                                            EndpointStatus::RXOUT::SET + EndpointStatus::NAKIN::SET,
+                                            EndpointStatus::NAKIN::SET,
+                                        );
+                                        endpoint_enable_interrupts(endpoint,
+                                            EndpointControl::RXOUTE::SET +
+                                            EndpointControl::NAKINE::SET
                                         );
 
-                                        endpoint_enable_only_interrupts(
-                                            endpoint,
-                                            EndpointControl::RXOUTE::SET
-                                                + EndpointControl::NAKINE::SET
-                                                + EndpointControl::RAMACERE::SET,
-                                        );
+                                        *dstate = DeviceState::CtrlWriteOut;
                                     }
                                 }
                                 failure => {
-                                    // Respond with STALL to any following transactions
-                                    // in this request
+                                    // Respond with STALL to any following
+                                    // transactions in this request
                                     usbc_regs().ueconset[endpoint]
                                         .write(EndpointControl::STALLRQ::SET);
 
@@ -664,12 +670,6 @@ impl<'a> Usbc<'a> {
                                             debug!("D({}) Client err on Setup: {:?}", endpoint, err)
                                         }
                                     }
-
-                                    endpoint_enable_only_interrupts(
-                                        endpoint,
-                                        EndpointControl::RXSTPE::SET
-                                            + EndpointControl::RAMACERE::SET,
-                                    );
 
                                     // Remain in DeviceState::Init for next SETUP
                                 }
@@ -691,16 +691,17 @@ impl<'a> Usbc<'a> {
                             // debug!("D({}) NAKOUT");
                             self.client.map(|c| c.ctrl_status());
 
-                            *dstate = DeviceState::CtrlReadStatus;
-
                             // Await end of Status stage
                             endpoint_enable_interrupts(endpoint, EndpointControl::RXOUTE::SET);
 
                             // Acknowledge
                             usbc_regs().uestaclr[endpoint].write(EndpointStatus::NAKOUT::SET);
 
-                        // Run handler again in case the RXOUT has already arrived
-                        // again = true;
+                            *dstate = DeviceState::CtrlReadStatus;
+
+                            // Run handler again in case the RXOUT has already arrived
+                            again = true;
+
                         } else if status.is_set(EndpointStatus::TXIN) {
                             // The data bank is ready to receive another IN payload
                             // debug!("D({}) TXIN", endpoint);
@@ -750,8 +751,11 @@ impl<'a> Usbc<'a> {
                                         endpoint,
                                         EndpointControl::TXINE::SET,
                                     );
+
                                     debug!("*** Client NAK");
+
                                     // XXX set busy bits?
+
                                     *dstate = DeviceState::CtrlInDelay;
                                 }
                                 _ => {
@@ -761,13 +765,13 @@ impl<'a> Usbc<'a> {
 
                                     debug!("D({}) Client IN err => STALL", endpoint);
 
-                                    *dstate = DeviceState::Init;
-
                                     // Wait for next SETUP
                                     endpoint_enable_interrupts(
                                         endpoint,
                                         EndpointControl::RXSTPE::SET,
                                     );
+
+                                    *dstate = DeviceState::Init;
                                 }
                             }
                         }
@@ -781,13 +785,13 @@ impl<'a> Usbc<'a> {
                             // debug!("D({}) RXOUT: End of Control Read transaction", endpoint);
                             self.client.map(|c| c.ctrl_status_complete());
 
-                            *dstate = DeviceState::Init;
-
                             // Wait for next SETUP
                             endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
 
                             // Acknowledge
                             usbc_regs().uestaclr[endpoint].write(EndpointStatus::RXOUT::SET);
+
+                            *dstate = DeviceState::Init;
                         }
                     }
                     DeviceState::CtrlWriteOut => {
@@ -823,13 +827,13 @@ impl<'a> Usbc<'a> {
 
                                     debug!("D({}) Client OUT err => STALL", endpoint);
 
-                                    *dstate = DeviceState::Init;
-
                                     // Wait for next SETUP
                                     endpoint_enable_interrupts(
                                         endpoint,
                                         EndpointControl::RXSTPE::SET,
                                     );
+
+                                    *dstate = DeviceState::Init;
                                 }
                             }
 
@@ -844,16 +848,16 @@ impl<'a> Usbc<'a> {
                                 EndpointControl::RXOUTE::SET + EndpointControl::NAKINE::SET,
                             );
 
-                            *dstate = DeviceState::CtrlWriteStatus;
-
                             // Wait for bank to be free so we can write ZLP to acknowledge transfer
                             endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
 
                             // Acknowledge
                             usbc_regs().uestaclr[endpoint].write(EndpointStatus::NAKIN::SET);
 
+                            *dstate = DeviceState::CtrlWriteStatus;
+
                             // Can probably send the ZLP immediately
-                            // again = true;
+                            again = true;
                         }
                     }
                     DeviceState::CtrlWriteStatus => {
@@ -868,12 +872,12 @@ impl<'a> Usbc<'a> {
                                 .packet_size
                                 .set(PacketSize::single(0));
 
-                            *dstate = DeviceState::CtrlWriteStatusWait;
-
                             // Signal to the controller that the IN payload is ready to send
                             usbc_regs().uestaclr[endpoint].write(EndpointStatus::TXIN::SET);
 
                             // Wait for TXIN again to confirm that IN payload has been sent
+
+                            *dstate = DeviceState::CtrlWriteStatusWait;
                         }
                     }
                     DeviceState::CtrlWriteStatusWait => {
@@ -882,19 +886,17 @@ impl<'a> Usbc<'a> {
 
                             endpoint_disable_interrupts(endpoint, EndpointControl::TXINE::SET);
 
-                            *dstate = DeviceState::Init;
+                            // for SetAddress, client must enable address after STATUS stage
+                            self.client.map(|c| c.ctrl_status_complete());
 
                             // Wait for next SETUP
                             endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
 
-                            // for SetAddress, client must enable address after STATUS stage
-                            self.client.map(|c| c.ctrl_status_complete());
+                            *dstate = DeviceState::Init;
                         }
                     }
                     DeviceState::CtrlInDelay => { /* XX: Spin fruitlessly */ }
                 } // match dstate
-
-                // again = false; // XX
             } // while again
         } // for endpoint
     } // handle_device_interrupt
@@ -950,7 +952,7 @@ impl<'a> Usbc<'a> {
         }
     }
 
-    // Remote wakeup (Device -> Host, after receiving DEVICE_REMOTE_WAKEUP)
+    // TODO: Remote wakeup (Device -> Host, after receiving DEVICE_REMOTE_WAKEUP)
 }
 
 #[inline]
@@ -961,24 +963,6 @@ fn endpoint_disable_interrupts(endpoint: usize, mask: FieldValue<u32, EndpointCo
 #[inline]
 fn endpoint_enable_interrupts(endpoint: usize, mask: FieldValue<u32, EndpointControl::Register>) {
     usbc_regs().ueconset[endpoint].write(mask);
-}
-
-#[inline]
-fn endpoint_enable_only_interrupts(
-    endpoint: usize,
-    mask: FieldValue<u32, EndpointControl::Register>,
-) {
-    // Disable all endpoint interrupts
-    endpoint_disable_interrupts(
-        endpoint,
-        EndpointControl::NBUSYBKE::SET + EndpointControl::RAMACERE::SET
-            + EndpointControl::STALLEDE::SET + EndpointControl::NAKINE::SET
-            + EndpointControl::NAKOUTE::SET + EndpointControl::RXSTPE::SET
-            + EndpointControl::RXOUTE::SET + EndpointControl::TXINE::SET,
-    );
-
-    // Re-enable those we want
-    endpoint_enable_interrupts(endpoint, mask);
 }
 
 /// Static state to manage the USBC
