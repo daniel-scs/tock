@@ -40,10 +40,14 @@ fn main() {
     for d in device_list.iter() {
         let descr = d.device_descriptor().expect("Getting device descriptor");
         let matches = descr.vendor_id() == VENDOR_ID && descr.product_id() == PRODUCT_ID;
-        println!("{} {:02}:{:02} Vendor:{:04x} Product:{:04x}",
-                 if matches { "->" } else { "  " },
-                 d.bus_number(), d.address(),
-                 descr.vendor_id(), descr.product_id());
+        println!(
+            "{} {:02}:{:02} Vendor:{:04x} Product:{:04x}",
+            if matches { "->" } else { "  " },
+            d.bus_number(),
+            d.address(),
+            descr.vendor_id(),
+            descr.product_id()
+        );
 
         if matches {
             dev = Some(d);
@@ -51,14 +55,13 @@ fn main() {
     }
 
     let mut dh = dev.expect("Matching device not found")
-                    .open()
-                    .expect("Opening device");
+        .open()
+        .expect("Opening device");
 
     dh.set_active_configuration(0)
-      .expect("Setting active configuration");
+        .expect("Setting active configuration");
 
-    dh.claim_interface(0)
-      .expect("Claiming interface");
+    dh.claim_interface(0).expect("Claiming interface");
 
     {
         let request_type = request_type(Direction::In, RequestType::Vendor, Recipient::Device);
