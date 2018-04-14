@@ -29,7 +29,7 @@ pub struct Client<'a, C: 'a> {
     controller: &'a C,
     state: Cell<State>,
     ep0_buf: [VolatileCell<u8>; 8],
-    ep1_buf: [VolatileCell<u8>; 8],
+    // ep1_buf: [VolatileCell<u8>; 8],
     descriptor_storage: [Cell<u8>; DESCRIPTOR_BUFLEN],
 }
 
@@ -54,7 +54,7 @@ impl<'a, C: UsbController> Client<'a, C> {
             controller: controller,
             state: Cell::new(State::Init),
             ep0_buf: [VolatileCell::new(0); 8],
-            ep1_buf: [VolatileCell::new(0); 8],
+            // ep1_buf: [VolatileCell::new(0); 8],
             descriptor_storage: Default::default(),
         }
     }
