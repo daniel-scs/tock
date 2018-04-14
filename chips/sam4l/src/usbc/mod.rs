@@ -201,17 +201,6 @@ pub struct Usbc<'a> {
 }
 
 impl<'a> UsbController for Usbc<'a> {
-    fn attach(&self) {
-        self._attach();
-    }
-
-    fn enable_device(&self, speed: DeviceSpeed) {
-        let speed = match speed {
-            DeviceSpeed::Full => Speed::Full,
-            DeviceSpeed::Low => Speed::Low,
-        };
-        self._enable(Mode::device_at_speed(speed));
-    }
 
     fn endpoint_set_buffer<'b>(&'b self, e: u32, buf: &[VolatileCell<u8>]) {
         if buf.len() != 8 {
@@ -220,14 +209,79 @@ impl<'a> UsbController for Usbc<'a> {
         self._endpoint_bank_set_buffer(EndpointIndex::new(e), BankIndex::Bank0, buf);
     }
 
-    fn endpoint_ctrl_out_enable(&self, e: u32) {
-        let cfg = EndpointConfig::new(
+    fn enable_as_device(&self, speed: DeviceSpeed) {
+        self.state.map(|state| {
+            match *state {
+                State::Reset => {
+                    let speed = match speed {
+                        DeviceSpeed::Full => Speed::Full,
+                        DeviceSpeed::Low => Speed::Low,
+                    };
+
+                    self._enable(state, Mode::device_at_speed(speed));
+                }
+                _ => client_err!("Already enabled"),
+            }
+        });
+    }
+
+    fn attach(&self) {
+        self.state.map_or_else(
+            || { internal_error("Missing state"); },
+            |state| {
+            match *state {
+                State::Reset => {
+                    client_warn!("Not enabled");
+                }
+                State::Active(_) => {
+                    client_warn!("Already attached");
+                }
+                State::Idle(mode) => {
+                    self._attach(state);
+                }
+            }
+        });
+    }
+
+    fn detach(&self) {
+        self.state.map(|state| match *state {
+            State::Reset => {
+                client_warn!("Not enabled");
+            }
+            State::Idle(_) => {
+                client_warn!("Not attached");
+            }
+            State::Active(mode) => {
+                self._detach();
+            }
+        }
+    }
+
+    fn endpoint_ctrl_out_enable(&self, endpoint: u32) {
+        let endpoint_cfg = EndpointConfig::new(
             BankCount::Single,
             EndpointSize::Bytes8,
             EndpointDirection::Out,
             EndpointType::Control,
-            EndpointIndex::new(e),
+            EndpointIndex::new(endpoint),
         );
+
+        self.state.map(|state| {
+            match *state {
+                State::Reset => {
+                    client_err!("Not enabled");
+                }
+                State::Idle(..) {
+                    // The endpoint will be active when we attach
+                    self._endpoint_enable(e as usize, endpoint_cfg);
+                }
+                State::Active(..) {
+                    // The endpoint will be active immediately
+                    self._endpoint_enable(e as usize, endpoint_cfg);
+                }
+                _ => client_err!("Not in Device mode");
+            }
+        });
         self._endpoint_enable(e as usize, cfg);
     }
 
@@ -267,140 +321,8 @@ impl<'a> Usbc<'a> {
         }
     }
 
-    /// Attach to the USB bus after enabling USB clock
-    fn _attach(&self) {
-        self.state.map(|state| {
-            match *state {
-                State::Reset => {
-                    client_warn!("Not enabled");
-                }
-                State::Active(_) => {
-                    client_warn!("Already attached");
-                }
-                State::Idle(mode) => {
-                    if pm::get_system_frequency() == 48000000 {
-                        // XX: not clear that this always results in a usable USB clock
-                        scif::generic_clock_enable(
-                            scif::GenericClock::GCLK7,
-                            scif::ClockSource::CLK_HSB,
-                        );
-
-                        while !usbc_regs().usbsta.is_set(Status::CLKUSABLE) {}
-
-                        usbc_regs().udcon.modify(DeviceControl::DETACH::CLEAR);
-                        debug!("Attached.");
-
-                        *state = State::Active(mode);
-                    } else {
-                        debug!("The system clock does not support USB");
-                    }
-                }
-            }
-        });
-    }
-
-    /// Detach from the USB bus.  Also disable USB clock to save energy.
-    fn _detach(&self) {
-        self.state.map(|state| match *state {
-            State::Reset => {
-                client_warn!("Not enabled");
-            }
-            State::Idle(_) => {
-                client_warn!("Not attached");
-            }
-            State::Active(mode) => {
-                usbc_regs().udcon.modify(DeviceControl::DETACH::SET);
-
-                scif::generic_clock_disable(scif::GenericClock::GCLK7);
-
-                *state = State::Idle(mode);
-            }
-        });
-    }
-
-    /// Enable the controller's clocks and interrupt and transition to Idle state
-    /// (No effect if current state is not Reset)
-    fn _enable(&self, mode: Mode) {
-        self.state.map(|state| {
-            match *state {
-                State::Reset => {
-                    // Are the USBC clocks enabled at reset?
-                    //   10.7.4 says no, but 17.5.3 says yes
-                    // Also, "Being in Idle state does not require the USB clocks to
-                    //   be activated" (17.6.2)
-                    enable_clock(Clock::HSB(HSBClock::USBC));
-                    enable_clock(Clock::PBB(PBBClock::USBC));
-
-                    // If we got to this state via disable() instead of chip reset,
-                    // the values USBCON.FRZCLK, USBCON.UIMOD, UDCON.LS have *not* been
-                    // reset to their default values.
-
-                    if let Mode::Device { speed, .. } = mode {
-                        usbc_regs().udcon.modify(match speed {
-                            Speed::Full => DeviceControl::LS::FullSpeed,
-                            Speed::Low => DeviceControl::LS::LowSpeed,
-                        });
-                    }
-
-                    usbc_regs().usbcon.modify(Control::UIMOD::DeviceMode);
-                    usbc_regs().usbcon.modify(Control::FRZCLK::CLEAR);
-                    usbc_regs().usbcon.modify(Control::USBE::SET);
-
-                    usbc_regs().udesc.set(&self.descriptors as *const _ as u32);
-
-                    // Clear pending device global interrupts
-                    usbc_regs().udintclr.write(
-                        DeviceInterrupt::SUSP::SET + DeviceInterrupt::SOF::SET
-                            + DeviceInterrupt::EORST::SET
-                            + DeviceInterrupt::EORSM::SET
-                            + DeviceInterrupt::UPRSM::SET,
-                    );
-
-                    // Enable device global interrupts
-                    // Note: SOF has been omitted as it is not presently used,
-                    // Note: SUSP has been omitted as SUSPEND/WAKEUP is not yet
-                    //   implemented.
-                    // Note: SOF and SUSP may nevertheless be enabled here
-                    //   without harm, but it makes debugging easier to omit them.
-                    usbc_regs().udinteset.write(
-                        DeviceInterrupt::EORST::SET + DeviceInterrupt::EORSM::SET
-                            + DeviceInterrupt::UPRSM::SET,
-                    );
-
-                    debug!("Enabled.");
-                    *state = State::Idle(mode);
-                }
-                _ => client_warn!("Already enabled"),
-            }
-        });
-    }
-
-    fn _active(&self) -> bool {
-        self.state.map_or(false, |state| match *state {
-            State::Active(_) => true,
-            _ => false,
-        })
-    }
-
-    /// Disable the controller, its interrupt, and its clocks
-    fn _disable(&self) {
-        if self._active() {
-            self._detach();
-        }
-
-        self.state.map(|state| {
-            if *state != State::Reset {
-                usbc_regs().usbcon.modify(Control::USBE::CLEAR);
-
-                disable_clock(Clock::PBB(PBBClock::USBC));
-                disable_clock(Clock::HSB(HSBClock::USBC));
-
-                *state = State::Reset;
-            }
-        });
-    }
-
     /// Provide a buffer for transfers in and out of the given endpoint
+    /// (The controller need not be enabled before calling this method.)
     fn _endpoint_bank_set_buffer(
         &self,
         endpoint: EndpointIndex,
@@ -416,14 +338,137 @@ impl<'a> Usbc<'a> {
         self.descriptors[e][b].set_packet_size(PacketSize::default());
     }
 
+
+    /// Enable the controller's clocks and interrupt and transition to Idle state
+    /// (No effect if current state is not Reset)
+    fn _enable(&self, state: &mut State, mode: Mode) {
+        match *state {
+            State::Reset => {
+                // Are the USBC clocks enabled at reset?
+                //   10.7.4 says no, but 17.5.3 says yes
+                // Also, "Being in Idle state does not require the USB clocks to
+                //   be activated" (17.6.2)
+                enable_clock(Clock::HSB(HSBClock::USBC));
+                enable_clock(Clock::PBB(PBBClock::USBC));
+
+                // If we got to this state via disable() instead of chip reset,
+                // the values USBCON.FRZCLK, USBCON.UIMOD, UDCON.LS have *not* been
+                // reset to their default values.
+
+                if let Mode::Device { speed, .. } = mode {
+                    usbc_regs().udcon.modify(match speed {
+                        Speed::Full => DeviceControl::LS::FullSpeed,
+                        Speed::Low => DeviceControl::LS::LowSpeed,
+                    });
+                }
+
+                // Enable in device mode
+                usbc_regs().usbcon.modify(Control::UIMOD::DeviceMode);
+                usbc_regs().usbcon.modify(Control::FRZCLK::CLEAR);
+                usbc_regs().usbcon.modify(Control::USBE::SET);
+
+                // Set the pointer to the endpoint descriptors
+                usbc_regs().udesc.set(&self.descriptors as *const _ as u32);
+
+                // Clear pending device global interrupts
+                usbc_regs().udintclr.write(
+                    DeviceInterrupt::SUSP::SET + DeviceInterrupt::SOF::SET
+                        + DeviceInterrupt::EORST::SET
+                        + DeviceInterrupt::EORSM::SET
+                        + DeviceInterrupt::UPRSM::SET,
+                );
+
+                // Enable device global interrupts
+                // Note: SOF has been omitted as it is not presently used,
+                // Note: SUSP has been omitted as SUSPEND/WAKEUP is not yet
+                //   implemented.
+                // Note: SOF and SUSP may nevertheless be enabled here
+                //   without harm, but it makes debugging easier to omit them.
+                usbc_regs().udinteset.write(
+                    DeviceInterrupt::EORST::SET + DeviceInterrupt::EORSM::SET
+                        + DeviceInterrupt::UPRSM::SET,
+                );
+
+                debug!("Enabled.");
+
+                *state = State::Idle(mode);
+            }
+            _ => internal_error!("Already enabled"),
+        }
+    }
+
+    /// Disable the controller, its interrupt, and its clocks
+    fn _disable(&self) {
+
+        // Detach if necessary
+        self.state.map(|state| match *state {
+            State::Active(_) => self._detach();
+        });
+
+        // Disable USBC and its clocks
+        self.state.map(|state| match *state {
+            State::Idle(..) {
+                if *state != State::Reset {
+                    usbc_regs().usbcon.modify(Control::USBE::CLEAR);
+
+                    disable_clock(Clock::PBB(PBBClock::USBC));
+                    disable_clock(Clock::HSB(HSBClock::USBC));
+
+                    *state = State::Reset;
+                }
+            },
+            _ => internal_err("Disable from wrong state");
+        });
+    }
+
+    /// Attach to the USB bus after enabling USB bus clock
+    fn _attach(&self, &mut State) {
+        match state {
+            State::Idle(mode) => {
+
+                if pm::get_system_frequency() != 48000000 {
+                    internal_err!("The system clock does not support USB");
+                }
+
+                // XX: not clear that this always results in a usable USB clock
+                scif::generic_clock_enable(
+                    scif::GenericClock::GCLK7,
+                    scif::ClockSource::CLK_HSB,
+                );
+
+                while !usbc_regs().usbsta.is_set(Status::CLKUSABLE) {}
+
+                usbc_regs().udcon.modify(DeviceControl::DETACH::CLEAR);
+
+                debug!("Attached.");
+
+                *state = State::Active(mode);
+            },
+            _ => internal_err("Attach in wrong state")
+        }
+    }
+
+    /// Detach from the USB bus.  Also disable USB bus clock to save energy.
+    fn _detach(&self) {
+        self.state.map(|state| match *state {
+            State::Active(mode) => {
+                usbc_regs().udcon.modify(DeviceControl::DETACH::SET);
+
+                scif::generic_clock_disable(scif::GenericClock::GCLK7);
+
+                *state = State::Idle(mode);
+            },
+            _ => debug("Already detached");
+        });
+    }
+
     /// Configure and enable an endpoint
-    /// (XX: include addr and packetsize?)
-    pub fn _endpoint_enable(&self, endpoint: usize, cfg: EndpointConfig) {
+    fn _endpoint_enable(&self, endpoint: usize, cfg: EndpointConfig) {
         // Record config in case of later reset
         self.state.map(|state| {
             match *state {
                 State::Reset => {
-                    client_warn!("Not enabled");
+                    internal_err!("Not enabled");
                 }
                 State::Idle(Mode::Device { ref mut config, .. }) => {
                     config.endpoint_configs[endpoint] = Some(cfg);
@@ -432,12 +477,12 @@ impl<'a> Usbc<'a> {
                     config.endpoint_configs[endpoint] = Some(cfg);
                 }
                 _ => {
-                    client_warn!("Not in Device mode");
+                    internal_err!("Not in Device mode");
                 }
             }
         });
 
-        self._endpoint_init(endpoint as usize, cfg);
+        sef._endpoint_config(endpoint, cfg);
 
         // Enable the endpoint (meaning the controller will respond to requests
         // to this endpoint)
@@ -445,17 +490,26 @@ impl<'a> Usbc<'a> {
             .uerst
             .set(usbc_regs().uerst.get() | (1 << endpoint));
 
+        // (XX: include addr and packetsize?)
+        self._endpoint_init(endpoint, cfg);
+
         // Set EPnINTE, enabling interrupts for this endpoint
         usbc_regs().udinteset.set(1 << (12 + endpoint));
 
         debug!("Enabled endpoint {}", endpoint);
     }
 
-    fn _endpoint_init(&self, endpoint: usize, cfg: EndpointConfig) {
-        // This must be performed after each bus reset (see 17.6.2.2)
+    fn _endpoint_config(&self, endpoint: usize, cfg: EndpointConfig) {
+        // This must be performed after each bus reset
 
         // Configure the endpoint
         usbc_regs().uecfg[endpoint].set(From::from(cfg));
+
+        debug!("Configured endpoint {}", endpoint);
+    }
+
+    fn _endpoint_init(&self, endpoint: usize) {
+        // This must be performed after each bus reset (see 17.6.2.2)
 
         // Enable the endpoint interrupts we need for now
         endpoint_enable_interrupts(
@@ -488,15 +542,18 @@ impl<'a> Usbc<'a> {
     pub fn handle_interrupt(&self) {
         self.state.map(|state| {
             match *state {
-                State::Reset => internal_err!("Not reached"),
-                State::Idle(_) => internal_err!("Not reached"),
+                State::Reset => internal_err!("Received interrupt in Reset"),
+                State::Idle(_) => {
+                    // We might process WAKEUP here
+                    debug!("Received interrupt in Idle"),
+                }
                 State::Active(ref mut mode) => match *mode {
                     Mode::Device {
                         speed,
                         ref config,
                         ref mut state,
                     } => self.handle_device_interrupt(speed, config, state),
-                    Mode::Host => internal_err!("Unimplemented"),
+                    Mode::Host => internal_err!("Host mode unimplemented"),
                 }
             }
         });
@@ -529,7 +586,8 @@ impl<'a> Usbc<'a> {
             // Reconfigure and initialize endpoints
             for i in 0..N_ENDPOINTS {
                 if let Some(ref endpoint_config) = device_config.endpoint_configs[i] {
-                    self._endpoint_init(0, *endpoint_config);
+                    self._endpoint_config(i, *endpoint_config);
+                    self._endpoint_init(i);
                 }
             }
 
@@ -540,6 +598,9 @@ impl<'a> Usbc<'a> {
 
             // Acknowledge the interrupt
             usbc_regs().udintclr.write(DeviceInterrupt::EORST::SET);
+
+            // Wait for the next interrupt before doing anything else
+            return;
         }
 
         if udint.is_set(DeviceInterrupt::SUSP) {
@@ -599,19 +660,16 @@ impl<'a> Usbc<'a> {
                 continue;
             }
 
-            let endpoint_state = &mut device_state.endpoint_states[endpoint];
-            match *endpoint_state {
-                EndpointState::Disabled => {
-                    debug!("Ignoring interrupt for disabled endpoint {}", endpoint);
-                }
-                _ => {
-                    self.handle_endpoint_interrupt(endpoint, endpoint_state);
-                }
-            }
+            self.handle_endpoint_interrupt(endpoint, &mut device_state.endpoint_states[endpoint]);
         }
     }
 
     fn handle_endpoint_interrupt(&self, endpoint: usize, endpoint_state: &mut EndpointState) {
+        if *endpoint_state == EndpointState::Disabled {
+            debug!("Ignoring interrupt for disabled endpoint {}", endpoint);
+            return;
+        }
+
         let mut again = true;
         while again {
             again = false;

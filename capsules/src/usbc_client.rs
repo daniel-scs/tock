@@ -69,11 +69,13 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
     fn enable(&self) {
         // Set up the default control endpoint
         self.controller.endpoint_set_buffer(0, &self.ep0_buf);
-        self.controller.enable_device(DeviceSpeed::Full); // must be Full for Bulk transfers
+        self.controller.enable_as_device(DeviceSpeed::Full); // must be Full for Bulk transfers
         self.controller.endpoint_ctrl_out_enable(0);
 
+        /*
         // Set up a Bulk IN endpoint
         self.controller.endpoint_set_buffer(1, &self.ep1_buf);
+        */
     }
 
     fn attach(&self) {

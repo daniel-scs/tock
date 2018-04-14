@@ -4,11 +4,15 @@ use common::VolatileCell;
 
 /// USB controller interface
 pub trait UsbController {
-    fn enable_device(&self, speed: DeviceSpeed);
+    // Should be called before `enable_as_device()`
+    fn endpoint_set_buffer(&self, endpoint: u32, buf: &[VolatileCell<u8>]);
+
+    // Must be called before `attach()`
+    fn enable_as_device(&self, speed: DeviceSpeed);
 
     fn attach(&self);
 
-    fn endpoint_set_buffer(&self, endpoint: u32, buf: &[VolatileCell<u8>]);
+    fn detach(&self);
 
     fn endpoint_ctrl_out_enable(&self, endpoint: u32);
 

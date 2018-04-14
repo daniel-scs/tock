@@ -8,8 +8,15 @@ pub const N_ENDPOINTS: usize = 8;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum State {
+    // Controller disabled
     Reset,
+
+    // Controller enabled, detached from bus
+    // (We may go to this state when the Host
+    // controller suspends the bus.)
     Idle(Mode),
+
+    // Controller enabled, attached to bus
     Active(Mode),
 }
 
