@@ -419,36 +419,36 @@ impl<'a> Usbc<'a> {
     /// Configure and enable an endpoint
     /// (XX: include addr and packetsize?)
     pub fn _endpoint_enable(&self, endpoint: usize, cfg: EndpointConfig) {
+        // Record config in case of later reset
         self.state.map(|state| {
             match *state {
                 State::Reset => {
                     client_warn!("Not enabled");
                 }
-                State::Idle(..) => {
-                    client_warn!("Not active");
+                State::Idle(Mode::Device { ref mut config, .. }) => {
+                    config.endpoint_configs[endpoint] = Some(cfg);
                 }
                 State::Active(Mode::Device { ref mut config, .. }) => {
-                    // Record config in case of later reset
                     config.endpoint_configs[endpoint] = Some(cfg);
-
-                    self._endpoint_init(endpoint as usize, cfg);
-
-                    // Enable the endpoint (meaning the controller will respond to requests
-                    // to this endpoint)
-                    usbc_regs()
-                        .uerst
-                        .set(usbc_regs().uerst.get() | (1 << endpoint));
-
-                    // Set EPnINTE, enabling interrupts for this endpoint
-                    usbc_regs().udinteset.set(1 << (12 + endpoint));
-
-                    debug!("Enabled endpoint {}", endpoint);
                 }
                 _ => {
                     client_warn!("Not in Device mode");
                 }
             }
         });
+
+        self._endpoint_init(endpoint as usize, cfg);
+
+        // Enable the endpoint (meaning the controller will respond to requests
+        // to this endpoint)
+        usbc_regs()
+            .uerst
+            .set(usbc_regs().uerst.get() | (1 << endpoint));
+
+        // Set EPnINTE, enabling interrupts for this endpoint
+        usbc_regs().udinteset.set(1 << (12 + endpoint));
+
+        debug!("Enabled endpoint {}", endpoint);
     }
 
     fn _endpoint_init(&self, endpoint: usize, cfg: EndpointConfig) {
@@ -466,12 +466,17 @@ impl<'a> Usbc<'a> {
         // Initialize our record of the endpoint state
         self.state.map(|state| {
             match *state {
+                State::Idle(Mode::Device { ref mut state, .. }) => {
+                    state.endpoint_states[endpoint] = EndpointState::Init
+                }
                 State::Active(Mode::Device { ref mut state, .. }) => {
                     state.endpoint_states[endpoint] = EndpointState::Init
                 }
                 _ => internal_err!("Not reached"),
             }
         });
+
+        debug!("Initialized endpoint {}", endpoint);
     }
 
     /// Set a client to receive data from the USBC
@@ -510,6 +515,7 @@ impl<'a> Usbc<'a> {
 
         if udint.is_set(DeviceInterrupt::EORST) {
             // Bus reset
+            debug!("USB Bus Reset");
 
             // Reconfigure what has been reset in the USBC
             usbc_regs().udcon.modify(match speed {
@@ -531,7 +537,6 @@ impl<'a> Usbc<'a> {
             self.client.map(|client| {
                 client.bus_reset();
             });
-            debug!("USB Bus Reset");
 
             // Acknowledge the interrupt
             usbc_regs().udintclr.write(DeviceInterrupt::EORST::SET);
@@ -597,7 +602,7 @@ impl<'a> Usbc<'a> {
             let endpoint_state = &mut device_state.endpoint_states[endpoint];
             match *endpoint_state {
                 EndpointState::Disabled => {
-                    debug!("Ignoring interrupt for unconfigured endpoint {}", endpoint);
+                    debug!("Ignoring interrupt for disabled endpoint {}", endpoint);
                 }
                 _ => {
                     self.handle_endpoint_interrupt(endpoint, endpoint_state);
