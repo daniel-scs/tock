@@ -8,7 +8,7 @@ pub const UDINT_WAKEUP: u32 = 1 << 4;
 pub const UDINT_EORSM: u32 = 1 << 5;
 pub const UDINT_UPRSM: u32 = 1 << 6;
 
-pub struct UdintFlags(u32);
+pub struct UdintFlags(pub u32);
 
 impl fmt::Debug for UdintFlags {
     #[allow(unused_must_use)]
