@@ -210,45 +210,52 @@ impl<'a> UsbController for Usbc<'a> {
     }
 
     fn enable_as_device(&self, speed: DeviceSpeed) {
-        self.map_state(|state| match *state {
-            State::Reset => {
-                let speed = match speed {
-                    DeviceSpeed::Full => Speed::Full,
-                    DeviceSpeed::Low => Speed::Low,
-                };
-
-                self._enable(state, Mode::device_at_speed(speed));
-            }
+        let ok = self.map_state(|state| match *state {
+            State::Reset => { true }
             _ => client_err!("Already enabled"),
         });
+
+        if ok {
+            let speed = match speed {
+                DeviceSpeed::Full => Speed::Full,
+                DeviceSpeed::Low => Speed::Low,
+            };
+            self._enable(Mode::device_at_speed(speed));
+        }
     }
 
     fn attach(&self) {
-        self.map_state(|state| match *state {
+        let ok = self.map_state(|state| match *state {
             State::Reset => {
                 client_warn!("Not enabled");
+                false
             }
             State::Active(_) => {
                 client_warn!("Already attached");
+                false
             }
-            State::Idle(_) => {
-                self._attach(state);
-            }
+            State::Idle(_) => { true }
         });
+
+        if ok { self._attach() }
     }
 
     fn detach(&self) {
-        self.map_state(|state| match *state {
+        let ok = self.map_state(|state| match *state {
             State::Reset => {
                 client_warn!("Not enabled");
+                false
             }
             State::Idle(_) => {
                 client_warn!("Not attached");
+                false
             }
             State::Active(_) => {
-                self._detach(state);
+                true
             }
         });
+
+        if ok { self._detach() }
     }
 
     fn endpoint_ctrl_out_enable(&self, e: u32) {
@@ -261,20 +268,20 @@ impl<'a> UsbController for Usbc<'a> {
             EndpointIndex::new(e),
         );
 
-        self.map_state(|state| match *state {
-            State::Reset => {
-                client_err!("Not enabled");
-            }
+        let ok = self.map_state(|state| match *state {
+            State::Reset => client_err!("Not enabled"),
             State::Idle(Mode::Device{..}) => {
                 // The endpoint will be active when we attach
-                self._endpoint_enable(endpoint, endpoint_cfg);
+                true
             }
             State::Active(Mode::Device{..}) => {
                 // The endpoint will be active immediately
-                self._endpoint_enable(endpoint, endpoint_cfg);
+                true
             }
             _ => client_err!("Not in Device mode"),
         });
+
+        if ok { self._endpoint_enable(endpoint, endpoint_cfg) }
     }
 
     fn set_address(&self, addr: u16) {
@@ -342,8 +349,8 @@ impl<'a> Usbc<'a> {
 
     /// Enable the controller's clocks and interrupt and transition to Idle state
     /// (No effect if current state is not Reset)
-    fn _enable(&self, state: &mut State, mode: Mode) {
-        match *state {
+    fn _enable(&self, mode: Mode) {
+        self.map_state(|state| match *state {
             State::Reset => {
                 // Are the USBC clocks enabled at reset?
                 //   10.7.4 says no, but 17.5.3 says yes
@@ -395,16 +402,16 @@ impl<'a> Usbc<'a> {
                 *state = State::Idle(mode);
             }
             _ => internal_err!("Already enabled"),
-        }
+        });
     }
 
     /// Disable the controller, its interrupt, and its clocks
     fn _disable(&self) {
         // Detach if necessary
-        self.map_state(|state| match *state {
-            State::Active(_) => self._detach(state),
-            _ => {}
-        });
+        if self.map_state(|state| match *state {
+            State::Active(_) => true,
+            _ => false,
+        }) { self._detach() }
 
         // Disable USBC and its clocks
         self.map_state(|state| match *state {
@@ -423,8 +430,8 @@ impl<'a> Usbc<'a> {
     }
 
     /// Attach to the USB bus after enabling USB bus clock
-    fn _attach(&self, state: &mut State) {
-        match *state {
+    fn _attach(&self) {
+        self.map_state(|state| match *state {
             State::Idle(mode) => {
                 if pm::get_system_frequency() != 48000000 {
                     internal_err!("The system clock does not support USB");
@@ -445,12 +452,12 @@ impl<'a> Usbc<'a> {
                 *state = State::Active(mode);
             },
             _ => internal_err!("Attach in wrong state")
-        }
+        });
     }
 
     /// Detach from the USB bus.  Also disable USB bus clock to save energy.
-    fn _detach(&self, state: &mut State) {
-        match *state {
+    fn _detach(&self) {
+        self.map_state(|state| match *state {
             State::Active(mode) => {
                 usbc_regs().udcon.modify(DeviceControl::DETACH::SET);
 
@@ -459,7 +466,7 @@ impl<'a> Usbc<'a> {
                 *state = State::Idle(mode);
             }
             _ => debug!("Already detached"),
-        }
+        });
     }
 
     /// Configure and enable an endpoint
@@ -561,7 +568,7 @@ impl<'a> Usbc<'a> {
     ) {
         let udint = usbc_regs().udint.cache();
 
-        self.map_state(|state| debug!("--> UDINT={:?} {:?}", UdintFlags(udint.get()), *state));
+        debug!("--> UDINT={:?} {:?}", UdintFlags(udint.get()), *device_state);
 
         if udint.is_set(DeviceInterrupt::EORST) {
             // Bus reset
