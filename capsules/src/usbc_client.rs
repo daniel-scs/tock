@@ -28,7 +28,8 @@ const DESCRIPTOR_BUFLEN: usize = 30;
 pub struct Client<'a, C: 'a> {
     controller: &'a C,
     state: Cell<State>,
-    ep0_storage: [VolatileCell<u8>; 8],
+    ep0_buf: [VolatileCell<u8>; 8],
+    ep1_buf: [VolatileCell<u8>; 8],
     descriptor_storage: [Cell<u8>; DESCRIPTOR_BUFLEN],
 }
 
@@ -52,14 +53,10 @@ impl<'a, C: UsbController> Client<'a, C> {
         Client {
             controller: controller,
             state: Cell::new(State::Init),
-            ep0_storage: [VolatileCell::new(0); 8],
+            ep0_buf: [VolatileCell::new(0); 8],
+            ep1_buf: [VolatileCell::new(0); 8],
             descriptor_storage: Default::default(),
         }
-    }
-
-    #[inline]
-    fn ep0_buf(&self) -> &[VolatileCell<u8>] {
-        &self.ep0_storage
     }
 
     #[inline]
@@ -70,9 +67,13 @@ impl<'a, C: UsbController> Client<'a, C> {
 
 impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
     fn enable(&self) {
-        self.controller.endpoint_set_buffer(0, self.ep0_buf());
-        self.controller.enable_device(false);
+        // Set up the default control endpoint
+        self.controller.endpoint_set_buffer(0, &self.ep0_buf);
+        self.controller.enable_device(DeviceSpeed::Low);
         self.controller.endpoint_ctrl_out_enable(0);
+
+        // Set up a Data IN endpoint
+        self.controller.endpoint_set_buffer(1, &self.ep1_buf);
 
         // XXX
         // static es: C::EndpointState = Default::default();
@@ -90,7 +91,7 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
 
     /// Handle a Control Setup transaction
     fn ctrl_setup(&self) -> CtrlSetupResult {
-        SetupData::get(self.ep0_buf()).map_or(CtrlSetupResult::ErrNoParse, |setup_data| {
+        SetupData::get(&self.ep0_buf).map_or(CtrlSetupResult::ErrNoParse, |setup_data| {
             setup_data.get_standard_request().map_or_else(
                 || {
                     // XX: CtrlSetupResult::ErrNonstandardRequest
@@ -240,7 +241,7 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
                 if len > 0 {
                     let packet_bytes = min(8, len);
                     let packet = &self.descriptor_storage[start..start + packet_bytes];
-                    let ep0_buf = self.ep0_buf();
+                    let ep0_buf = &self.ep0_buf;
 
                     // Copy a packet into the endpoint buffer
                     for (i, b) in packet.iter().enumerate() {
@@ -267,7 +268,7 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
         match self.state.get() {
             State::CtrlOut => {
                 debug!("Received {} vendor control bytes", packet_bytes);
-                // &self.ep0_buf()[0 .. packet_bytes as usize]
+                // &self.ep0_buf[0 .. packet_bytes as usize]
                 CtrlOutResult::Ok
             }
             _ => {

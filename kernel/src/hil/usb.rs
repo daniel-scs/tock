@@ -7,7 +7,7 @@ use core::default::Default;
 pub trait UsbController {
     type EndpointState: Default;
 
-    fn enable_device(&self, full_speed: bool);
+    fn enable_device(&self, speed: DeviceSpeed);
 
     fn attach(&self);
 
@@ -33,6 +33,11 @@ pub trait Client {
     fn ctrl_out(&self, packet_bytes: u32) -> CtrlOutResult;
     fn ctrl_status(&self);
     fn ctrl_status_complete(&self);
+}
+
+pub enum DeviceSpeed {
+    Full,
+    Low,
 }
 
 #[derive(Debug)]

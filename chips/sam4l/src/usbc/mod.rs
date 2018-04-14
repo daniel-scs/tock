@@ -197,8 +197,11 @@ impl<'a> UsbController for Usbc<'a> {
         self._attach();
     }
 
-    fn enable_device(&self, full_speed: bool) {
-        let speed = if full_speed { Speed::Full } else { Speed::Low };
+    fn enable_device(&self, speed: DeviceSpeed) {
+        let speed = match speed {
+            DeviceSpeed::Full => Speed::Full,
+            DeviceSpeed::Low => Speed::Low,
+        };
         self._enable(Mode::device_at_speed(speed));
     }
 
@@ -430,12 +433,12 @@ impl<'a> Usbc<'a> {
             }
         });
 
+        self.endpoint_configure(endpoint as usize, cfg);
+
         // Enable the endpoint (meaning the controller will respond to requests)
         usbc_regs()
             .uerst
             .set(usbc_regs().uerst.get() | (1 << endpoint));
-
-        self.endpoint_configure(endpoint as usize, cfg);
 
         // Set EPnINTE, enabling interrupts for this endpoint
         usbc_regs().udinteset.set(1 << (12 + endpoint));
