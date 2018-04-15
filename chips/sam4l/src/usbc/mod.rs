@@ -7,10 +7,12 @@ use self::data::*;
 #[allow(unused_imports)]
 use self::debug::{UdintFlags, UestaFlags};
 use core::slice;
+use core::cell::RefCell;
+use core::result::Result;
+use core::ops::DerefMut;
 use kernel::StaticRef;
 use kernel::common::VolatileCell;
 use kernel::common::regs::{FieldValue, ReadOnly, ReadWrite, WriteOnly};
-use kernel::common::take_cell::MapCell;
 use kernel::hil;
 use kernel::hil::usb::*;
 use pm;
@@ -197,116 +199,14 @@ fn usbc_regs() -> &'static UsbcRegisters {
 pub struct Usbc<'a> {
     descriptors: [Endpoint; 8],
     client: Option<&'a hil::usb::Client>,
-    state: MapCell<State>,
-}
-
-impl<'a> UsbController for Usbc<'a> {
-
-    fn endpoint_set_buffer<'b>(&'b self, e: u32, buf: &[VolatileCell<u8>]) {
-        if buf.len() != 8 {
-            client_err!("Bad endpoint buffer size");
-        }
-        self._endpoint_bank_set_buffer(EndpointIndex::new(e), BankIndex::Bank0, buf);
-    }
-
-    fn enable_as_device(&self, speed: DeviceSpeed) {
-        let ok = self.map_state(|state| match *state {
-            State::Reset => { true }
-            _ => client_err!("Already enabled"),
-        });
-
-        if ok {
-            let speed = match speed {
-                DeviceSpeed::Full => Speed::Full,
-                DeviceSpeed::Low => Speed::Low,
-            };
-            self._enable(Mode::device_at_speed(speed));
-        }
-    }
-
-    fn attach(&self) {
-        let ok = self.map_state(|state| match *state {
-            State::Reset => {
-                client_warn!("Not enabled");
-                false
-            }
-            State::Active(_) => {
-                client_warn!("Already attached");
-                false
-            }
-            State::Idle(_) => { true }
-        });
-
-        if ok { self._attach() }
-    }
-
-    fn detach(&self) {
-        let ok = self.map_state(|state| match *state {
-            State::Reset => {
-                client_warn!("Not enabled");
-                false
-            }
-            State::Idle(_) => {
-                client_warn!("Not attached");
-                false
-            }
-            State::Active(_) => {
-                true
-            }
-        });
-
-        if ok { self._detach() }
-    }
-
-    fn endpoint_ctrl_out_enable(&self, e: u32) {
-        let endpoint = e as usize;
-        let endpoint_cfg = EndpointConfig::new(
-            BankCount::Single,
-            EndpointSize::Bytes8,
-            EndpointDirection::Out,
-            EndpointType::Control,
-            EndpointIndex::new(e),
-        );
-
-        let ok = self.map_state(|state| match *state {
-            State::Reset => client_err!("Not enabled"),
-            State::Idle(Mode::Device{..}) => {
-                // The endpoint will be active when we attach
-                true
-            }
-            State::Active(Mode::Device{..}) => {
-                // The endpoint will be active immediately
-                true
-            }
-            _ => client_err!("Not in Device mode"),
-        });
-
-        if ok { self._endpoint_enable(endpoint, endpoint_cfg) }
-    }
-
-    fn set_address(&self, addr: u16) {
-        usbc_regs()
-            .udcon
-            .modify(DeviceControl::UADD.val(addr as u32));
-
-        debug!("Set Address = {}", addr);
-    }
-
-    fn enable_address(&self) {
-        usbc_regs().udcon.modify(DeviceControl::ADDEN::SET);
-
-        debug!(
-            "Enable Address = {}",
-            usbc_regs().udcon.read(DeviceControl::UADD)
-        );
-    }
+    state: RefCell<State>,
 }
 
 impl<'a> Usbc<'a> {
     const fn new() -> Self {
         Usbc {
             client: None,
-            state: MapCell::new(State::Reset),
+            state: RefCell::new(State::Reset),
             descriptors: [
                 new_endpoint(),
                 new_endpoint(),
@@ -324,9 +224,10 @@ impl<'a> Usbc<'a> {
     where
         F: FnOnce(&mut State) -> R
     {
-        self.state.map(closure).unwrap_or_else(|| {
-            internal_err!("State value missing");
-        })
+        match self.state.try_borrow_mut() {
+            Result::Ok(ref mut state_ref) => closure(state_ref.deref_mut()),
+            _ => internal_err!("State value missing"),
+        }
     }
 
     /// Provide a buffer for transfers in and out of the given endpoint
@@ -1029,7 +930,7 @@ impl<'a> Usbc<'a> {
     }
 
     pub fn mode(&self) -> Option<Mode> {
-        self.state.map_or(None, |state| match *state {
+        self.map_state(|state| match *state {
             State::Idle(mode) => Some(mode),
             State::Active(mode) => Some(mode),
             _ => None,
@@ -1061,6 +962,108 @@ fn endpoint_disable_interrupts(endpoint: usize, mask: FieldValue<u32, EndpointCo
 #[inline]
 fn endpoint_enable_interrupts(endpoint: usize, mask: FieldValue<u32, EndpointControl::Register>) {
     usbc_regs().ueconset[endpoint].write(mask);
+}
+
+impl<'a> UsbController for Usbc<'a> {
+
+    fn endpoint_set_buffer<'b>(&'b self, e: u32, buf: &[VolatileCell<u8>]) {
+        if buf.len() != 8 {
+            client_err!("Bad endpoint buffer size");
+        }
+        self._endpoint_bank_set_buffer(EndpointIndex::new(e), BankIndex::Bank0, buf);
+    }
+
+    fn enable_as_device(&self, speed: DeviceSpeed) {
+        let ok = self.map_state(|state| match *state {
+            State::Reset => { true }
+            _ => client_err!("Already enabled"),
+        });
+
+        if ok {
+            let speed = match speed {
+                DeviceSpeed::Full => Speed::Full,
+                DeviceSpeed::Low => Speed::Low,
+            };
+            self._enable(Mode::device_at_speed(speed));
+        }
+    }
+
+    fn attach(&self) {
+        let ok = self.map_state(|state| match *state {
+            State::Reset => {
+                client_warn!("Not enabled");
+                false
+            }
+            State::Active(_) => {
+                client_warn!("Already attached");
+                false
+            }
+            State::Idle(_) => { true }
+        });
+
+        if ok { self._attach() }
+    }
+
+    fn detach(&self) {
+        let ok = self.map_state(|state| match *state {
+            State::Reset => {
+                client_warn!("Not enabled");
+                false
+            }
+            State::Idle(_) => {
+                client_warn!("Not attached");
+                false
+            }
+            State::Active(_) => {
+                true
+            }
+        });
+
+        if ok { self._detach() }
+    }
+
+    fn endpoint_ctrl_out_enable(&self, e: u32) {
+        let endpoint = e as usize;
+        let endpoint_cfg = EndpointConfig::new(
+            BankCount::Single,
+            EndpointSize::Bytes8,
+            EndpointDirection::Out,
+            EndpointType::Control,
+            EndpointIndex::new(e),
+        );
+
+        let ok = self.map_state(|state| match *state {
+            State::Reset => client_err!("Not enabled"),
+            State::Idle(Mode::Device{..}) => {
+                // The endpoint will be active when we attach
+                true
+            }
+            State::Active(Mode::Device{..}) => {
+                // The endpoint will be active immediately
+                true
+            }
+            _ => client_err!("Not in Device mode"),
+        });
+
+        if ok { self._endpoint_enable(endpoint, endpoint_cfg) }
+    }
+
+    fn set_address(&self, addr: u16) {
+        usbc_regs()
+            .udcon
+            .modify(DeviceControl::UADD.val(addr as u32));
+
+        debug!("Set Address = {}", addr);
+    }
+
+    fn enable_address(&self) {
+        usbc_regs().udcon.modify(DeviceControl::ADDEN::SET);
+
+        debug!(
+            "Enable Address = {}",
+            usbc_regs().udcon.read(DeviceControl::UADD)
+        );
+    }
 }
 
 /// Static state to manage the USBC
