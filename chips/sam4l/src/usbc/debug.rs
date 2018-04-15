@@ -58,7 +58,7 @@ pub const RAMACERR: u32 = 1 << 11;
 pub const CTRLDIR: u32 = 1 << 17;
 pub const STALLRQ: u32 = 1 << 19;
 
-pub struct UestaFlags(u32);
+pub struct UestaFlags(pub u32);
 
 impl fmt::Debug for UestaFlags {
     #[allow(unused_must_use)]
