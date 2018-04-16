@@ -310,7 +310,7 @@ impl<'a> Usbc<'a> {
                         + DeviceInterrupt::UPRSM::SET,
                 );
 
-                debug!("Enabled");
+                debug1!("Enabled");
 
                 self.set_state(State::Idle(mode));
             }
@@ -357,7 +357,7 @@ impl<'a> Usbc<'a> {
 
                 usbc_regs().udcon.modify(DeviceControl::DETACH::CLEAR);
 
-                debug!("Attached");
+                debug1!("Attached");
 
                 self.set_state(State::Active(mode));
             },
@@ -375,7 +375,7 @@ impl<'a> Usbc<'a> {
 
                 self.set_state(State::Idle(mode));
             }
-            _ => debug!("Already detached"),
+            _ => debug1!("Already detached"),
         }
     }
 
@@ -458,7 +458,7 @@ impl<'a> Usbc<'a> {
             State::Reset => internal_err!("Received interrupt in Reset"),
             State::Idle(_) => {
                 // We might process WAKEUP here
-                debug!("Received interrupt in Idle");
+                debug1!("Received interrupt in Idle");
             }
             State::Active(ref mut mode) => match *mode {
                 Mode::Device {
@@ -578,7 +578,7 @@ impl<'a> Usbc<'a> {
 
     fn handle_endpoint_interrupt(&self, endpoint: usize, endpoint_state: &mut EndpointState) {
         if *endpoint_state == EndpointState::Disabled {
-            debug!("Ignoring interrupt for disabled endpoint {}", endpoint);
+            debug1!("Ignoring interrupt for disabled endpoint {}", endpoint);
             return;
         }
 
@@ -917,7 +917,7 @@ impl<'a> Usbc<'a> {
         for bi in 0..1 {
             let b = &self.descriptors[0][bi];
             let addr = b.addr.get();
-            let buf = if addr.is_null() {
+            let _buf = if addr.is_null() {
                 None
             } else {
                 unsafe {
@@ -928,7 +928,7 @@ impl<'a> Usbc<'a> {
                 }
             };
 
-            debug!(
+            debug1!(
                 "B_0_{} \
                  \n     {:?}\
                  \n     {:?}\
@@ -936,7 +936,7 @@ impl<'a> Usbc<'a> {
                 bi, // (&b.addr as *const _), b.addr.get(),
                 b.packet_size.get(),
                 b.ctrl_status.get(),
-                buf.map(HexBuf)
+                _buf.map(HexBuf)
             );
         }
     }
