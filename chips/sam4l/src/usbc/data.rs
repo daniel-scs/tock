@@ -270,7 +270,7 @@ pub enum EndpointType {
 pub struct EndpointIndex(u8);
 
 impl EndpointIndex {
-    pub fn new(index: u32) -> EndpointIndex {
+    pub fn new(index: usize) -> EndpointIndex {
         EndpointIndex(index as u8 & 0xf)
     }
 

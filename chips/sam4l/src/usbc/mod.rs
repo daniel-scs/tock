@@ -620,7 +620,7 @@ impl<'a> Usbc<'a> {
                         let packet_bytes =
                             self.descriptors[0][0].packet_size.get().byte_count();
                         let result = if packet_bytes == 8 {
-                            self.client.map(|c| c.ctrl_setup())
+                            self.client.map(|c| c.ctrl_setup(endpoint))
                         } else {
                             Some(CtrlSetupResult::ErrBadLength)
                         };
@@ -696,7 +696,7 @@ impl<'a> Usbc<'a> {
                         );
 
                         debug1!("D({}) NAKOUT", endpoint);
-                        self.client.map(|c| c.ctrl_status());
+                        self.client.map(|c| c.ctrl_status(endpoint));
 
                         // Await end of Status stage
                         endpoint_enable_interrupts(endpoint, EndpointControl::RXOUTE::SET);
@@ -715,7 +715,7 @@ impl<'a> Usbc<'a> {
 
                         let result = self.client.map(|c| {
                             // Allow client to write a packet payload to buffer
-                            c.ctrl_in()
+                            c.ctrl_in(endpoint)
                         });
                         match result {
                             Some(CtrlInResult::Packet(packet_bytes, transfer_complete)) => {
@@ -790,7 +790,7 @@ impl<'a> Usbc<'a> {
                         endpoint_disable_interrupts(endpoint, EndpointControl::RXOUTE::SET);
 
                         debug1!("D({}) RXOUT: End of Control Read transaction", endpoint);
-                        self.client.map(|c| c.ctrl_status_complete());
+                        self.client.map(|c| c.ctrl_status_complete(endpoint));
 
                         // Wait for next SETUP
                         endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
@@ -810,7 +810,7 @@ impl<'a> Usbc<'a> {
 
                         // Pass the data to the client and see how it reacts
                         let result = self.client.map(|c| {
-                            c.ctrl_out(self.descriptors[0][0].packet_size.get().byte_count())
+                            c.ctrl_out(endpoint, self.descriptors[0][0].packet_size.get().byte_count())
                         });
                         match result {
                             Some(CtrlOutResult::Ok) => {
@@ -874,7 +874,7 @@ impl<'a> Usbc<'a> {
                         debug1!("D({}) TXIN for Control Write Status (will send ZLP)",
                                endpoint);
 
-                        self.client.map(|c| c.ctrl_status());
+                        self.client.map(|c| c.ctrl_status(endpoint));
 
                         // Send zero-length packet to acknowledge transaction
                         self.descriptors[0][0]
@@ -896,7 +896,7 @@ impl<'a> Usbc<'a> {
                         endpoint_disable_interrupts(endpoint, EndpointControl::TXINE::SET);
 
                         // for SetAddress, client must enable address after STATUS stage
-                        self.client.map(|c| c.ctrl_status_complete());
+                        self.client.map(|c| c.ctrl_status_complete(endpoint));
 
                         // Wait for next SETUP
                         endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
@@ -978,11 +978,11 @@ fn endpoint_enable_interrupts(endpoint: usize, mask: FieldValue<u32, EndpointCon
 
 impl<'a> UsbController for Usbc<'a> {
 
-    fn endpoint_set_buffer<'b>(&'b self, e: u32, buf: &[VolatileCell<u8>]) {
+    fn endpoint_set_buffer<'b>(&'b self, endpoint: usize, buf: &[VolatileCell<u8>]) {
         if buf.len() != 8 {
             client_err!("Bad endpoint buffer size");
         }
-        self._endpoint_bank_set_buffer(EndpointIndex::new(e), BankIndex::Bank0, buf);
+        self._endpoint_bank_set_buffer(EndpointIndex::new(endpoint), BankIndex::Bank0, buf);
     }
 
     fn enable_as_device(&self, speed: DeviceSpeed) {
@@ -1034,14 +1034,13 @@ impl<'a> UsbController for Usbc<'a> {
         if ok { self._detach() }
     }
 
-    fn endpoint_ctrl_out_enable(&self, e: u32) {
-        let endpoint = e as usize;
+    fn endpoint_ctrl_out_enable(&self, endpoint: usize) {
         let endpoint_cfg = EndpointConfig::new(
             BankCount::Single,
             EndpointSize::Bytes8,
             EndpointDirection::Out,
             EndpointType::Control,
-            EndpointIndex::new(e),
+            EndpointIndex::new(endpoint),
         );
 
         let ok = self.map_state(|state| match *state {
