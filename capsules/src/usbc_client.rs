@@ -89,8 +89,6 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
 
     /// Handle a Control Setup transaction
     fn ctrl_setup(&self) -> CtrlSetupResult {
-        debug!("Client: ctrl_setup");
-
         SetupData::get(&self.ep0_buf).map_or(CtrlSetupResult::ErrNoParse, |setup_data| {
             setup_data.get_standard_request().map_or_else(
                 || {
