@@ -6,8 +6,8 @@ pub mod debug;
 use self::data::*;
 #[allow(unused_imports)]
 use self::debug::{UdintFlags, UestaFlags};
-use core::slice;
 use core::cell::Cell;
+use core::slice;
 use kernel::StaticRef;
 use kernel::common::VolatileCell;
 use kernel::common::regs::{FieldValue, ReadOnly, ReadWrite, WriteOnly};
@@ -226,7 +226,7 @@ impl<'a> Usbc<'a> {
 
     fn map_state<F, R>(&self, closure: F) -> R
     where
-        F: FnOnce(&mut State) -> R
+        F: FnOnce(&mut State) -> R,
     {
         let mut state = self.state.get();
         let result = closure(&mut state);
@@ -258,7 +258,6 @@ impl<'a> Usbc<'a> {
         self.descriptors[e][b].set_addr(p);
         self.descriptors[e][b].set_packet_size(PacketSize::default());
     }
-
 
     /// Enable the controller's clocks and interrupt and transition to Idle state
     /// (No effect if current state is not Reset)
@@ -348,10 +347,7 @@ impl<'a> Usbc<'a> {
                 }
 
                 // XX: not clear that this always results in a usable USB clock
-                scif::generic_clock_enable(
-                    scif::GenericClock::GCLK7,
-                    scif::ClockSource::CLK_HSB,
-                );
+                scif::generic_clock_enable(scif::GenericClock::GCLK7, scif::ClockSource::CLK_HSB);
 
                 while !usbc_regs().usbsta.is_set(Status::CLKUSABLE) {}
 
@@ -360,8 +356,8 @@ impl<'a> Usbc<'a> {
                 debug1!("Attached");
 
                 self.set_state(State::Active(mode));
-            },
-            _ => internal_err!("Attach in wrong state")
+            }
+            _ => internal_err!("Attach in wrong state"),
         }
     }
 
@@ -467,7 +463,7 @@ impl<'a> Usbc<'a> {
                     ref mut state,
                 } => self.handle_device_interrupt(speed, config, state),
                 Mode::Host => internal_err!("Host mode unimplemented"),
-            }
+            },
         });
     }
 
@@ -480,7 +476,11 @@ impl<'a> Usbc<'a> {
     ) {
         let udint = usbc_regs().udint.cache();
 
-        debug1!("--> UDINT={:?} ep0:{:?}", UdintFlags(udint.get()), device_state.endpoint_states[0]);
+        debug1!(
+            "--> UDINT={:?} ep0:{:?}",
+            UdintFlags(udint.get()),
+            device_state.endpoint_states[0]
+        );
 
         if udint.is_set(DeviceInterrupt::EORST) {
             // Bus reset
@@ -617,8 +617,7 @@ impl<'a> Usbc<'a> {
                         debug1!("D({}) RXSTP", endpoint);
                         // self.debug_show_d0();
 
-                        let packet_bytes =
-                            self.descriptors[0][0].packet_size.get().byte_count();
+                        let packet_bytes = self.descriptors[0][0].packet_size.get().byte_count();
                         let result = if packet_bytes == 8 {
                             self.client.map(|c| c.ctrl_setup(endpoint))
                         } else {
@@ -628,10 +627,7 @@ impl<'a> Usbc<'a> {
                         match result {
                             Some(CtrlSetupResult::Ok) => {
                                 // Unsubscribe from SETUP interrupts
-                                endpoint_disable_interrupts(
-                                    endpoint,
-                                    EndpointControl::RXSTPE::SET,
-                                );
+                                endpoint_disable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
 
                                 if status.matches_all(EndpointStatus::CTRLDIR::In) {
                                     // The following Data stage will be IN
@@ -644,8 +640,7 @@ impl<'a> Usbc<'a> {
                                         .write(EndpointStatus::NAKOUT::SET);
                                     endpoint_enable_interrupts(
                                         endpoint,
-                                        EndpointControl::TXINE::SET
-                                            + EndpointControl::NAKOUTE::SET,
+                                        EndpointControl::TXINE::SET + EndpointControl::NAKOUTE::SET,
                                     );
 
                                     *endpoint_state = EndpointState::CtrlReadIn;
@@ -658,8 +653,7 @@ impl<'a> Usbc<'a> {
                                         .write(EndpointStatus::NAKIN::SET);
                                     endpoint_enable_interrupts(
                                         endpoint,
-                                        EndpointControl::RXOUTE::SET
-                                            + EndpointControl::NAKINE::SET,
+                                        EndpointControl::RXOUTE::SET + EndpointControl::NAKINE::SET,
                                     );
 
                                     *endpoint_state = EndpointState::CtrlWriteOut;
@@ -668,8 +662,7 @@ impl<'a> Usbc<'a> {
                             failure => {
                                 // Respond with STALL to any following
                                 // transactions in this request
-                                usbc_regs().ueconset[endpoint]
-                                    .write(EndpointControl::STALLRQ::SET);
+                                usbc_regs().ueconset[endpoint].write(EndpointControl::STALLRQ::SET);
 
                                 match failure {
                                     None => debug1!("D({}) No client to handle Setup", endpoint),
@@ -708,7 +701,6 @@ impl<'a> Usbc<'a> {
 
                         // Run handler again in case the RXOUT has already arrived
                         again = true;
-
                     } else if status.is_set(EndpointStatus::TXIN) {
                         // The data bank is ready to receive another IN payload
                         debug1!("D({}) TXIN", endpoint);
@@ -733,9 +725,11 @@ impl<'a> Usbc<'a> {
                                     PacketSize::single(packet_bytes as u32)
                                 });
 
-                                debug1!("D({}) Send CTRL IN packet ({} bytes)",
-                                       endpoint,
-                                       packet_bytes);
+                                debug1!(
+                                    "D({}) Send CTRL IN packet ({} bytes)",
+                                    endpoint,
+                                    packet_bytes
+                                );
                                 // self.debug_show_d0();
 
                                 if transfer_complete {
@@ -754,10 +748,7 @@ impl<'a> Usbc<'a> {
                                 usbc_regs().uestaclr[endpoint].write(EndpointStatus::TXIN::SET);
                             }
                             Some(CtrlInResult::Delay) => {
-                                endpoint_disable_interrupts(
-                                    endpoint,
-                                    EndpointControl::TXINE::SET,
-                                );
+                                endpoint_disable_interrupts(endpoint, EndpointControl::TXINE::SET);
 
                                 debug1!("*** Client NAK");
 
@@ -767,16 +758,12 @@ impl<'a> Usbc<'a> {
                             }
                             _ => {
                                 // Respond with STALL to any following IN/OUT transactions
-                                usbc_regs().ueconset[endpoint]
-                                    .write(EndpointControl::STALLRQ::SET);
+                                usbc_regs().ueconset[endpoint].write(EndpointControl::STALLRQ::SET);
 
                                 debug1!("D({}) Client IN err => STALL", endpoint);
 
                                 // Wait for next SETUP
-                                endpoint_enable_interrupts(
-                                    endpoint,
-                                    EndpointControl::RXSTPE::SET,
-                                );
+                                endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
 
                                 *endpoint_state = EndpointState::Init;
                             }
@@ -810,37 +797,32 @@ impl<'a> Usbc<'a> {
 
                         // Pass the data to the client and see how it reacts
                         let result = self.client.map(|c| {
-                            c.ctrl_out(endpoint, self.descriptors[0][0].packet_size.get().byte_count())
+                            c.ctrl_out(
+                                endpoint,
+                                self.descriptors[0][0].packet_size.get().byte_count(),
+                            )
                         });
                         match result {
                             Some(CtrlOutResult::Ok) => {
                                 // Acknowledge
-                                usbc_regs().uestaclr[endpoint]
-                                    .write(EndpointStatus::RXOUT::SET);
+                                usbc_regs().uestaclr[endpoint].write(EndpointStatus::RXOUT::SET);
                             }
                             Some(CtrlOutResult::Delay) => {
                                 // Don't acknowledge; hardware will have to send NAK
 
                                 // Unsubscribe from RXOUT until client says it is ready
                                 // (But there is not yet any interface for that)
-                                endpoint_disable_interrupts(
-                                    endpoint,
-                                    EndpointControl::RXOUTE::SET,
-                                );
+                                endpoint_disable_interrupts(endpoint, EndpointControl::RXOUTE::SET);
                             }
                             _ => {
                                 // Respond with STALL to any following transactions
                                 // in this request
-                                usbc_regs().ueconset[endpoint]
-                                    .write(EndpointControl::STALLRQ::SET);
+                                usbc_regs().ueconset[endpoint].write(EndpointControl::STALLRQ::SET);
 
                                 debug1!("D({}) Client OUT err => STALL", endpoint);
 
                                 // Wait for next SETUP
-                                endpoint_enable_interrupts(
-                                    endpoint,
-                                    EndpointControl::RXSTPE::SET,
-                                );
+                                endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
 
                                 *endpoint_state = EndpointState::Init;
                             }
@@ -871,8 +853,10 @@ impl<'a> Usbc<'a> {
                 }
                 EndpointState::CtrlWriteStatus => {
                     if status.is_set(EndpointStatus::TXIN) {
-                        debug1!("D({}) TXIN for Control Write Status (will send ZLP)",
-                               endpoint);
+                        debug1!(
+                            "D({}) TXIN for Control Write Status (will send ZLP)",
+                            endpoint
+                        );
 
                         self.client.map(|c| c.ctrl_status(endpoint));
 
@@ -977,7 +961,6 @@ fn endpoint_enable_interrupts(endpoint: usize, mask: FieldValue<u32, EndpointCon
 }
 
 impl<'a> UsbController for Usbc<'a> {
-
     fn endpoint_set_buffer<'b>(&'b self, endpoint: usize, buf: &[VolatileCell<u8>]) {
         if buf.len() != 8 {
             client_err!("Bad endpoint buffer size");
@@ -987,7 +970,7 @@ impl<'a> UsbController for Usbc<'a> {
 
     fn enable_as_device(&self, speed: DeviceSpeed) {
         let ok = self.map_state(|state| match *state {
-            State::Reset => { true }
+            State::Reset => true,
             _ => client_err!("Already enabled"),
         });
 
@@ -1010,10 +993,12 @@ impl<'a> UsbController for Usbc<'a> {
                 client_warn!("Already attached");
                 false
             }
-            State::Idle(_) => { true }
+            State::Idle(_) => true,
         });
 
-        if ok { self._attach() }
+        if ok {
+            self._attach()
+        }
     }
 
     fn detach(&self) {
@@ -1026,12 +1011,12 @@ impl<'a> UsbController for Usbc<'a> {
                 client_warn!("Not attached");
                 false
             }
-            State::Active(_) => {
-                true
-            }
+            State::Active(_) => true,
         });
 
-        if ok { self._detach() }
+        if ok {
+            self._detach()
+        }
     }
 
     fn endpoint_ctrl_out_enable(&self, endpoint: usize) {
@@ -1045,18 +1030,20 @@ impl<'a> UsbController for Usbc<'a> {
 
         let ok = self.map_state(|state| match *state {
             State::Reset => client_err!("Not enabled"),
-            State::Idle(Mode::Device{..}) => {
+            State::Idle(Mode::Device { .. }) => {
                 // The endpoint will be active when we attach
                 true
             }
-            State::Active(Mode::Device{..}) => {
+            State::Active(Mode::Device { .. }) => {
                 // The endpoint will be active immediately
                 true
             }
             _ => client_err!("Not in Device mode"),
         });
 
-        if ok { self._endpoint_enable(endpoint, endpoint_cfg) }
+        if ok {
+            self._endpoint_enable(endpoint, endpoint_cfg)
+        }
     }
 
     fn set_address(&self, addr: u16) {

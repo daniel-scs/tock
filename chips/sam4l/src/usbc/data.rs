@@ -47,7 +47,7 @@ pub struct DeviceConfig {
 
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
 pub struct DeviceState {
-    pub endpoint_states: [EndpointState; N_ENDPOINTS]
+    pub endpoint_states: [EndpointState; N_ENDPOINTS],
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]

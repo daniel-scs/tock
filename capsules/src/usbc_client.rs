@@ -27,7 +27,7 @@ const DESCRIPTOR_BUFLEN: usize = 30;
 
 pub struct Client<'a, C: 'a> {
     controller: &'a C,
-    state: [Cell<State>; 2], // One state value per endpoint
+    state: [Cell<State>; 2],             // One state value per endpoint
     buffers: [[VolatileCell<u8>; 8]; 2], // One buffer per endpoint
     descriptor_storage: [Cell<u8>; DESCRIPTOR_BUFLEN],
 }
