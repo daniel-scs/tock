@@ -926,11 +926,11 @@ impl<'a> Usbc<'a> {
     }
 
     pub fn mode(&self) -> Option<Mode> {
-        self.map_state(|state| match *state {
+        match self.get_state() {
             State::Idle(mode) => Some(mode),
             State::Active(mode) => Some(mode),
             _ => None,
-        })
+        }
     }
 
     pub fn speed(&self) -> Option<Speed> {
@@ -965,57 +965,35 @@ impl<'a> UsbController for Usbc<'a> {
         if buf.len() != 8 {
             client_err!("Bad endpoint buffer size");
         }
+
         self._endpoint_bank_set_buffer(EndpointIndex::new(endpoint), BankIndex::Bank0, buf);
     }
 
     fn enable_as_device(&self, speed: DeviceSpeed) {
-        let ok = self.map_state(|state| match *state {
-            State::Reset => true,
-            _ => client_err!("Already enabled"),
-        });
+        let speed = match speed {
+            DeviceSpeed::Full => Speed::Full,
+            DeviceSpeed::Low => Speed::Low,
+        };
 
-        if ok {
-            let speed = match speed {
-                DeviceSpeed::Full => Speed::Full,
-                DeviceSpeed::Low => Speed::Low,
-            };
-            self._enable(Mode::device_at_speed(speed));
+        match self.get_state() {
+            State::Reset => self._enable(Mode::device_at_speed(speed)),
+            _ => client_err!("Already enabled"),
         }
     }
 
     fn attach(&self) {
-        let ok = self.map_state(|state| match *state {
-            State::Reset => {
-                client_warn!("Not enabled");
-                false
-            }
-            State::Active(_) => {
-                client_warn!("Already attached");
-                false
-            }
-            State::Idle(_) => true,
-        });
-
-        if ok {
-            self._attach()
+        match self.get_state() {
+            State::Reset => client_warn!("Not enabled"),
+            State::Active(_) => client_warn!("Already attached"),
+            State::Idle(_) => self._attach(),
         }
     }
 
     fn detach(&self) {
-        let ok = self.map_state(|state| match *state {
-            State::Reset => {
-                client_warn!("Not enabled");
-                false
-            }
-            State::Idle(_) => {
-                client_warn!("Not attached");
-                false
-            }
-            State::Active(_) => true,
-        });
-
-        if ok {
-            self._detach()
+        match self.get_state() {
+            State::Reset => client_warn!("Not enabled"),
+            State::Idle(_) => client_warn!("Not attached"),
+            State::Active(_) => self._detach(),
         }
     }
 
@@ -1028,7 +1006,7 @@ impl<'a> UsbController for Usbc<'a> {
             EndpointIndex::new(endpoint),
         );
 
-        let ok = self.map_state(|state| match *state {
+        if match self.get_state() {
             State::Reset => client_err!("Not enabled"),
             State::Idle(Mode::Device { .. }) => {
                 // The endpoint will be active when we attach
@@ -1039,9 +1017,7 @@ impl<'a> UsbController for Usbc<'a> {
                 true
             }
             _ => client_err!("Not in Device mode"),
-        });
-
-        if ok {
+        } {
             self._endpoint_enable(endpoint, endpoint_cfg)
         }
     }
