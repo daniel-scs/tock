@@ -53,13 +53,25 @@ pub struct DeviceState {
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum EndpointState {
     Disabled,
+    Ctrl(CtrlState),
+    Bulk(BulkState),
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum CtrlState {
     Init,
-    CtrlReadIn,
-    CtrlReadStatus,
-    CtrlWriteOut,
-    CtrlWriteStatus,
-    CtrlWriteStatusWait,
-    CtrlInDelay,
+    ReadIn,
+    ReadStatus,
+    WriteOut,
+    WriteStatus,
+    WriteStatusWait,
+    InDelay,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum BulkState {
+    Init,
+    InDelay,
 }
 
 impl Default for EndpointState {
@@ -236,6 +248,10 @@ impl EndpointConfig {
 impl From<EndpointConfig> for u32 {
     fn from(epc: EndpointConfig) -> u32 {
         epc.0
+    }
+
+    fn transfer_type() -> EndpointType {
+        epc.0 & 
     }
 }
 

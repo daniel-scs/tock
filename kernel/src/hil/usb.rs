@@ -21,6 +21,11 @@ pub trait UsbController {
     fn enable_address(&self);
 }
 
+pub enum DeviceSpeed {
+    Full,
+    Low,
+}
+
 /// USB controller client interface
 pub trait Client {
     fn enable(&self);
@@ -32,11 +37,8 @@ pub trait Client {
     fn ctrl_out(&self, endpoint: usize, packet_bytes: u32) -> CtrlOutResult;
     fn ctrl_status(&self, endpoint: usize);
     fn ctrl_status_complete(&self, endpoint: usize);
-}
 
-pub enum DeviceSpeed {
-    Full,
-    Low,
+    fn bulk_in(&self, endpoint: usize) -> BulkInResult;
 }
 
 #[derive(Debug)]
@@ -79,4 +81,18 @@ pub enum CtrlOutResult {
 
     /// In halt state (send STALL)
     Halted,
+}
+
+pub enum BulkInResult {
+    /// A packet of the given size was written into the endpoint buffer
+    Packet(usize, bool),
+
+    /// The client is not yet able to provide data to the host, but may
+    /// be able to in the future.  This result causes the controller
+    /// to send a NAK token to the host.
+    Delay,
+
+    /// The client does not support the request.  This result causes the
+    /// controller to send a STALL token to the host.
+    Error,
 }

@@ -89,6 +89,10 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
 
     /// Handle a Control Setup transaction
     fn ctrl_setup(&self, endpoint: usize) -> CtrlSetupResult {
+        if endpoint != 0 {
+            // For now we only support the default Control endpoint
+            return CtrlSetupResult::ErrInvalidDeviceIndex;
+        }
         SetupData::get(&self.buffers[endpoint]).map_or(CtrlSetupResult::ErrNoParse, |setup_data| {
             setup_data.get_standard_request().map_or_else(
                 || {
@@ -292,5 +296,17 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
             _ => {}
         };
         self.state[endpoint].set(State::Init);
+    }
+ 
+    /// Handle a Bulk In transaction
+    fn bulk_in(&self, endpoint: usize) -> BulkInResult {
+        // Copy a packet into the endpoint buffer
+        let buf = &self.buffers[endpoint];
+        buf[0].set(0xbe);
+        buf[1].set(0xef);
+        let packet_bytes = 2;
+        let transfer_complete = true;
+
+        BulkInResult::Packet(packet_bytes, transfer_complete)
     }
 }
