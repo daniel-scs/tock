@@ -86,39 +86,6 @@ pub enum Speed {
     Low,
 }
 
-pub type Endpoint = [Bank; 2];
-
-pub const fn new_endpoint() -> Endpoint {
-    [Bank::new(), Bank::new()]
-}
-
-#[repr(C)]
-pub struct Bank {
-    pub addr: VolatileCell<*mut u8>,
-    pub packet_size: VolatileCell<PacketSize>,
-    pub ctrl_status: VolatileCell<ControlStatus>,
-    _pad: u32,
-}
-
-impl Bank {
-    pub const fn new() -> Bank {
-        Bank {
-            addr: VolatileCell::new(ptr::null_mut()),
-            packet_size: VolatileCell::new(PacketSize(0)),
-            ctrl_status: VolatileCell::new(ControlStatus(0)),
-            _pad: 0,
-        }
-    }
-
-    pub fn set_addr(&self, addr: *mut u8) {
-        self.addr.set(addr);
-    }
-
-    pub fn set_packet_size(&self, size: PacketSize) {
-        self.packet_size.set(size);
-    }
-}
-
 pub enum BankIndex {
     Bank0,
     Bank1,
@@ -225,6 +192,7 @@ fn bang(b: bool) -> &'static str {
     }
 }
 
+/*
 #[derive(Copy, Clone, PartialEq, Debug)]
 #[repr(C)]
 pub struct EndpointConfig(u32);
@@ -248,10 +216,6 @@ impl EndpointConfig {
 impl From<EndpointConfig> for u32 {
     fn from(epc: EndpointConfig) -> u32 {
         epc.0
-    }
-
-    fn transfer_type() -> EndpointType {
-        epc.0 & 
     }
 }
 
@@ -282,6 +246,7 @@ pub enum EndpointType {
     Bulk,
     Interrupt,
 }
+*/
 
 pub struct EndpointIndex(u8);
 

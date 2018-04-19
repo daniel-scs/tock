@@ -58,7 +58,7 @@ struct UsbcRegisters {
     udfnum: ReadOnly<u32>,
     _reserved0: [u8; 0xdc], // 220 bytes
     // 0x100
-    uecfg: [ReadWrite<u32>; 12],
+    uecfg: [ReadWrite<u32, EndpointConfig::Register>; 12],
     uesta: [ReadOnly<u32, EndpointStatus::Register>; 12],
     uestaclr: [WriteOnly<u32, EndpointStatus::Register>; 12],
     uestaset: [WriteOnly<u32, EndpointStatus::Register>; 12],
@@ -142,6 +142,35 @@ register_bitfields![u32,
         SOF OFFSET(2) NUMBITS(1),
         SUSP OFFSET(0) NUMBITS(1)
     ],
+    EndpointConfig [
+        REPNB OFFSET(16) NUMBITS(4) [
+            NotRedirected = 0
+        ],
+        EPTYPE OFFSET(11) NUMBITS(2) [
+            Control = 0,
+            Isochronous = 1,
+            Bulk = 2,
+            Interrupt = 3
+        ],
+        EPDIR OFFSET(8) NUMBITS(1) [
+            Out = 0,
+            In = 1
+        ],
+        EPSIZE OFFSET(4) NUMBITS(3) [
+            Bytes8 = 0,
+            Bytes16 = 1,
+            Bytes32 = 2,
+            Bytes64 = 3,
+            Bytes128 = 4,
+            Bytes256 = 5,
+            Bytes512 = 6,
+            Bytes1024 = 7
+        ]
+        EPBK OFFSET(2) NUMBITS(1) [
+            Single = 0,
+            Double = 1,
+        ]
+    ],
     EndpointStatus [
         CTRLDIR OFFSET(17) NUMBITS(1) [
             Out = 0,
@@ -184,6 +213,57 @@ register_bitfields![u32,
         ERRORFE 2,
         RXOUTE 1,
         TXINE 0
+    ]
+];
+
+pub type Endpoint = [Bank; 2];
+
+pub const fn new_endpoint() -> Endpoint {
+    [Bank::new(), Bank::new()]
+}
+
+#[repr(C)]
+pub struct Bank {
+    pub addr: VolatileCell<*mut u8>,
+    pub packet_size: VolatileCell<PacketSize>,
+    pub ctrl_status: VolatileCell<ControlStatus>,
+    _pad: u32,
+}
+
+impl Bank {
+    pub const fn new() -> Bank {
+        Bank {
+            addr: VolatileCell::new(ptr::null_mut()),
+            packet_size: VolatileCell::new(PacketSize(0)),
+            ctrl_status: VolatileCell::new(ControlStatus(0)),
+            _pad: 0,
+        }
+    }
+
+    pub fn set_addr(&self, addr: *mut u8) {
+        self.addr.set(addr);
+    }
+
+    pub fn set_packet_size(&self, size: PacketSize) {
+        self.packet_size.set(size);
+    }
+}
+
+
+register_bitfields![u32,
+    PacketSize [
+        AUTO_ZLP OFFSET(31) NUMBITS(1) [
+            No = 0,
+            Yes = 1
+        ],
+        MULTI_PACKET_SIZE OFFSET(16) NUMBITS(15) [],
+        BYTE_COUNT OFFSET(0) NUMBITS(15) []
+    ],
+    ControlStatus [
+        UNDERF 18,
+        OVERF 17,
+        CRCERR 16,
+        STALLRQ_NEXT 0
     ]
 ];
 
