@@ -616,15 +616,27 @@ impl<'a> Usbc<'a> {
         });
     }
 
-    fn _endpoint_init_device_state(&self, state: &mut DeviceState, endpoint: usize, config: EndpointConfig) {
+    fn _endpoint_init_device_state(
+        &self,
+        state: &mut DeviceState,
+        endpoint: usize,
+        config: FieldVal<u32, EndpointConfig>,
+    ) {
         // This must be performed after each bus reset (see 17.6.2.2)
 
-        // Enable the endpoint interrupts we need for now
-        endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET
-                                   + EndpointControl::TXINE::SET + EndpointControl::RAMACERE::SET);
+        endpoint_enable_interrupts(endpoint, EndpointControl::RAMACERE::SET, EndpointControl::STALLEDE::SET);
 
-        // Initialize our record of the endpoint state
-        state.endpoint_states[endpoint] = EndpointState::Init;
+        match config.read(EndpointConfig::EPTYPE) {
+            EndpointConfig::EPTYPE::Control => {
+                endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
+                state.endpoint_states[endpoint] = Ctrl(CtrlState::Init);
+            }
+            EndpointConfig::EPTYPE::Bulk => {
+                endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
+                state.endpoint_states[endpoint] = Bulk(BulkState::Init);
+            }
+            _ => { /* Other endpoint types unimplemented */ }
+        }
 
         debug1!("Initialized endpoint {}", endpoint);
     }
@@ -763,11 +775,41 @@ impl<'a> Usbc<'a> {
     }
 
     fn handle_endpoint_interrupt(&self, endpoint: usize, endpoint_state: &mut EndpointState) {
-        if *endpoint_state == EndpointState::Disabled {
-            debug1!("Ignoring interrupt for disabled endpoint {}", endpoint);
-            return;
+        let status = usbc_regs().uesta[endpoint].cache();
+        debug1!("UESTA{}={:?}", endpoint, UestaFlags(status.get()));
+
+        if status.is_set(EndpointStatus::STALLED) {
+            debug1!("D({}) STALLED/CRCERR", endpoint);
+
+            // Acknowledge
+            usbc_regs().uestaclr[endpoint].write(EndpointStatus::STALLED::SET);
         }
 
+        if status.is_set(EndpointStatus::RAMACER) {
+            debug1!("D({}) RAMACER", endpoint);
+
+            // Acknowledge
+            usbc_regs().uestaclr[endpoint].write(EndpointStatus::RAMACER::SET);
+        }
+
+        match *endpoint_state {
+            EndpointState::Ctrl(ref mut ctrl_state) =>
+                self.handle_ctrl_endpoint_interrupt(endpoint, ctrl_state, status),
+            EndpointState::Bulk(ref mut bulk_state) =>
+                self.handle_bulk_endpoint_interrupt(endpoint, bulk_state, status),
+            EndpointState::Disabled => {
+                debug1!("Ignoring interrupt for disabled endpoint {}", endpoint);
+                return;
+            }
+        }
+    }
+
+    fn handle_ctrl_endpoint_interrupt(
+        &self,
+        endpoint: usize,
+        ctrl_state: &mut CtrlState,
+        status: FieldValue<u32, EndpointStatus>,
+    ) {
         let mut again = true;
         while again {
             again = false;
@@ -775,28 +817,8 @@ impl<'a> Usbc<'a> {
             // advantageous to process more flags without waiting for
             // another interrupt.
 
-            let status = usbc_regs().uesta[endpoint].cache();
-            debug1!("UESTA{}={:?}", endpoint, UestaFlags(status.get()));
-
-            if status.is_set(EndpointStatus::STALLED) {
-                debug1!("D({}) STALLED/CRCERR", endpoint);
-
-                // Acknowledge
-                usbc_regs().uestaclr[endpoint].write(EndpointStatus::STALLED::SET);
-            }
-
-            if status.is_set(EndpointStatus::RAMACER) {
-                debug1!("D({}) RAMACERR", endpoint);
-
-                // Acknowledge
-                usbc_regs().uestaclr[endpoint].write(EndpointStatus::RAMACER::SET);
-            }
-
-            match *endpoint_state {
-                EndpointState::Disabled => {
-                    internal_err!("Not reached");
-                }
-                EndpointState::Init => {
+            match *ctrl_state {
+                CtrlState::Init => {
                     if status.is_set(EndpointStatus::RXSTP) {
                         // We received a SETUP transaction
 
@@ -828,7 +850,7 @@ impl<'a> Usbc<'a> {
                                         endpoint,
                                         EndpointControl::TXINE::SET + EndpointControl::NAKOUTE::SET,
                                     );
-                                    *endpoint_state = EndpointState::CtrlReadIn;
+                                    *ctrl_state = CtrlState::ReadIn;
                                 } else {
                                     // The following Data stage will be OUT
 
@@ -840,7 +862,7 @@ impl<'a> Usbc<'a> {
                                         endpoint,
                                         EndpointControl::RXOUTE::SET + EndpointControl::NAKINE::SET,
                                     );
-                                    *endpoint_state = EndpointState::CtrlWriteOut;
+                                    *ctrl_state = CtrlState::WriteOut;
                                 }
                             }
                             failure => {
@@ -855,82 +877,15 @@ impl<'a> Usbc<'a> {
                                     }
                                 }
 
-                                // Remain in EndpointState::Init for next SETUP
+                                // Remain in Init state for next SETUP
                             }
                         }
 
                         // Acknowledge SETUP interrupt
                         usbc_regs().uestaclr[endpoint].write(EndpointStatus::RXSTP::SET);
                     }
-                    else if status.is_set(EndpointStatus::TXIN) {
-                        // We got an IN request from the host
-
-                        debug1!("D({}) TXIN", endpoint);
-
-                        // Acknowledge
-                        usbc_regs().uestaclr[endpoint].write(EndpointStatus::TXIN::SET);
-
-                        if !usbc_regs().uecon[endpoint].is_set(EndpointControl::FIFOCON) {
-                           debug!("Got TXIN but not FIFOCON");
-                           return;
-                        }
-                        // A bank is free to write an IN packet
-
-                        // Write data
-                        let result = self.client.map(|c| {
-                            // Allow client to write a packet payload to buffer
-                            c.bulk_in(endpoint)
-                        });
-                        match result {
-                            Some(BulkInResult::Packet(packet_bytes, transfer_complete)) => {
-
-                                self.descriptors[0][0].packet_size.write(if packet_bytes == 8
-                                    && transfer_complete
-                                {
-                                    // Send a complete final packet, and request
-                                    // that the controller also send a zero-length
-                                    // packet to signal the end of transfer
-                                    PacketSize::BYTE_COUNT.val(8) +
-                                        PacketSize::AUTO_ZLP::Yes
-                                } else {
-                                    // Send either a complete but not-final
-                                    // packet, or a short and final packet (which
-                                    // itself signals end of transfer)
-                                    PacketSize::BYTE_COUNT.val(packet_bytes as u32)
-                                });
-
-                                // Clear FIFOCON to signal data ready to send
-                                usbc_regs().ueconclr[endpoint].write(EndpointControl::FIFOCON::SET);
-
-                                debug1!(
-                                    "D({}) Send BULK IN packet ({} bytes)",
-                                    endpoint,
-                                    packet_bytes
-                                );
-
-                                // Remain in Init state
-                            }
-                            Some(BulkInResult::Delay) => {
-                                // The client is not ready to send data
-
-                                endpoint_disable_interrupts(endpoint, EndpointControl::TXINE::SET);
-
-                                *endpoint_state = EndpointState::BulkInDelay;
-                            }
-                            _ => {
-                                debug1!("D({}) Client IN err => STALL", endpoint);
-
-                                // Respond with STALL to any following IN/OUT transactions
-                                usbc_regs().ueconset[endpoint].write(EndpointControl::STALLRQ::SET);
-
-                                // XXX: interrupts?
-
-                                // Remain in Init state?
-                            }
-                        }
-                    }
                 }
-                EndpointState::CtrlReadIn => {
+                CtrlState::ReadIn => {
                     // TODO: Handle Abort as described in 17.6.2.15
                     // (for Control and Isochronous only)
 
@@ -951,7 +906,7 @@ impl<'a> Usbc<'a> {
                         // Acknowledge
                         usbc_regs().uestaclr[endpoint].write(EndpointStatus::NAKOUT::SET);
 
-                        *endpoint_state = EndpointState::CtrlReadStatus;
+                        *ctrl_state = CtrlState::ReadStatus;
 
                         // Run handler again in case the RXOUT has already arrived
                         again = true;
@@ -1011,7 +966,7 @@ impl<'a> Usbc<'a> {
 
                                 // XXX set busy bits?
 
-                                *endpoint_state = EndpointState::CtrlInDelay;
+                                *ctrl_state = CtrlState::InDelay;
                             }
                             _ => {
                                 // Respond with STALL to any following IN/OUT transactions
@@ -1019,26 +974,24 @@ impl<'a> Usbc<'a> {
 
                                 debug1!("D({}) Client IN err => STALL", endpoint);
 
-                                // Wait for next SETUP/TXIN
+                                // Wait for next SETUP
                                 endpoint_disable_interrupts(endpoint, EndpointControl::NAKOUTE::SET);
-                                endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET +
-                                                           EndpointControl::TXINE::SET);
-                                *endpoint_state = EndpointState::Init;
+                                endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
+                                *ctrl_state = CtrlState::Init;
                             }
                         }
                     }
                 }
-                EndpointState::CtrlReadStatus => {
+                CtrlState::ReadStatus => {
                     if status.is_set(EndpointStatus::RXOUT) {
                         // Host has completed Status stage by sending an OUT packet
 
                         debug1!("D({}) RXOUT: End of Control Read transaction", endpoint);
 
-                        // Wait for next SETUP/TXIN
+                        // Wait for next SETUP
                         endpoint_disable_interrupts(endpoint, EndpointControl::RXOUTE::SET);
-                        endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET +
-                                                   EndpointControl::TXINE::SET);
-                        *endpoint_state = EndpointState::Init;
+                        endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
+                        *ctrl_state = CtrlState::Init;
 
                         // Acknowledge
                         usbc_regs().uestaclr[endpoint].write(EndpointStatus::RXOUT::SET);
@@ -1046,7 +999,7 @@ impl<'a> Usbc<'a> {
                         self.client.map(|c| c.ctrl_status_complete(endpoint));
                     }
                 }
-                EndpointState::CtrlWriteOut => {
+                CtrlState::WriteOut => {
                     if status.is_set(EndpointStatus::RXOUT) {
                         // Received data
 
@@ -1079,16 +1032,13 @@ impl<'a> Usbc<'a> {
 
                                 debug1!("D({}) Client OUT err => STALL", endpoint);
 
-                                // Wait for next SETUP/TXIN
+                                // Wait for next SETUP
                                 endpoint_disable_interrupts(endpoint, EndpointControl::RXOUTE::SET +
                                                             EndpointControl::NAKINE::SET);
-                                endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET +
-                                                           EndpointControl::TXINE::SET);
-                                *endpoint_state = EndpointState::Init;
+                                endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
+                                *ctrl_state = CtrlState::Init;
                             }
                         }
-
-                        // Continue awaiting RXOUT and NAKIN
                     }
                     if status.is_set(EndpointStatus::NAKIN) {
                         // The host has completed the Data stage by sending an IN token
@@ -1103,13 +1053,13 @@ impl<'a> Usbc<'a> {
                             EndpointControl::RXOUTE::SET + EndpointControl::NAKINE::SET,
                         );
                         endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
-                        *endpoint_state = EndpointState::CtrlWriteStatus;
+                        *ctrl_state = CtrlState::WriteStatus;
 
                         // Can probably send the ZLP immediately
                         again = true;
                     }
                 }
-                EndpointState::CtrlWriteStatus => {
+                CtrlState::WriteStatus => {
                     if status.is_set(EndpointStatus::TXIN) {
                         debug1!(
                             "D({}) TXIN for Control Write Status (will send ZLP)",
@@ -1127,28 +1077,108 @@ impl<'a> Usbc<'a> {
                         usbc_regs().uestaclr[endpoint].write(EndpointStatus::TXIN::SET);
 
                         // Wait for TXIN again to confirm that IN payload has been sent
-                        *endpoint_state = EndpointState::CtrlWriteStatusWait;
+                        *ctrl_state = CtrlState::WriteStatusWait;
                     }
                 }
-                EndpointState::CtrlWriteStatusWait => {
+                CtrlState::WriteStatusWait => {
                     if status.is_set(EndpointStatus::TXIN) {
                         debug1!("D({}) TXIN: Control Write Status Complete", endpoint);
 
-                        // Wait for next SETUP/TXIN
-                        endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET +
-                                                   EndpointControl::TXINE::SET);
-                        *endpoint_state = EndpointState::Init;
+                        // Wait for next SETUP
+                        endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
+                        *ctrl_state = CtrlState::Init;
 
                         // for SetAddress, client must enable address after STATUS stage
                         self.client.map(|c| c.ctrl_status_complete(endpoint));
                     }
                 }
-                EndpointState::CtrlInDelay => { /* XXX: Spin fruitlessly */ }
-                EndpointState::BulkInDelay => { /* XXX: Spin fruitlessly */ }
+                CtrlState::InDelay =>  { /* XXX: Spin fruitlessly */ }
             }
 
-            // Uncomment the following line to run the above while loop only once per interrupt
+            // Uncomment the following line to run the above while loop only once per interrupt,
+            // which can make debugging easier.
+            //
             // again = false;
+        }
+    }
+
+    fn handle_bulk_endpoint_interrupt(
+        &self,
+        endpoint: usize,
+        bulk_state: &mut BulkState,
+        status: FieldValue<u32, EndpointStatus>,
+    ) {
+        match *bulk_state {
+            BulkState::Init => {
+                if status.is_set(EndpointStatus::TXIN) {
+                    // We got an IN request from the host
+
+                    debug1!("D({}) TXIN", endpoint);
+
+                    // Acknowledge
+                    usbc_regs().uestaclr[endpoint].write(EndpointStatus::TXIN::SET);
+
+                    if !usbc_regs().uecon[endpoint].is_set(EndpointControl::FIFOCON) {
+                       debug!("Got TXIN but not FIFOCON");
+                       return;
+                    }
+                    // A bank is free to write an IN packet
+
+                    // Write data
+                    let result = self.client.map(|c| {
+                        // Allow client to write a packet payload to buffer
+                        c.bulk_in(endpoint)
+                    });
+                    match result {
+                        Some(BulkInResult::Packet(packet_bytes, transfer_complete)) => {
+
+                            self.descriptors[0][0].packet_size.write(if packet_bytes == 8
+                                && transfer_complete
+                            {
+                                // Send a complete final packet, and request
+                                // that the controller also send a zero-length
+                                // packet to signal the end of transfer
+                                PacketSize::BYTE_COUNT.val(8) +
+                                    PacketSize::AUTO_ZLP::Yes
+                            } else {
+                                // Send either a complete but not-final
+                                // packet, or a short and final packet (which
+                                // itself signals end of transfer)
+                                PacketSize::BYTE_COUNT.val(packet_bytes as u32)
+                            });
+
+                            // Clear FIFOCON to signal data ready to send
+                            usbc_regs().ueconclr[endpoint].write(EndpointControl::FIFOCON::SET);
+
+                            debug1!(
+                                "D({}) Send BULK IN packet ({} bytes)",
+                                endpoint,
+                                packet_bytes
+                            );
+
+                            // Remain in Init state
+                        }
+                        Some(BulkInResult::Delay) => {
+                            // The client is not ready to send data
+
+                            endpoint_disable_interrupts(endpoint, EndpointControl::TXINE::SET);
+
+                            *bulk_state = BulkState::InDelay;
+                        }
+                        _ => {
+                            debug1!("D({}) Client IN err => STALL", endpoint);
+
+                            // Respond with STALL to any following IN/OUT transactions
+                            usbc_regs().ueconset[endpoint].write(EndpointControl::STALLRQ::SET);
+
+                            // XXX: interrupts?
+
+                            // Remain in Init state?
+                        }
+                    }
+                }
+            }
+            BulkState::InDelay => { /* XXX: Spin fruitlessly */ }
         }
     }
 
