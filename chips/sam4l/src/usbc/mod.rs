@@ -449,7 +449,6 @@ impl<'a> Usbc<'a> {
     }
 
     /// Enable the controller's clocks and interrupt and transition to Idle state
-    /// (No effect if current state is not Reset)
     fn _enable(&self, mode: Mode) {
         match self.get_state() {
             State::Reset => {
@@ -523,7 +522,7 @@ impl<'a> Usbc<'a> {
 
                 self.set_state(State::Reset);
             }
-            _ => internal_err!("Disable from wrong state"),
+            _ => internal_err!("Disable called from wrong state"),
         }
     }
 
@@ -546,7 +545,7 @@ impl<'a> Usbc<'a> {
 
                 self.set_state(State::Active(mode));
             }
-            _ => internal_err!("Attach in wrong state"),
+            _ => internal_err!("Attach called in wrong state"),
         }
     }
 
