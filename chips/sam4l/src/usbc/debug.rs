@@ -1,5 +1,20 @@
 use core::fmt;
 
+pub struct HexBuf<'a>(pub &'a [u8]);
+
+impl<'a> fmt::Debug for HexBuf<'a> {
+    #[allow(unused_must_use)]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[");
+        let mut i: usize = 0;
+        for b in self.0 {
+            write!(f, "{}{:.02x}", if i > 0 { " " } else { "" }, b);
+            i += 1;
+        }
+        write!(f, "]")
+    }
+}
+
 // Bitfields for UDINT, UDINTCLR, UDINTESET
 pub const UDINT_SUSP: u32 = 1 << 0;
 pub const UDINT_SOF: u32 = 1 << 2;

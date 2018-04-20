@@ -1,6 +1,5 @@
 //! SAM4L USB controller
 
-pub mod data;
 pub mod debug;
 
 use self::data::*;
@@ -57,6 +56,8 @@ struct UsbcRegisters {
     uerst: ReadWrite<u32>,
     udfnum: ReadOnly<u32>,
     _reserved0: [u8; 0xdc], // 220 bytes
+    // Note that the SAM4L supports only 8 endpoints, but the registers
+    // are laid out such that there is room for 12.
     // 0x100
     uecfg: [ReadWrite<u32, EndpointConfig::Register>; 12],
     uesta: [ReadOnly<u32, EndpointStatus::Register>; 12],
@@ -216,6 +217,130 @@ register_bitfields![u32,
     ]
 ];
 
+const USBC_BASE: StaticRef<UsbcRegisters> =
+    unsafe { StaticRef::new(0x400A5000 as *const UsbcRegisters) };
+
+#[inline]
+fn usbc_regs() -> &'static UsbcRegisters {
+    &*USBC_BASE
+}
+
+// Datastructures for tracking USB controller state
+
+// This ensures the `descriptors` field is laid out first
+#[repr(C)]
+// This provides the required alignment for the `descriptors` field
+#[repr(align(8))]
+pub struct Usbc<'a> {
+    descriptors: [Endpoint; 8],
+    state: Cell<State>,
+    client: Option<&'a hil::usb::Client>,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum State {
+    // Controller disabled
+    Reset,
+
+    // Controller enabled, detached from bus
+    // (We may go to this state when the Host
+    // controller suspends the bus.)
+    Idle(Mode),
+
+    // Controller enabled, attached to bus
+    Active(Mode),
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Mode {
+    Host,
+    Device {
+        speed: Speed,
+        config: DeviceConfig,
+        state: DeviceState,
+    },
+}
+
+pub const N_ENDPOINTS: usize = 8;
+
+#[derive(Copy, Clone, PartialEq, Debug, Default)]
+pub struct DeviceConfig {
+    pub endpoint_configs: [Option<EndpointConfig>; N_ENDPOINTS],
+}
+
+#[derive(Copy, Clone, PartialEq, Debug, Default)]
+pub struct DeviceState {
+    pub endpoint_states: [EndpointState; N_ENDPOINTS],
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum EndpointState {
+    Disabled,
+    Ctrl(CtrlState),
+    Bulk(BulkState),
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum CtrlState {
+    Init,
+    ReadIn,
+    ReadStatus,
+    WriteOut,
+    WriteStatus,
+    WriteStatusWait,
+    InDelay,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum BulkState {
+    Init,
+    InDelay,
+}
+
+impl Default for EndpointState {
+    fn default() -> Self {
+        EndpointState::Disabled
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Speed {
+    Full,
+    Low,
+}
+
+pub enum BankIndex {
+    Bank0,
+    Bank1,
+}
+
+impl From<BankIndex> for usize {
+    fn from(bi: BankIndex) -> usize {
+        match bi {
+            BankIndex::Bank0 => 0,
+            BankIndex::Bank1 => 1,
+        }
+    }
+}
+
+pub struct EndpointIndex(u8);
+
+impl EndpointIndex {
+    pub fn new(index: usize) -> EndpointIndex {
+        EndpointIndex(index as u8 & 0xf)
+    }
+
+    pub fn to_u32(self) -> u32 {
+        self.0 as u32
+    }
+}
+
+impl From<EndpointIndex> for usize {
+    fn from(ei: EndpointIndex) -> usize {
+        ei.0 as usize
+    }
+}
+
 pub type Endpoint = [Bank; 2];
 
 pub const fn new_endpoint() -> Endpoint {
@@ -224,18 +349,24 @@ pub const fn new_endpoint() -> Endpoint {
 
 #[repr(C)]
 pub struct Bank {
-    pub addr: VolatileCell<*mut u8>,
-    pub packet_size: VolatileCell<PacketSize>,
-    pub ctrl_status: VolatileCell<ControlStatus>,
-    _pad: u32,
+    addr: VolatileCell<*mut u8>,
+
+    // The following fields are not actually registers
+    // (they may be placed anywhere in memory),
+    // but the register interface provides the volatile
+    // read/writes and bitfields that we need.
+    pub packet_size: ReadWrite<u32, PacketSize::Register>,
+    pub control_status: ReadWrite<u32, ControlStatus::Register>,
+
+    _reserved: u32,
 }
 
 impl Bank {
     pub const fn new() -> Bank {
         Bank {
             addr: VolatileCell::new(ptr::null_mut()),
-            packet_size: VolatileCell::new(PacketSize(0)),
-            ctrl_status: VolatileCell::new(ControlStatus(0)),
+            packet_size: ReadWrite::new(0),
+            control_status: ReadWrite::new(0),
             _pad: 0,
         }
     }
@@ -243,12 +374,7 @@ impl Bank {
     pub fn set_addr(&self, addr: *mut u8) {
         self.addr.set(addr);
     }
-
-    pub fn set_packet_size(&self, size: PacketSize) {
-        self.packet_size.set(size);
-    }
 }
-
 
 register_bitfields![u32,
     PacketSize [
@@ -266,25 +392,6 @@ register_bitfields![u32,
         STALLRQ_NEXT 0
     ]
 ];
-
-const USBC_BASE: StaticRef<UsbcRegisters> =
-    unsafe { StaticRef::new(0x400A5000 as *const UsbcRegisters) };
-
-#[inline]
-fn usbc_regs() -> &'static UsbcRegisters {
-    &*USBC_BASE
-}
-
-/// State for managing the USB controller
-// This ensures the `descriptors` field is laid out first
-#[repr(C)]
-// This provides the required alignment for the `descriptors` field
-#[repr(align(8))]
-pub struct Usbc<'a> {
-    descriptors: [Endpoint; 8],
-    client: Option<&'a hil::usb::Client>,
-    state: Cell<State>,
-}
 
 impl<'a> Usbc<'a> {
     const fn new() -> Self {
@@ -336,7 +443,9 @@ impl<'a> Usbc<'a> {
 
         debug1!("Set Endpoint{}/Bank{} addr={:8?}", e, b, p);
         self.descriptors[e][b].set_addr(p);
-        self.descriptors[e][b].set_packet_size(PacketSize::default());
+        self.descriptors[e][b].packet_size.write(PacketSize::BYTE_COUNT.val(0) +
+                                                 PacketSize::MULTI_PACKET_SIZE.val(0) +
+                                                 PacketSize::AUTO_ZLP::No);
     }
 
     /// Enable the controller's clocks and interrupt and transition to Idle state
@@ -695,7 +804,7 @@ impl<'a> Usbc<'a> {
                         debug1!("D({}) RXSTP", endpoint);
                         // self.debug_show_d0();
 
-                        let packet_bytes = self.descriptors[0][0].packet_size.get().byte_count();
+                        let packet_bytes = self.descriptors[0][0].packet_size.read(PacketSize::BYTE_COUNT);
                         let result = if packet_bytes == 8 {
                             self.client.map(|c| c.ctrl_setup(endpoint))
                         } else {
@@ -775,18 +884,20 @@ impl<'a> Usbc<'a> {
                         });
                         match result {
                             Some(BulkInResult::Packet(packet_bytes, transfer_complete)) => {
-                                self.descriptors[0][0].packet_size.set(if packet_bytes == 8
+
+                                self.descriptors[0][0].packet_size.write(if packet_bytes == 8
                                     && transfer_complete
                                 {
                                     // Send a complete final packet, and request
                                     // that the controller also send a zero-length
                                     // packet to signal the end of transfer
-                                    PacketSize::single_with_zlp(8)
+                                    PacketSize::BYTE_COUNT.val(8) +
+                                        PacketSize::AUTO_ZLP::Yes
                                 } else {
                                     // Send either a complete but not-final
                                     // packet, or a short and final packet (which
                                     // itself signals end of transfer)
-                                    PacketSize::single(packet_bytes as u32)
+                                    PacketSize::BYTE_COUNT.val(packet_bytes as u32)
                                 });
 
                                 // Clear FIFOCON to signal data ready to send
@@ -857,18 +968,19 @@ impl<'a> Usbc<'a> {
                         });
                         match result {
                             Some(CtrlInResult::Packet(packet_bytes, transfer_complete)) => {
-                                self.descriptors[0][0].packet_size.set(if packet_bytes == 8
+                                self.descriptors[0][0].packet_size.write(if packet_bytes == 8
                                     && transfer_complete
                                 {
                                     // Send a complete final packet, and request
                                     // that the controller also send a zero-length
                                     // packet to signal the end of transfer
-                                    PacketSize::single_with_zlp(8)
+                                    PacketSize::BYTE_COUNT.val(8) +
+                                        PacketSize::AUTO_ZLP::Yes
                                 } else {
                                     // Send either a complete but not-final
                                     // packet, or a short and final packet (which
                                     // itself signals end of transfer)
-                                    PacketSize::single(packet_bytes as u32)
+                                    PacketSize::BYTE_COUNT.val(packet_bytes as u32)
                                 });
 
                                 debug1!(
@@ -946,7 +1058,7 @@ impl<'a> Usbc<'a> {
                         let result = self.client.map(|c| {
                             c.ctrl_out(
                                 endpoint,
-                                self.descriptors[0][0].packet_size.get().byte_count(),
+                                self.descriptors[0][0].packet_size.read(PacketSize::BYTE_COUNT),
                             )
                         });
                         match result {
@@ -1010,7 +1122,7 @@ impl<'a> Usbc<'a> {
                         // Send zero-length packet to acknowledge transaction
                         self.descriptors[0][0]
                             .packet_size
-                            .set(PacketSize::single(0));
+                            .write(PacketSize::BYTE_COUNT.val(0));
 
                         // Signal to the controller that the IN payload is ready to send
                         usbc_regs().uestaclr[endpoint].write(EndpointStatus::TXIN::SET);
@@ -1052,7 +1164,7 @@ impl<'a> Usbc<'a> {
                 unsafe {
                     Some(slice::from_raw_parts(
                         addr,
-                        b.packet_size.get().byte_count() as usize,
+                        b.packet_size.read(PacketSize::BYTE_COUNT) as usize,
                     ))
                 }
             };
@@ -1064,7 +1176,7 @@ impl<'a> Usbc<'a> {
                  \n     {:?}",
                 bi, // (&b.addr as *const _), b.addr.get(),
                 b.packet_size.get(),
-                b.ctrl_status.get(),
+                b.control_status.get(),
                 _buf.map(HexBuf)
             );
         }
@@ -1121,7 +1233,13 @@ impl<'a> UsbController for Usbc<'a> {
         };
 
         match self.get_state() {
-            State::Reset => self._enable(Mode::device_at_speed(speed)),
+            State::Reset => self._enable(
+                Mode::Device {
+                    speed: speed,
+                    config: Default::default(),
+                    state: Default::default(),
+                });
+
             _ => client_err!("Already enabled"),
         }
     }
