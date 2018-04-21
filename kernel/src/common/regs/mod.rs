@@ -37,6 +37,7 @@
 #[macro_use]
 pub mod macros;
 
+use core::fmt;
 use core::marker::PhantomData;
 use core::ops::{Add, AddAssign, BitAnd, BitOr, Not, Shl, Shr};
 
@@ -93,7 +94,7 @@ pub struct WriteOnly<T: IntLike, R: RegisterLongName = ()> {
 }
 
 /// Cached values of registers.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct CachedRegister<T: IntLike, R: RegisterLongName> {
     value: T,
     associated_register: PhantomData<R>,
@@ -249,6 +250,18 @@ impl<T: IntLike, R: RegisterLongName> CachedRegister<T, R> {
     }
 }
 
+impl<R: RegisterLongName> From<CachedRegister<u32, R>> for u32 {
+    fn from(r: CachedRegister<u32, R>) -> u32 {
+        r.value
+    }
+}
+
+impl<T: IntLike + fmt::Debug, R: RegisterLongName> fmt::Debug for CachedRegister<T, R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.value)
+    }
+}
+
 /// Specific section of a register.
 #[derive(Copy, Clone)]
 pub struct Field<T: IntLike, R: RegisterLongName> {
@@ -366,6 +379,12 @@ impl<R: RegisterLongName> FieldValue<u32, R> {
 impl<R: RegisterLongName> From<FieldValue<u32, R>> for u32 {
     fn from(val: FieldValue<u32, R>) -> u32 {
         val.value
+    }
+}
+
+impl<T: IntLike + fmt::Debug, R: RegisterLongName> fmt::Debug for FieldValue<T, R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.value)
     }
 }
 

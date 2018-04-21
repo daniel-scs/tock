@@ -237,7 +237,7 @@ pub struct Usbc<'a> {
     client: Option<&'a hil::usb::Client>,
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum State {
     // Controller disabled
     Reset,
@@ -251,7 +251,7 @@ pub enum State {
     Active(Mode),
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Mode {
     Host,
     Device {
@@ -265,17 +265,17 @@ pub const N_ENDPOINTS: usize = 8;
 
 type EndpointConfigValue = CachedRegister<u32, EndpointConfig::Register>;
 
-#[derive(Copy, Clone, PartialEq, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct DeviceConfig {
     pub endpoint_configs: [Option<EndpointConfigValue>; N_ENDPOINTS],
 }
 
-#[derive(Copy, Clone, PartialEq, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct DeviceState {
     pub endpoint_states: [EndpointState; N_ENDPOINTS],
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum EndpointState {
     Disabled,
     Ctrl(CtrlState),
@@ -601,7 +601,7 @@ impl<'a> Usbc<'a> {
         // This must be performed after each bus reset
 
         // Configure the endpoint
-        usbc_regs().uecfg[endpoint].set(config);
+        usbc_regs().uecfg[endpoint].set(From::from(config));
 
         debug1!("Configured endpoint {}", endpoint);
     }
@@ -626,18 +626,18 @@ impl<'a> Usbc<'a> {
     ) {
         // This must be performed after each bus reset (see 17.6.2.2)
 
-        endpoint_enable_interrupts(endpoint, EndpointControl::RAMACERE::SET, EndpointControl::STALLEDE::SET);
+        endpoint_enable_interrupts(endpoint, EndpointControl::RAMACERE::SET + EndpointControl::STALLEDE::SET);
 
-        match config.read(EndpointConfig::EPTYPE) {
-            EndpointConfig::EPTYPE::Control => {
-                endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
-                state.endpoint_states[endpoint] = EndpointState::Ctrl(CtrlState::Init);
-            }
-            EndpointConfig::EPTYPE::Bulk => {
-                endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
-                state.endpoint_states[endpoint] = EndpointState::Bulk(BulkState::Init);
-            }
-            _ => { /* Other endpoint types unimplemented */ }
+        if config.matches_all(EndpointConfig::EPTYPE::Control) {
+            endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
+            state.endpoint_states[endpoint] = EndpointState::Ctrl(CtrlState::Init);
+        }
+        else if config.matches_all(EndpointConfig::EPTYPE::Bulk) {
+            endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
+            state.endpoint_states[endpoint] = EndpointState::Bulk(BulkState::Init);
+        }
+        else {
+            // Other endpoint types unimplemented
         }
 
         debug1!("Initialized endpoint {}", endpoint);
@@ -1291,10 +1291,11 @@ impl<'a> UsbController for Usbc<'a> {
     }
 
     fn endpoint_ctrl_out_enable(&self, endpoint: usize) {
-        let endpoint_cfg = EndpointConfig::EPTYPE::Control +
-                           EndpointConfig::EPDIR::Out +
-                           EndpointConfig::EPSIZE::Bytes8 +
-                           EndpointConfig::EPBK::Single;
+        let endpoint_cfg = CachedRegister::new(From::from(
+                                EndpointConfig::EPTYPE::Control +
+                                EndpointConfig::EPDIR::Out +
+                                EndpointConfig::EPSIZE::Bytes8 +
+                                EndpointConfig::EPBK::Single));
 
         if match self.get_state() {
             State::Reset => client_err!("Not enabled"),
