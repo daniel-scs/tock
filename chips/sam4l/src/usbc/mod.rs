@@ -9,7 +9,7 @@ use core::slice;
 use core::ptr;
 use kernel::StaticRef;
 use kernel::common::VolatileCell;
-use kernel::common::regs::{CachedRegister, FieldValue, ReadOnly, ReadWrite, WriteOnly};
+use kernel::common::regs::{RegisterValue, FieldValue, ReadOnly, ReadWrite, WriteOnly};
 use kernel::hil;
 use kernel::hil::usb::*;
 use pm;
@@ -263,7 +263,8 @@ pub enum Mode {
 
 pub const N_ENDPOINTS: usize = 8;
 
-type EndpointConfigValue = CachedRegister<u32, EndpointConfig::Register>;
+type EndpointConfigValue = RegisterValue<u32, EndpointConfig::Register>;
+type EndpointStatusValue = RegisterValue<u32, EndpointStatus::Register>;
 
 #[derive(Copy, Clone, Debug, Default)]
 pub struct DeviceConfig {
@@ -674,7 +675,7 @@ impl<'a> Usbc<'a> {
         device_config: &DeviceConfig,
         device_state: &mut DeviceState,
     ) {
-        let udint = usbc_regs().udint.cache();
+        let udint = usbc_regs().udint.get_value();
 
         debug1!(
             "--> UDINT={:?} ep0:{:?}",
@@ -777,7 +778,7 @@ impl<'a> Usbc<'a> {
     }
 
     fn handle_endpoint_interrupt(&self, endpoint: usize, endpoint_state: &mut EndpointState) {
-        let status = usbc_regs().uesta[endpoint].cache();
+        let status = usbc_regs().uesta[endpoint].get_value();
         debug1!("UESTA{}={:?}", endpoint, UestaFlags(status.get()));
 
         if status.is_set(EndpointStatus::STALLED) {
@@ -810,7 +811,7 @@ impl<'a> Usbc<'a> {
         &self,
         endpoint: usize,
         ctrl_state: &mut CtrlState,
-        status: CachedRegister<u32, EndpointStatus::Register>,
+        status: EndpointStatusValue,
     ) {
         let mut again = true;
         while again {
@@ -1108,7 +1109,7 @@ impl<'a> Usbc<'a> {
         &self,
         endpoint: usize,
         bulk_state: &mut BulkState,
-        status: CachedRegister<u32, EndpointStatus::Register>,
+        status: EndpointStatusValue,
     ) {
         match *bulk_state {
             BulkState::Init => {
@@ -1291,7 +1292,7 @@ impl<'a> UsbController for Usbc<'a> {
     }
 
     fn endpoint_ctrl_out_enable(&self, endpoint: usize) {
-        let endpoint_cfg = CachedRegister::new(From::from(
+        let endpoint_cfg = RegisterValue::new(From::from(
                                 EndpointConfig::EPTYPE::Control +
                                 EndpointConfig::EPDIR::Out +
                                 EndpointConfig::EPSIZE::Bytes8 +

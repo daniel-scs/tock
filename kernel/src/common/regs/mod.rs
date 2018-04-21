@@ -93,9 +93,9 @@ pub struct WriteOnly<T: IntLike, R: RegisterLongName = ()> {
     associated_register: PhantomData<R>,
 }
 
-/// Cached values of registers.
+/// Memory-resident values of registers.
 #[derive(Copy, Clone, PartialEq, Eq)]
-pub struct CachedRegister<T: IntLike, R: RegisterLongName> {
+pub struct RegisterValue<T: IntLike, R: RegisterLongName> {
     value: T,
     associated_register: PhantomData<R>,
 }
@@ -151,8 +151,8 @@ impl<T: IntLike, R: RegisterLongName> ReadWrite<T, R> {
     }
 
     #[inline]
-    pub fn cache(&self) -> CachedRegister<T, R> {
-        CachedRegister::new(self.get())
+    pub fn get_value(&self) -> RegisterValue<T, R> {
+        RegisterValue::new(self.get())
     }
 }
 
@@ -191,8 +191,8 @@ impl<T: IntLike, R: RegisterLongName> ReadOnly<T, R> {
     }
 
     #[inline]
-    pub fn cache(&self) -> CachedRegister<T, R> {
-        CachedRegister::new(self.get())
+    pub fn get_value(&self) -> RegisterValue<T, R> {
+        RegisterValue::new(self.get())
     }
 }
 
@@ -216,9 +216,9 @@ impl<T: IntLike, R: RegisterLongName> WriteOnly<T, R> {
     }
 }
 
-impl<T: IntLike, R: RegisterLongName> CachedRegister<T, R> {
+impl<T: IntLike, R: RegisterLongName> RegisterValue<T, R> {
     pub fn new(value: T) -> Self {
-        CachedRegister {
+        RegisterValue {
             value: value,
             associated_register: PhantomData,
         }
@@ -250,13 +250,13 @@ impl<T: IntLike, R: RegisterLongName> CachedRegister<T, R> {
     }
 }
 
-impl<R: RegisterLongName> From<CachedRegister<u32, R>> for u32 {
-    fn from(r: CachedRegister<u32, R>) -> u32 {
+impl<R: RegisterLongName> From<RegisterValue<u32, R>> for u32 {
+    fn from(r: RegisterValue<u32, R>) -> u32 {
         r.value
     }
 }
 
-impl<T: IntLike + fmt::Debug, R: RegisterLongName> fmt::Debug for CachedRegister<T, R> {
+impl<T: IntLike + fmt::Debug, R: RegisterLongName> fmt::Debug for RegisterValue<T, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.value)
     }
