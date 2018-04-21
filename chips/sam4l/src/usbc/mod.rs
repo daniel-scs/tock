@@ -2,14 +2,14 @@
 
 pub mod debug;
 
-use self::data::*;
 #[allow(unused_imports)]
 use self::debug::{UdintFlags, UestaFlags};
 use core::cell::Cell;
 use core::slice;
+use core::ptr;
 use kernel::StaticRef;
 use kernel::common::VolatileCell;
-use kernel::common::regs::{FieldValue, ReadOnly, ReadWrite, WriteOnly};
+use kernel::common::regs::{CachedRegister, FieldValue, ReadOnly, ReadWrite, WriteOnly};
 use kernel::hil;
 use kernel::hil::usb::*;
 use pm;
@@ -166,10 +166,10 @@ register_bitfields![u32,
             Bytes256 = 5,
             Bytes512 = 6,
             Bytes1024 = 7
-        ]
+        ],
         EPBK OFFSET(2) NUMBITS(1) [
             Single = 0,
-            Double = 1,
+            Double = 1
         ]
     ],
     EndpointStatus [
@@ -265,7 +265,7 @@ pub const N_ENDPOINTS: usize = 8;
 
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
 pub struct DeviceConfig {
-    pub endpoint_configs: [Option<EndpointConfig>; N_ENDPOINTS],
+    pub endpoint_configs: [Option<FieldValue<u32, EndpointConfig::Register> >; N_ENDPOINTS],
 }
 
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
@@ -564,22 +564,22 @@ impl<'a> Usbc<'a> {
     }
 
     /// Configure and enable an endpoint
-    fn _endpoint_enable(&self, endpoint: usize, cfg: EndpointConfig) {
+    fn _endpoint_enable(&self, endpoint: usize, config: FieldValue<u32, EndpointConfig::Register>) {
         // Record config in case of later reset
         self.map_state(|state| match *state {
             State::Reset => {
                 internal_err!("Not enabled");
             }
             State::Idle(Mode::Device { ref mut config, .. }) => {
-                config.endpoint_configs[endpoint] = Some(cfg);
+                config.endpoint_configs[endpoint] = Some(config);
             }
             State::Active(Mode::Device { ref mut config, .. }) => {
-                config.endpoint_configs[endpoint] = Some(cfg);
+                config.endpoint_configs[endpoint] = Some(config);
             }
             _ => internal_err!("Not in Device mode"),
         });
 
-        self._endpoint_config(endpoint, cfg);
+        self._endpoint_config(endpoint, config);
 
         // Enable the endpoint (meaning the controller will respond to requests
         // to this endpoint)
@@ -587,7 +587,7 @@ impl<'a> Usbc<'a> {
             .uerst
             .set(usbc_regs().uerst.get() | (1 << endpoint));
 
-        self._endpoint_init(endpoint, cfg);
+        self._endpoint_init(endpoint, config);
 
         // Set EPnINTE, enabling interrupts for this endpoint
         usbc_regs().udinteset.set(1 << (12 + endpoint));
@@ -595,16 +595,16 @@ impl<'a> Usbc<'a> {
         debug1!("Enabled endpoint {}", endpoint);
     }
 
-    fn _endpoint_config(&self, endpoint: usize, cfg: EndpointConfig) {
+    fn _endpoint_config(&self, endpoint: usize, config: FieldValue<u32, EndpointConfig::Register>) {
         // This must be performed after each bus reset
 
         // Configure the endpoint
-        usbc_regs().uecfg[endpoint].set(From::from(cfg));
+        usbc_regs().uecfg[endpoint].write(config);
 
         debug1!("Configured endpoint {}", endpoint);
     }
 
-    fn _endpoint_init(&self, endpoint: usize, config: EndpointConfig) {
+    fn _endpoint_init(&self, endpoint: usize, config: FieldValue<u32, EndpointConfig::Register>) {
         self.map_state(|state| match *state {
             State::Idle(Mode::Device { ref mut state, .. }) => {
                 self._endpoint_init_device_state(state, endpoint, config);
@@ -620,7 +620,7 @@ impl<'a> Usbc<'a> {
         &self,
         state: &mut DeviceState,
         endpoint: usize,
-        config: FieldVal<u32, EndpointConfig>,
+        config: FieldValue<u32, EndpointConfig::Register>,
     ) {
         // This must be performed after each bus reset (see 17.6.2.2)
 
@@ -629,11 +629,11 @@ impl<'a> Usbc<'a> {
         match config.read(EndpointConfig::EPTYPE) {
             EndpointConfig::EPTYPE::Control => {
                 endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
-                state.endpoint_states[endpoint] = Ctrl(CtrlState::Init);
+                state.endpoint_states[endpoint] = EndpointState::Ctrl(CtrlState::Init);
             }
             EndpointConfig::EPTYPE::Bulk => {
                 endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
-                state.endpoint_states[endpoint] = Bulk(BulkState::Init);
+                state.endpoint_states[endpoint] = EndpointState::Bulk(BulkState::Init);
             }
             _ => { /* Other endpoint types unimplemented */ }
         }
@@ -808,7 +808,7 @@ impl<'a> Usbc<'a> {
         &self,
         endpoint: usize,
         ctrl_state: &mut CtrlState,
-        status: FieldValue<u32, EndpointStatus>,
+        status: CachedRegister<u32, EndpointStatus::Register>,
     ) {
         let mut again = true;
         while again {
@@ -1106,7 +1106,7 @@ impl<'a> Usbc<'a> {
         &self,
         endpoint: usize,
         bulk_state: &mut BulkState,
-        status: FieldValue<u32, EndpointStatus>,
+        status: CachedRegister<u32, EndpointStatus::Register>,
     ) {
         match *bulk_state {
             BulkState::Init => {
@@ -1267,8 +1267,7 @@ impl<'a> UsbController for Usbc<'a> {
                     speed: speed,
                     config: Default::default(),
                     state: Default::default(),
-                });
-
+                }),
             _ => client_err!("Already enabled"),
         }
     }
@@ -1290,13 +1289,10 @@ impl<'a> UsbController for Usbc<'a> {
     }
 
     fn endpoint_ctrl_out_enable(&self, endpoint: usize) {
-        let endpoint_cfg = EndpointConfig::new(
-            BankCount::Single,
-            EndpointSize::Bytes8,
-            EndpointDirection::Out,
-            EndpointType::Control,
-            EndpointIndex::new(endpoint),
-        );
+        let endpoint_cfg = EndpointConfig::EPTYPE::Control +
+                           EndpointConfig::EPDIR::Out +
+                           EndpointConfig::EPSIZE::Bytes8 +
+                           EndpointConfig::EPBK::Single;
 
         if match self.get_state() {
             State::Reset => client_err!("Not enabled"),
