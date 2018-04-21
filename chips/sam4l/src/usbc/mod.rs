@@ -3,7 +3,7 @@
 pub mod debug;
 
 #[allow(unused_imports)]
-use self::debug::{HexBuf, UdintFlags, UestaFlags};
+use self::debug::{HexBuf, UeconFlags, UdintFlags, UestaFlags};
 use core::cell::Cell;
 use core::slice;
 use core::ptr;
@@ -775,8 +775,7 @@ impl<'a> Usbc<'a> {
 
     fn handle_endpoint_interrupt(&self, endpoint: usize, endpoint_state: &mut EndpointState) {
         let status = usbc_regs().uesta[endpoint].get_value();
-        debug1!("\tUECON{}={:?}", endpoint, UestaFlags(usbc_regs().uecon[endpoint].get()));
-        debug1!("\tUESTA{}={:?}", endpoint, UestaFlags(status.get()));
+        debug1!("  UESTA{}={:?}", endpoint, UestaFlags(status.get()));
 
         if status.is_set(EndpointStatus::STALLED) {
             debug1!("\tep{}: STALLED/CRCERR", endpoint);
@@ -817,7 +816,9 @@ impl<'a> Usbc<'a> {
             // advantageous to process more flags without waiting for
             // another interrupt.
 
-            debug1!("  ep{}: Ctrl({:?})", endpoint, *ctrl_state);
+            debug1!("  ep{}: Ctrl({:?})  UECON={:?}",
+                    endpoint, *ctrl_state,
+                    UeconFlags(usbc_regs().uecon[endpoint].get()));
 
             match *ctrl_state {
                 CtrlState::Init => {
