@@ -93,6 +93,7 @@ pub struct WriteOnly<T: IntLike, R: RegisterLongName = ()> {
 }
 
 /// Cached values of registers.
+#[derive(Copy, Clone)]
 pub struct CachedRegister<T: IntLike, R: RegisterLongName> {
     value: T,
     associated_register: PhantomData<R>,

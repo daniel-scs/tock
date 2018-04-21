@@ -263,9 +263,11 @@ pub enum Mode {
 
 pub const N_ENDPOINTS: usize = 8;
 
+type EndpointConfigValue = CachedRegister<u32, EndpointConfig::Register>;
+
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
 pub struct DeviceConfig {
-    pub endpoint_configs: [Option<FieldValue<u32, EndpointConfig::Register> >; N_ENDPOINTS],
+    pub endpoint_configs: [Option<EndpointConfigValue>; N_ENDPOINTS],
 }
 
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
@@ -367,7 +369,7 @@ impl Bank {
             addr: VolatileCell::new(ptr::null_mut()),
             packet_size: ReadWrite::new(0),
             control_status: ReadWrite::new(0),
-            _pad: 0,
+            _reserved: 0,
         }
     }
 
@@ -564,22 +566,22 @@ impl<'a> Usbc<'a> {
     }
 
     /// Configure and enable an endpoint
-    fn _endpoint_enable(&self, endpoint: usize, config: FieldValue<u32, EndpointConfig::Register>) {
+    fn _endpoint_enable(&self, endpoint: usize, endpoint_config: EndpointConfigValue) {
         // Record config in case of later reset
         self.map_state(|state| match *state {
             State::Reset => {
                 internal_err!("Not enabled");
             }
             State::Idle(Mode::Device { ref mut config, .. }) => {
-                config.endpoint_configs[endpoint] = Some(config);
+                config.endpoint_configs[endpoint] = Some(endpoint_config);
             }
             State::Active(Mode::Device { ref mut config, .. }) => {
-                config.endpoint_configs[endpoint] = Some(config);
+                config.endpoint_configs[endpoint] = Some(endpoint_config);
             }
             _ => internal_err!("Not in Device mode"),
         });
 
-        self._endpoint_config(endpoint, config);
+        self._endpoint_config(endpoint, endpoint_config);
 
         // Enable the endpoint (meaning the controller will respond to requests
         // to this endpoint)
@@ -587,7 +589,7 @@ impl<'a> Usbc<'a> {
             .uerst
             .set(usbc_regs().uerst.get() | (1 << endpoint));
 
-        self._endpoint_init(endpoint, config);
+        self._endpoint_init(endpoint, endpoint_config);
 
         // Set EPnINTE, enabling interrupts for this endpoint
         usbc_regs().udinteset.set(1 << (12 + endpoint));
@@ -595,16 +597,16 @@ impl<'a> Usbc<'a> {
         debug1!("Enabled endpoint {}", endpoint);
     }
 
-    fn _endpoint_config(&self, endpoint: usize, config: FieldValue<u32, EndpointConfig::Register>) {
+    fn _endpoint_config(&self, endpoint: usize, config: EndpointConfigValue) {
         // This must be performed after each bus reset
 
         // Configure the endpoint
-        usbc_regs().uecfg[endpoint].write(config);
+        usbc_regs().uecfg[endpoint].set(config);
 
         debug1!("Configured endpoint {}", endpoint);
     }
 
-    fn _endpoint_init(&self, endpoint: usize, config: FieldValue<u32, EndpointConfig::Register>) {
+    fn _endpoint_init(&self, endpoint: usize, config: EndpointConfigValue) {
         self.map_state(|state| match *state {
             State::Idle(Mode::Device { ref mut state, .. }) => {
                 self._endpoint_init_device_state(state, endpoint, config);
@@ -620,7 +622,7 @@ impl<'a> Usbc<'a> {
         &self,
         state: &mut DeviceState,
         endpoint: usize,
-        config: FieldValue<u32, EndpointConfig::Register>,
+        config: EndpointConfigValue,
     ) {
         // This must be performed after each bus reset (see 17.6.2.2)
 
