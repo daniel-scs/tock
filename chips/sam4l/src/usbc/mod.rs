@@ -280,7 +280,8 @@ pub struct DeviceState {
 pub enum EndpointState {
     Disabled,
     Ctrl(CtrlState),
-    Bulk(BulkState),
+    BulkIn(BulkInState),
+    BulkOut(BulkOutState),
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -295,9 +296,15 @@ pub enum CtrlState {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub enum BulkState {
+pub enum BulkInState {
     Init,
-    InDelay,
+    Delay,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum BulkOutState {
+    Init,
+    Delay,
 }
 
 impl Default for EndpointState {
@@ -639,9 +646,13 @@ impl<'a> Usbc<'a> {
             endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
             state.endpoint_states[endpoint] = EndpointState::Ctrl(CtrlState::Init);
         }
-        else if config.matches_all(EndpointConfig::EPTYPE::Bulk) {
+        else if config.matches_all(EndpointConfig::EPTYPE::Bulk + EndpointConfig::EPDIR::In) {
             endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
-            state.endpoint_states[endpoint] = EndpointState::Bulk(BulkState::Init);
+            state.endpoint_states[endpoint] = EndpointState::BulkIn(BulkInState::Init);
+        }
+        else if config.matches_all(EndpointConfig::EPTYPE::Bulk + EndpointConfig::EPDIR::Out) {
+            endpoint_enable_interrupts(endpoint, EndpointControl::RXOUTE::SET);
+            state.endpoint_states[endpoint] = EndpointState::BulkOut(BulkOutState::Init);
         }
         else {
             // Other endpoint types unimplemented
@@ -800,8 +811,10 @@ impl<'a> Usbc<'a> {
         match *endpoint_state {
             EndpointState::Ctrl(ref mut ctrl_state) =>
                 self.handle_ctrl_endpoint_interrupt(endpoint, ctrl_state, status),
-            EndpointState::Bulk(ref mut bulk_state) =>
-                self.handle_bulk_endpoint_interrupt(endpoint, bulk_state, status),
+            EndpointState::BulkIn(ref mut bulk_in_state) =>
+                self.handle_bulk_in_endpoint_interrupt(endpoint, bulk_in_state, status),
+            EndpointState::BulkOut(ref mut bulk_out_state) =>
+                self.handle_bulk_out_endpoint_interrupt(endpoint, bulk_out_state, status),
             EndpointState::Disabled => {
                 debug1!("Ignoring interrupt for disabled endpoint {}", endpoint);
                 return;
@@ -834,7 +847,10 @@ impl<'a> Usbc<'a> {
                         debug1!("\tep{}: RXSTP", endpoint);
                         // self.debug_show_d0();
 
-                        let packet_bytes = self.descriptors[0][0].packet_size.read(PacketSize::BYTE_COUNT);
+                        let bank = 0;
+                        let packet_bytes = self.descriptors[endpoint][bank]
+                                               .packet_size
+                                               .read(PacketSize::BYTE_COUNT);
                         let result = if packet_bytes == 8 {
                             self.client.map(|c| c.ctrl_setup(endpoint))
                         } else {
@@ -931,8 +947,7 @@ impl<'a> Usbc<'a> {
                         });
                         match result {
                             Some(CtrlInResult::Packet(packet_bytes, transfer_complete)) => {
-                                self.descriptors[0][0].packet_size.write(if packet_bytes == 8
-                                    && transfer_complete
+                                let packet_size = if packet_bytes == 8 && transfer_complete
                                 {
                                     // Send a complete final packet, and request
                                     // that the controller also send a zero-length
@@ -944,7 +959,9 @@ impl<'a> Usbc<'a> {
                                     // packet, or a short and final packet (which
                                     // itself signals end of transfer)
                                     PacketSize::BYTE_COUNT.val(packet_bytes as u32)
-                                });
+                                };
+                                let bank = 0;
+                                self.descriptors[endpoint][bank].packet_size.write(packet_size);
 
                                 debug1!("\tep{}: Send CTRL IN packet ({} bytes)", endpoint, packet_bytes);
                                 // self.debug_show_d0();
@@ -1012,10 +1029,13 @@ impl<'a> Usbc<'a> {
                         // self.debug_show_d0();
 
                         // Pass the data to the client and see how it reacts
+                        let bank = 0;
                         let result = self.client.map(|c| {
                             c.ctrl_out(
                                 endpoint,
-                                self.descriptors[0][0].packet_size.read(PacketSize::BYTE_COUNT),
+                                self.descriptors[endpoint][bank]
+                                    .packet_size
+                                    .read(PacketSize::BYTE_COUNT),
                             )
                         });
                         match result {
@@ -1074,7 +1094,8 @@ impl<'a> Usbc<'a> {
                         self.client.map(|c| c.ctrl_status(endpoint));
 
                         // Send zero-length packet to acknowledge transaction
-                        self.descriptors[0][0]
+                        let bank = 0;
+                        self.descriptors[endpoint][bank]
                             .packet_size
                             .write(PacketSize::BYTE_COUNT.val(0));
 
@@ -1108,14 +1129,81 @@ impl<'a> Usbc<'a> {
         }
     }
 
-    fn handle_bulk_endpoint_interrupt(
+    fn handle_bulk_out_endpoint_interrupt(
         &self,
         endpoint: usize,
-        bulk_state: &mut BulkState,
+        bulk_out_state: &mut BulkOutState,
         status: EndpointStatusValue,
     ) {
-        match *bulk_state {
-            BulkState::Init => {
+        match *bulk_out_state {
+            BulkOutState::Init => {
+                if status.is_set(EndpointStatus::RXOUT) {
+                    // We got an OUT request from the host
+
+                    debug1!("\tep{}: RXOUT", endpoint);
+
+                    // Acknowledge
+                    usbc_regs().uestaclr[endpoint].write(EndpointStatus::RXOUT::SET);
+
+                    if !usbc_regs().uecon[endpoint].is_set(EndpointControl::FIFOCON) {
+                        debug!("Got RXOUT but not FIFOCON");
+                        return;
+                    }
+                    // A bank is full of an OUT packet
+
+                    let bank = 0;
+                    let packet_bytes = self.descriptors[endpoint][bank]
+                                           .packet_size
+                                           .read(PacketSize::BYTE_COUNT);
+
+                    let result = self.client.map(|c| {
+                        // Allow client to consume the packet
+                        c.bulk_out(endpoint, packet_bytes)
+                    });
+                    match result {
+                        Some(BulkOutResult::Ok) => {
+                            // Clear FIFOCON to signal that the packet was consumed
+                            usbc_regs().ueconclr[endpoint].write(EndpointControl::FIFOCON::SET);
+
+                            debug1!("\tep{}: Recv BULK OUT packet ({} bytes)", endpoint, packet_bytes);
+
+                            // Remain in Init state
+                        }
+                        Some(BulkOutResult::Delay) => {
+                            // The client is not ready to consume data
+
+                            // TODO: provide interface for client to alert us that
+                            // it may be ready to consume again
+
+                            endpoint_disable_interrupts(endpoint, EndpointControl::RXOUTE::SET);
+
+                            *bulk_out_state = BulkOutState::Delay;
+                        }
+                        _ => {
+                            debug1!("\tep{}: Client OUT err => STALL", endpoint);
+
+                            // Respond with STALL to any following IN/OUT transactions
+                            usbc_regs().ueconset[endpoint].write(EndpointControl::STALLRQ::SET);
+
+                            // XXX: interrupts?
+
+                            // Remain in Init state?
+                        }
+                    }
+                }
+            }
+            BulkOutState::Delay => internal_err!("Not reached"),
+        }
+    }
+
+    fn handle_bulk_in_endpoint_interrupt(
+        &self,
+        endpoint: usize,
+        bulk_in_state: &mut BulkInState,
+        status: EndpointStatusValue,
+    ) {
+        match *bulk_in_state {
+            BulkInState::Init => {
                 if status.is_set(EndpointStatus::TXIN) {
                     // We got an IN request from the host
 
@@ -1130,28 +1218,16 @@ impl<'a> Usbc<'a> {
                     }
                     // A bank is free to write an IN packet
 
-                    // Write data
                     let result = self.client.map(|c| {
-                        // Allow client to write a packet payload to buffer
+                        // Allow client to write a packet payload to the buffer
                         c.bulk_in(endpoint)
                     });
                     match result {
-                        Some(BulkInResult::Packet(packet_bytes, transfer_complete)) => {
-
-                            self.descriptors[0][0].packet_size.write(if packet_bytes == 8
-                                && transfer_complete
-                            {
-                                // Send a complete final packet, and request
-                                // that the controller also send a zero-length
-                                // packet to signal the end of transfer
-                                PacketSize::BYTE_COUNT.val(8) +
-                                    PacketSize::AUTO_ZLP::Yes
-                            } else {
-                                // Send either a complete but not-final
-                                // packet, or a short and final packet (which
-                                // itself signals end of transfer)
-                                PacketSize::BYTE_COUNT.val(packet_bytes as u32)
-                            });
+                        Some(BulkInResult::Packet(packet_bytes)) => {
+                            // Tell the controller the size of the packet
+                            let bank = 0;
+                            self.descriptors[endpoint][bank].packet_size.write(
+                                PacketSize::BYTE_COUNT.val(packet_bytes as u32));
 
                             // Clear FIFOCON to signal data ready to send
                             usbc_regs().ueconclr[endpoint].write(EndpointControl::FIFOCON::SET);
@@ -1163,9 +1239,12 @@ impl<'a> Usbc<'a> {
                         Some(BulkInResult::Delay) => {
                             // The client is not ready to send data
 
+                            // TODO: provide interface for client to alert us that
+                            // it may be ready to send again
+
                             endpoint_disable_interrupts(endpoint, EndpointControl::TXINE::SET);
 
-                            *bulk_state = BulkState::InDelay;
+                            *bulk_in_state = BulkInState::Delay;
                         }
                         _ => {
                             debug1!("\tep{}: Client IN err => STALL", endpoint);
@@ -1180,7 +1259,7 @@ impl<'a> Usbc<'a> {
                     }
                 }
             }
-            BulkState::InDelay => { /* XXX: Spin fruitlessly */ }
+            BulkInState::Delay => internal_err!("Not reached"),
         }
     }
 
@@ -1321,6 +1400,16 @@ impl<'a> UsbController for Usbc<'a> {
         let endpoint_cfg = RegisterValue::new(From::from(
                                 EndpointConfig::EPTYPE::Bulk +
                                 EndpointConfig::EPDIR::In +
+                                EndpointConfig::EPSIZE::Bytes8 +
+                                EndpointConfig::EPBK::Single));
+
+        self._endpoint_enable(endpoint, endpoint_cfg)
+    }
+
+    fn endpoint_bulk_out_enable(&self, endpoint: usize) {
+        let endpoint_cfg = RegisterValue::new(From::from(
+                                EndpointConfig::EPTYPE::Bulk +
+                                EndpointConfig::EPDIR::Out +
                                 EndpointConfig::EPSIZE::Bytes8 +
                                 EndpointConfig::EPBK::Single));
 

@@ -25,6 +25,7 @@ extern crate libusb;
 
 use libusb::*;
 use std::time::Duration;
+use std::thread::sleep;
 
 const VENDOR_ID: u16 = 0x6667;
 const PRODUCT_ID: u16 = 0xabcd;
@@ -95,11 +96,14 @@ fn main() {
     }
 
     {
-        let endpoint = 1;
+        let endpoint = 1 | 1 << 7;
         let mut buf = &mut [0; 8];
         let timeout = Duration::from_secs(3);
-        let n = dh.read_bulk(endpoint, buf, timeout).expect("read_bulk");
 
-        println!("Read {} bytes: {:?}", n, &buf[..n]);
+        loop {
+            let n = dh.read_bulk(endpoint, buf, timeout).expect("read_bulk");
+            println!("Read {} bytes: {:?}", n, &buf[..n]);
+            sleep(Duration::from_secs(1));
+        }
     }
 }

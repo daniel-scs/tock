@@ -24,7 +24,7 @@ static STRINGS: &'static [&'static str] = &[
 
 const DESCRIPTOR_BUFLEN: usize = 30;
 
-const N_ENDPOINTS: usize = 2;
+const N_ENDPOINTS: usize = 3;
 
 pub struct Client<'a, C: 'a> {
     // The hardware controller
@@ -87,6 +87,10 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
         // Set up a bulk-in endpoint for debugging
         self.controller.endpoint_set_buffer(1, &self.buffers[1]);
         self.controller.endpoint_bulk_in_enable(1);
+
+        // Set up a bulk-out endpoint for debugging
+        self.controller.endpoint_set_buffer(2, &self.buffers[2]);
+        self.controller.endpoint_bulk_out_enable(2);
     }
 
     fn attach(&self) {
@@ -330,15 +334,28 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
         self.state[endpoint].set(State::Init);
     }
  
-    /// Handle a Bulk In transaction
+    /// Handle a Bulk IN transaction
     fn bulk_in(&self, endpoint: usize) -> BulkInResult {
         // Copy a packet into the endpoint buffer
         let buf = &self.buffers[endpoint];
-        buf[0].set(0xbe);
-        buf[1].set(0xef);
-        let packet_bytes = 2;
-        let transfer_complete = true;
+        buf[0].set(0xde);
+        buf[1].set(0xad);
+        buf[2].set(0xbe);
+        buf[3].set(0xef);
+        let packet_bytes = 4;
 
-        BulkInResult::Packet(packet_bytes, transfer_complete)
+        debug!("Sent {} bulk bytes", packet_bytes);
+
+        BulkInResult::Packet(packet_bytes)
+    }
+
+    /// Handle a Bulk OUT transaction
+    fn bulk_out(&self, endpoint: usize, packet_bytes: u32) -> BulkOutResult {
+        // Consume a packet from the endpoint buffer
+        let _buf = &self.buffers[endpoint];
+
+        debug!("Read {} bulk bytes", packet_bytes);
+
+        BulkOutResult::Ok
     }
 }
