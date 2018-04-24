@@ -72,11 +72,16 @@ fn main() {
         {
             let endpoint = 2;
             let address = endpoint | 0 << 7; // OUT endpoint
-            let buf = &[0xde, 0xad, 0xbe, 0xef,
-                        (i >> 24 & 0xff) as u8,
-                        (i >> 16 & 0xff) as u8,
-                        (i >> 8 & 0xff) as u8,
-                        (i >> 0 & 0xff) as u8];
+            let buf = &[
+                0xde,
+                0xad,
+                0xbe,
+                0xef,
+                (i >> 24 & 0xff) as u8,
+                (i >> 16 & 0xff) as u8,
+                (i >> 8 & 0xff) as u8,
+                (i >> 0 & 0xff) as u8,
+            ];
 
             let timeout = Duration::from_secs(3);
 
