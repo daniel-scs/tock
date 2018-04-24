@@ -34,7 +34,7 @@ macro_rules! client_err {
 
 macro_rules! debug1 {
     [ $( $arg:expr ),+ ] => {
-        debug!($( $arg ),+)
+        {} // debug!($( $arg ),+)
     };
 }
 
