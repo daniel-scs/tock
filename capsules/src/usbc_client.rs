@@ -24,13 +24,20 @@ static STRINGS: &'static [&'static str] = &[
 
 const DESCRIPTOR_BUFLEN: usize = 30;
 
-const N_ENDPOINTS: usize = 1;
+const N_ENDPOINTS: usize = 2;
 
 pub struct Client<'a, C: 'a> {
+    // The hardware controller
     controller: &'a C,
+
+    // State for tracking each endpoint
     state: [Cell<State>; N_ENDPOINTS],
-    buffers: [[VolatileCell<u8>; 8]; N_ENDPOINTS],
+
+    // Storage for composing responses to device-descriptor requests
     descriptor_storage: [Cell<u8>; DESCRIPTOR_BUFLEN],
+
+    // An eight-byte buffer for each endpoint
+    buffers: [[VolatileCell<u8>; 8]; N_ENDPOINTS],
 }
 
 #[derive(Copy, Clone)]
@@ -76,6 +83,10 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
         self.controller.endpoint_set_buffer(0, &self.buffers[0]);
         self.controller.enable_as_device(DeviceSpeed::Full); // must be Full for Bulk transfers
         self.controller.endpoint_ctrl_out_enable(0);
+
+        // Set up a bulk-in endpoint for debugging
+        self.controller.endpoint_set_buffer(1, &self.buffers[1]);
+        self.controller.endpoint_bulk_in_enable(1);
     }
 
     fn attach(&self) {
@@ -155,7 +166,21 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
                                             let buf = self.descriptor_buf();
                                             let mut storage_avail = buf.len();
 
-                                            let di = InterfaceDescriptor::default();
+                                            // endpoint 1: a Bulk-In endpoint
+                                            let e1 = EndpointDescriptor {
+                                                endpoint_address: EndpointAddress::new(
+                                                                      1,
+                                                                      TransferDirection::DeviceToHost
+                                                                  ),
+                                                transfer_type: TransferType::Bulk,
+                                                max_packet_size: 8,
+                                                interval: 100,
+                                            };
+                                            storage_avail -=
+                                                e1.write_to(&buf[storage_avail - e1.size()..]);
+
+                                            let mut di = InterfaceDescriptor::default();
+                                            di.num_endpoints = 1;
                                             storage_avail -=
                                                 di.write_to(&buf[storage_avail - di.size()..]);
 

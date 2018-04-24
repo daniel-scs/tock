@@ -14,11 +14,13 @@ pub trait UsbController {
 
     fn detach(&self);
 
-    fn endpoint_ctrl_out_enable(&self, endpoint: usize);
-
     fn set_address(&self, addr: u16);
 
     fn enable_address(&self);
+
+    fn endpoint_ctrl_out_enable(&self, endpoint: usize);
+
+    fn endpoint_bulk_in_enable(&self, endpoint: usize);
 }
 
 pub enum DeviceSpeed {

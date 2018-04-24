@@ -568,21 +568,9 @@ impl<'a> Usbc<'a> {
 
     /// Configure and enable an endpoint
     fn _endpoint_enable(&self, endpoint: usize, endpoint_config: EndpointConfigValue) {
-        // Record config in case of later reset
-        self.map_state(|state| match *state {
-            State::Reset => {
-                internal_err!("Not enabled");
-            }
-            State::Idle(Mode::Device { ref mut config, .. }) => {
-                config.endpoint_configs[endpoint] = Some(endpoint_config);
-            }
-            State::Active(Mode::Device { ref mut config, .. }) => {
-                config.endpoint_configs[endpoint] = Some(endpoint_config);
-            }
-            _ => internal_err!("Not in Device mode"),
-        });
 
-        self._endpoint_config(endpoint, endpoint_config);
+        self._endpoint_record_config(endpoint, endpoint_config);
+        self._endpoint_write_config(endpoint, endpoint_config);
 
         // Enable the endpoint (meaning the controller will respond to requests
         // to this endpoint)
@@ -598,7 +586,25 @@ impl<'a> Usbc<'a> {
         debug1!("Enabled endpoint {}", endpoint);
     }
 
-    fn _endpoint_config(&self, endpoint: usize, config: EndpointConfigValue) {
+    fn _endpoint_record_config(&self, endpoint: usize, endpoint_config: EndpointConfigValue) {
+        // Record config in case of later bus reset
+        self.map_state(|state| match *state {
+            State::Reset => {
+                client_err!("Not enabled");
+            }
+            State::Idle(Mode::Device { ref mut config, .. }) => {
+                // The endpoint will be active when we next attach
+                config.endpoint_configs[endpoint] = Some(endpoint_config);
+            }
+            State::Active(Mode::Device { ref mut config, .. }) => {
+                // The endpoint will be active immediately
+                config.endpoint_configs[endpoint] = Some(endpoint_config);
+            }
+            _ => client_err!("Not in Device mode"),
+        });
+    }
+
+    fn _endpoint_write_config(&self, endpoint: usize, config: EndpointConfigValue) {
         // This must be performed after each bus reset
 
         // Configure the endpoint
@@ -610,16 +616,16 @@ impl<'a> Usbc<'a> {
     fn _endpoint_init(&self, endpoint: usize, config: EndpointConfigValue) {
         self.map_state(|state| match *state {
             State::Idle(Mode::Device { ref mut state, .. }) => {
-                self._endpoint_init_device_state(state, endpoint, config);
+                self._endpoint_init_with_device_state(state, endpoint, config);
             }
             State::Active(Mode::Device { ref mut state, .. }) => {
-                self._endpoint_init_device_state(state, endpoint, config);
+                self._endpoint_init_with_device_state(state, endpoint, config);
             }
             _ => internal_err!("Not reached"),
         });
     }
 
-    fn _endpoint_init_device_state(
+    fn _endpoint_init_with_device_state(
         &self,
         state: &mut DeviceState,
         endpoint: usize,
@@ -695,8 +701,8 @@ impl<'a> Usbc<'a> {
             // Reconfigure and initialize endpoints
             for i in 0..N_ENDPOINTS {
                 if let Some(endpoint_config) = device_config.endpoint_configs[i] {
-                    self._endpoint_config(i, endpoint_config);
-                    self._endpoint_init_device_state(device_state, i, endpoint_config);
+                    self._endpoint_write_config(i, endpoint_config);
+                    self._endpoint_init_with_device_state(device_state, i, endpoint_config);
                 }
             }
 
@@ -1284,29 +1290,6 @@ impl<'a> UsbController for Usbc<'a> {
         }
     }
 
-    fn endpoint_ctrl_out_enable(&self, endpoint: usize) {
-        let endpoint_cfg = RegisterValue::new(From::from(
-                                EndpointConfig::EPTYPE::Control +
-                                EndpointConfig::EPDIR::Out +
-                                EndpointConfig::EPSIZE::Bytes8 +
-                                EndpointConfig::EPBK::Single));
-
-        if match self.get_state() {
-            State::Reset => client_err!("Not enabled"),
-            State::Idle(Mode::Device { .. }) => {
-                // The endpoint will be active when we attach
-                true
-            }
-            State::Active(Mode::Device { .. }) => {
-                // The endpoint will be active immediately
-                true
-            }
-            _ => client_err!("Not in Device mode"),
-        } {
-            self._endpoint_enable(endpoint, endpoint_cfg)
-        }
-    }
-
     fn set_address(&self, addr: u16) {
         usbc_regs()
             .udcon
@@ -1322,6 +1305,26 @@ impl<'a> UsbController for Usbc<'a> {
             "Enable Address = {}",
             usbc_regs().udcon.read(DeviceControl::UADD)
         );
+    }
+
+    fn endpoint_ctrl_out_enable(&self, endpoint: usize) {
+        let endpoint_cfg = RegisterValue::new(From::from(
+                                EndpointConfig::EPTYPE::Control +
+                                EndpointConfig::EPDIR::Out +
+                                EndpointConfig::EPSIZE::Bytes8 +
+                                EndpointConfig::EPBK::Single));
+
+        self._endpoint_enable(endpoint, endpoint_cfg)
+    }
+
+    fn endpoint_bulk_in_enable(&self, endpoint: usize) {
+        let endpoint_cfg = RegisterValue::new(From::from(
+                                EndpointConfig::EPTYPE::Bulk +
+                                EndpointConfig::EPDIR::In +
+                                EndpointConfig::EPSIZE::Bytes8 +
+                                EndpointConfig::EPBK::Single));
+
+        self._endpoint_enable(endpoint, endpoint_cfg)
     }
 }
 

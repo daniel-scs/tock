@@ -93,4 +93,13 @@ fn main() {
 
         println!("Wrote {:?}", &buf[..n]);
     }
+
+    {
+        let endpoint = 1;
+        let mut buf = &mut [0; 8];
+        let timeout = Duration::from_secs(3);
+        let n = dh.read_bulk(endpoint, buf, timeout).expect("read_bulk");
+
+        println!("Read {} bytes: {:?}", n, &buf[..n]);
+    }
 }
