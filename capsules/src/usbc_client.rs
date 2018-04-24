@@ -22,7 +22,7 @@ static STRINGS: &'static [&'static str] = &[
     "Serial No. 5",   // Serial number
 ];
 
-const DESCRIPTOR_BUFLEN: usize = 30;
+const DESCRIPTOR_BUFLEN: usize = 100;
 
 const N_ENDPOINTS: usize = 3;
 
@@ -67,7 +67,26 @@ impl<'a, C: UsbController> Client<'a, C> {
             controller: controller,
             state: Default::default(),
             buffers: Default::default(),
-            descriptor_storage: Default::default(),
+            descriptor_storage: [Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0),
+                                 Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0), Cell::new(0)],
         }
     }
 
@@ -185,6 +204,21 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
                                             storage_avail -=
                                                 e1.write_to(&buf[storage_avail - e1.size()..]);
                                             related_descriptor_length += e1.size();
+                                            num_endpoints += 1;
+
+                                            // endpoint 2: a Bulk-Out endpoint
+                                            let e2 = EndpointDescriptor {
+                                                endpoint_address: EndpointAddress::new(
+                                                                      2,
+                                                                      TransferDirection::HostToDevice
+                                                                  ),
+                                                transfer_type: TransferType::Bulk,
+                                                max_packet_size: 8,
+                                                interval: 100,
+                                            };
+                                            storage_avail -=
+                                                e2.write_to(&buf[storage_avail - e2.size()..]);
+                                            related_descriptor_length += e2.size();
                                             num_endpoints += 1;
 
                                             let di = InterfaceDescriptor {

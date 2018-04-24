@@ -100,9 +100,21 @@ fn main() {
         let mut buf = &mut [0; 8];
         let timeout = Duration::from_secs(3);
 
-        loop {
+        for _i in 0..6 {
             let n = dh.read_bulk(endpoint, buf, timeout).expect("read_bulk");
-            println!("Read {} bytes: {:?}", n, &buf[..n]);
+            println!("Bulk read {} bytes: {:?}", n, &buf[..n]);
+            sleep(Duration::from_secs(1));
+        }
+    }
+
+    {
+        let endpoint = 2;
+        let buf = &[0xde, 0xad, 0xbe, 0xef];
+        let timeout = Duration::from_secs(3);
+
+        loop {
+            let n = dh.write_bulk(endpoint, buf, timeout).expect("write_bulk");
+            println!("Bulk wrote {} bytes: {:?}", n, &buf[..n]);
             sleep(Duration::from_secs(1));
         }
     }
