@@ -455,7 +455,7 @@ impl EndpointAddress {
         EndpointAddress(endpoint as u8 & 0xf | match direction {
             TransferDirection::HostToDevice => 0,
             TransferDirection::DeviceToHost => 1,
-        })
+        } << 7)
     }
 }
 

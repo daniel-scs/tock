@@ -165,6 +165,8 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
 
                                             let buf = self.descriptor_buf();
                                             let mut storage_avail = buf.len();
+                                            let mut related_descriptor_length = 0;
+                                            let mut num_endpoints = 0;
 
                                             // endpoint 1: a Bulk-In endpoint
                                             let e1 = EndpointDescriptor {
@@ -178,15 +180,20 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
                                             };
                                             storage_avail -=
                                                 e1.write_to(&buf[storage_avail - e1.size()..]);
+                                            related_descriptor_length += e1.size();
+                                            num_endpoints += 1;
 
-                                            let mut di = InterfaceDescriptor::default();
-                                            di.num_endpoints = 1;
+                                            let di = InterfaceDescriptor {
+                                                num_endpoints: num_endpoints,
+                                                ..Default::default()
+                                            };
                                             storage_avail -=
                                                 di.write_to(&buf[storage_avail - di.size()..]);
+                                            related_descriptor_length += di.size();
 
                                             let dc = ConfigurationDescriptor {
                                                 num_interfaces: 1,
-                                                related_descriptor_length: di.size(),
+                                                related_descriptor_length: related_descriptor_length,
                                                 ..Default::default()
                                             };
                                             storage_avail -=
