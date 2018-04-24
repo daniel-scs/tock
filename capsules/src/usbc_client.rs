@@ -89,7 +89,8 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
         self.controller.endpoint_bulk_in_enable(1);
 
         // Set up a bulk-out endpoint for debugging
-        self.controller.endpoint_set_buffer(2, &self.buffers[2]);
+        // NOTE: We are sharing the endpoint 1 buffer for debugging amusement
+        self.controller.endpoint_set_buffer(2, &self.buffers[1]);
         self.controller.endpoint_bulk_out_enable(2);
     }
 
@@ -352,13 +353,10 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
 
     /// Handle a Bulk IN transaction
     fn bulk_in(&self, endpoint: usize) -> BulkInResult {
-        // Copy a packet into the endpoint buffer
-        let buf = &self.buffers[endpoint];
-        buf[0].set(0xde);
-        buf[1].set(0xad);
-        buf[2].set(0xbe);
-        buf[3].set(0xef);
-        let packet_bytes = 4;
+        // Write a packet into the endpoint buffer
+        let _buf = &self.buffers[endpoint];
+        // (Actually just send whatever happens to be in the buffer.)
+        let packet_bytes = 8;
 
         debug!("Sent {} bulk bytes", packet_bytes);
 

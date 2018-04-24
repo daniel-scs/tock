@@ -24,7 +24,6 @@
 extern crate libusb;
 
 use libusb::*;
-use std::thread::sleep;
 use std::time::Duration;
 
 const VENDOR_ID: u16 = 0x6667;
@@ -93,29 +92,5 @@ fn main() {
             .expect("write_control");
 
         println!("Wrote {:?}", &buf[..n]);
-    }
-
-    {
-        let endpoint = 1 | 1 << 7;
-        let mut buf = &mut [0; 8];
-        let timeout = Duration::from_secs(3);
-
-        for _i in 0..6 {
-            let n = dh.read_bulk(endpoint, buf, timeout).expect("read_bulk");
-            println!("Bulk read {} bytes: {:?}", n, &buf[..n]);
-            sleep(Duration::from_secs(1));
-        }
-    }
-
-    {
-        let endpoint = 2;
-        let buf = &[0xde, 0xad, 0xbe, 0xef];
-        let timeout = Duration::from_secs(3);
-
-        loop {
-            let n = dh.write_bulk(endpoint, buf, timeout).expect("write_bulk");
-            println!("Bulk wrote {} bytes: {:?}", n, &buf[..n]);
-            sleep(Duration::from_secs(1));
-        }
     }
 }
