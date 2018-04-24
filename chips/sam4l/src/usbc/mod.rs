@@ -1132,7 +1132,7 @@ impl<'a> Usbc<'a> {
                         self.client.map(|c| c.ctrl_status_complete(endpoint));
                     }
                 }
-                CtrlState::InDelay => { /* XXX: Spin fruitlessly */ }
+                CtrlState::InDelay => internal_err!("Not reached"),
             }
 
             // Uncomment the following line to run the above while loop only once per interrupt,
