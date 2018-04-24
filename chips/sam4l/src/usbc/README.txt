@@ -1,4 +1,6 @@
-
+Union
+    _Always (RAMACERE)
+    Disabled ()
 Ctrl
     Init (RXSTP)
       RXSTP => match client.ctrl_setup() {
@@ -28,13 +30,10 @@ Ctrl
       TXIN => Init
     CtrlInDelay (NAKOUT)
       {}
-Union
-    _Always (RAMACERE)
-    Disabled ()
+BulkIn
     Init (RXSTP, TXIN)
       TXIN => match client.bulk_in() {
                 Ok => !FIFOCON
                 Delay => BulkInDelay
                 _ => stall();
-    BulkInDelay (RXSTP)
-
+    Delay (RXSTP)
