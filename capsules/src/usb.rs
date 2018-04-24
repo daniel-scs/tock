@@ -448,14 +448,16 @@ impl Descriptor for InterfaceDescriptor {
     }
 }
 
-pub struct EndpointAddress (u8);
+pub struct EndpointAddress(u8);
 
 impl EndpointAddress {
     pub fn new(endpoint: usize, direction: TransferDirection) -> Self {
-        EndpointAddress(endpoint as u8 & 0xf | match direction {
-            TransferDirection::HostToDevice => 0,
-            TransferDirection::DeviceToHost => 1,
-        } << 7)
+        EndpointAddress(
+            endpoint as u8 & 0xf | match direction {
+                TransferDirection::HostToDevice => 0,
+                TransferDirection::DeviceToHost => 1,
+            } << 7,
+        )
     }
 }
 
@@ -476,7 +478,9 @@ pub struct EndpointDescriptor {
 }
 
 impl Descriptor for EndpointDescriptor {
-    fn size(&self) -> usize { 7 }
+    fn size(&self) -> usize {
+        7
+    }
 
     fn write_to_unchecked(&self, buf: &[Cell<u8>]) -> usize {
         let len = self.size();

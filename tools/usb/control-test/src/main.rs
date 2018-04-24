@@ -24,8 +24,8 @@
 extern crate libusb;
 
 use libusb::*;
-use std::time::Duration;
 use std::thread::sleep;
+use std::time::Duration;
 
 const VENDOR_ID: u16 = 0x6667;
 const PRODUCT_ID: u16 = 0xabcd;

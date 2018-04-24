@@ -3,13 +3,13 @@
 pub mod debug;
 
 #[allow(unused_imports)]
-use self::debug::{HexBuf, UeconFlags, UdintFlags, UestaFlags};
+use self::debug::{HexBuf, UdintFlags, UeconFlags, UestaFlags};
 use core::cell::Cell;
-use core::slice;
 use core::ptr;
+use core::slice;
 use kernel::StaticRef;
 use kernel::common::VolatileCell;
-use kernel::common::regs::{RegisterValue, FieldValue, ReadOnly, ReadWrite, WriteOnly};
+use kernel::common::regs::{FieldValue, ReadOnly, ReadWrite, RegisterValue, WriteOnly};
 use kernel::hil;
 use kernel::hil::usb::*;
 use pm;
@@ -453,9 +453,10 @@ impl<'a> Usbc<'a> {
 
         debug1!("Set Endpoint{}/Bank{} addr={:8?}", e, b, p);
         self.descriptors[e][b].set_addr(p);
-        self.descriptors[e][b].packet_size.write(PacketSize::BYTE_COUNT.val(0) +
-                                                 PacketSize::MULTI_PACKET_SIZE.val(0) +
-                                                 PacketSize::AUTO_ZLP::No);
+        self.descriptors[e][b].packet_size.write(
+            PacketSize::BYTE_COUNT.val(0) + PacketSize::MULTI_PACKET_SIZE.val(0)
+                + PacketSize::AUTO_ZLP::No,
+        );
     }
 
     /// Enable the controller's clocks and interrupt and transition to Idle state
@@ -575,7 +576,6 @@ impl<'a> Usbc<'a> {
 
     /// Configure and enable an endpoint
     fn _endpoint_enable(&self, endpoint: usize, endpoint_config: EndpointConfigValue) {
-
         self._endpoint_record_config(endpoint, endpoint_config);
         self._endpoint_write_config(endpoint, endpoint_config);
 
@@ -640,21 +640,21 @@ impl<'a> Usbc<'a> {
     ) {
         // This must be performed after each bus reset (see 17.6.2.2)
 
-        endpoint_enable_interrupts(endpoint, EndpointControl::RAMACERE::SET + EndpointControl::STALLEDE::SET);
+        endpoint_enable_interrupts(
+            endpoint,
+            EndpointControl::RAMACERE::SET + EndpointControl::STALLEDE::SET,
+        );
 
         if config.matches_all(EndpointConfig::EPTYPE::Control) {
             endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
             state.endpoint_states[endpoint] = EndpointState::Ctrl(CtrlState::Init);
-        }
-        else if config.matches_all(EndpointConfig::EPTYPE::Bulk + EndpointConfig::EPDIR::In) {
+        } else if config.matches_all(EndpointConfig::EPTYPE::Bulk + EndpointConfig::EPDIR::In) {
             endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
             state.endpoint_states[endpoint] = EndpointState::BulkIn(BulkInState::Init);
-        }
-        else if config.matches_all(EndpointConfig::EPTYPE::Bulk + EndpointConfig::EPDIR::Out) {
+        } else if config.matches_all(EndpointConfig::EPTYPE::Bulk + EndpointConfig::EPDIR::Out) {
             endpoint_enable_interrupts(endpoint, EndpointControl::RXOUTE::SET);
             state.endpoint_states[endpoint] = EndpointState::BulkOut(BulkOutState::Init);
-        }
-        else {
+        } else {
             // Other endpoint types unimplemented
         }
 
@@ -809,12 +809,15 @@ impl<'a> Usbc<'a> {
         }
 
         match *endpoint_state {
-            EndpointState::Ctrl(ref mut ctrl_state) =>
-                self.handle_ctrl_endpoint_interrupt(endpoint, ctrl_state, status),
-            EndpointState::BulkIn(ref mut bulk_in_state) =>
-                self.handle_bulk_in_endpoint_interrupt(endpoint, bulk_in_state, status),
-            EndpointState::BulkOut(ref mut bulk_out_state) =>
-                self.handle_bulk_out_endpoint_interrupt(endpoint, bulk_out_state, status),
+            EndpointState::Ctrl(ref mut ctrl_state) => {
+                self.handle_ctrl_endpoint_interrupt(endpoint, ctrl_state, status)
+            }
+            EndpointState::BulkIn(ref mut bulk_in_state) => {
+                self.handle_bulk_in_endpoint_interrupt(endpoint, bulk_in_state, status)
+            }
+            EndpointState::BulkOut(ref mut bulk_out_state) => {
+                self.handle_bulk_out_endpoint_interrupt(endpoint, bulk_out_state, status)
+            }
             EndpointState::Disabled => {
                 debug1!("Ignoring interrupt for disabled endpoint {}", endpoint);
                 return;
@@ -835,9 +838,12 @@ impl<'a> Usbc<'a> {
             // advantageous to process more flags without waiting for
             // another interrupt.
 
-            debug1!("  ep{}: Ctrl({:?})  UECON={:?}",
-                    endpoint, *ctrl_state,
-                    UeconFlags(usbc_regs().uecon[endpoint].get()));
+            debug1!(
+                "  ep{}: Ctrl({:?})  UECON={:?}",
+                endpoint,
+                *ctrl_state,
+                UeconFlags(usbc_regs().uecon[endpoint].get())
+            );
 
             match *ctrl_state {
                 CtrlState::Init => {
@@ -849,8 +855,8 @@ impl<'a> Usbc<'a> {
 
                         let bank = 0;
                         let packet_bytes = self.descriptors[endpoint][bank]
-                                               .packet_size
-                                               .read(PacketSize::BYTE_COUNT);
+                            .packet_size
+                            .read(PacketSize::BYTE_COUNT);
                         let result = if packet_bytes == 8 {
                             self.client.map(|c| c.ctrl_setup(endpoint))
                         } else {
@@ -935,9 +941,7 @@ impl<'a> Usbc<'a> {
 
                         // Run handler again in case the RXOUT has already arrived
                         again = true;
-
                     } else if status.is_set(EndpointStatus::TXIN) {
-
                         // The data bank is ready to receive another IN payload
                         debug1!("\tep{}: TXIN", endpoint);
 
@@ -947,13 +951,11 @@ impl<'a> Usbc<'a> {
                         });
                         match result {
                             Some(CtrlInResult::Packet(packet_bytes, transfer_complete)) => {
-                                let packet_size = if packet_bytes == 8 && transfer_complete
-                                {
+                                let packet_size = if packet_bytes == 8 && transfer_complete {
                                     // Send a complete final packet, and request
                                     // that the controller also send a zero-length
                                     // packet to signal the end of transfer
-                                    PacketSize::BYTE_COUNT.val(8) +
-                                        PacketSize::AUTO_ZLP::Yes
+                                    PacketSize::BYTE_COUNT.val(8) + PacketSize::AUTO_ZLP::Yes
                                 } else {
                                     // Send either a complete but not-final
                                     // packet, or a short and final packet (which
@@ -961,9 +963,15 @@ impl<'a> Usbc<'a> {
                                     PacketSize::BYTE_COUNT.val(packet_bytes as u32)
                                 };
                                 let bank = 0;
-                                self.descriptors[endpoint][bank].packet_size.write(packet_size);
+                                self.descriptors[endpoint][bank]
+                                    .packet_size
+                                    .write(packet_size);
 
-                                debug1!("\tep{}: Send CTRL IN packet ({} bytes)", endpoint, packet_bytes);
+                                debug1!(
+                                    "\tep{}: Send CTRL IN packet ({} bytes)",
+                                    endpoint,
+                                    packet_bytes
+                                );
                                 // self.debug_show_d0();
 
                                 if transfer_complete {
@@ -997,7 +1005,10 @@ impl<'a> Usbc<'a> {
                                 debug1!("\tep{}: Client IN err => STALL", endpoint);
 
                                 // Wait for next SETUP
-                                endpoint_disable_interrupts(endpoint, EndpointControl::NAKOUTE::SET);
+                                endpoint_disable_interrupts(
+                                    endpoint,
+                                    EndpointControl::NAKOUTE::SET,
+                                );
                                 endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
                                 *ctrl_state = CtrlState::Init;
                             }
@@ -1058,8 +1069,10 @@ impl<'a> Usbc<'a> {
                                 debug1!("\tep{}: Client OUT err => STALL", endpoint);
 
                                 // Wait for next SETUP
-                                endpoint_disable_interrupts(endpoint, EndpointControl::RXOUTE::SET +
-                                                            EndpointControl::NAKINE::SET);
+                                endpoint_disable_interrupts(
+                                    endpoint,
+                                    EndpointControl::RXOUTE::SET + EndpointControl::NAKINE::SET,
+                                );
                                 endpoint_enable_interrupts(endpoint, EndpointControl::RXSTPE::SET);
                                 *ctrl_state = CtrlState::Init;
                             }
@@ -1119,7 +1132,7 @@ impl<'a> Usbc<'a> {
                         self.client.map(|c| c.ctrl_status_complete(endpoint));
                     }
                 }
-                CtrlState::InDelay =>  { /* XXX: Spin fruitlessly */ }
+                CtrlState::InDelay => { /* XXX: Spin fruitlessly */ }
             }
 
             // Uncomment the following line to run the above while loop only once per interrupt,
@@ -1153,8 +1166,8 @@ impl<'a> Usbc<'a> {
 
                     let bank = 0;
                     let packet_bytes = self.descriptors[endpoint][bank]
-                                           .packet_size
-                                           .read(PacketSize::BYTE_COUNT);
+                        .packet_size
+                        .read(PacketSize::BYTE_COUNT);
 
                     let result = self.client.map(|c| {
                         // Allow client to consume the packet
@@ -1165,7 +1178,11 @@ impl<'a> Usbc<'a> {
                             // Clear FIFOCON to signal that the packet was consumed
                             usbc_regs().ueconclr[endpoint].write(EndpointControl::FIFOCON::SET);
 
-                            debug1!("\tep{}: Recv BULK OUT packet ({} bytes)", endpoint, packet_bytes);
+                            debug1!(
+                                "\tep{}: Recv BULK OUT packet ({} bytes)",
+                                endpoint,
+                                packet_bytes
+                            );
 
                             // Remain in Init state
                         }
@@ -1213,8 +1230,8 @@ impl<'a> Usbc<'a> {
                     usbc_regs().uestaclr[endpoint].write(EndpointStatus::TXIN::SET);
 
                     if !usbc_regs().uecon[endpoint].is_set(EndpointControl::FIFOCON) {
-                       debug!("Got TXIN but not FIFOCON");
-                       return;
+                        debug!("Got TXIN but not FIFOCON");
+                        return;
                     }
                     // A bank is free to write an IN packet
 
@@ -1226,13 +1243,18 @@ impl<'a> Usbc<'a> {
                         Some(BulkInResult::Packet(packet_bytes)) => {
                             // Tell the controller the size of the packet
                             let bank = 0;
-                            self.descriptors[endpoint][bank].packet_size.write(
-                                PacketSize::BYTE_COUNT.val(packet_bytes as u32));
+                            self.descriptors[endpoint][bank]
+                                .packet_size
+                                .write(PacketSize::BYTE_COUNT.val(packet_bytes as u32));
 
                             // Clear FIFOCON to signal data ready to send
                             usbc_regs().ueconclr[endpoint].write(EndpointControl::FIFOCON::SET);
 
-                            debug1!("\tep{}: Send BULK IN packet ({} bytes)", endpoint, packet_bytes);
+                            debug1!(
+                                "\tep{}: Send BULK IN packet ({} bytes)",
+                                endpoint,
+                                packet_bytes
+                            );
 
                             // Remain in Init state
                         }
@@ -1343,12 +1365,11 @@ impl<'a> UsbController for Usbc<'a> {
         };
 
         match self.get_state() {
-            State::Reset => self._enable(
-                Mode::Device {
-                    speed: speed,
-                    config: Default::default(),
-                    state: Default::default(),
-                }),
+            State::Reset => self._enable(Mode::Device {
+                speed: speed,
+                config: Default::default(),
+                state: Default::default(),
+            }),
             _ => client_err!("Already enabled"),
         }
     }
@@ -1388,30 +1409,27 @@ impl<'a> UsbController for Usbc<'a> {
 
     fn endpoint_ctrl_out_enable(&self, endpoint: usize) {
         let endpoint_cfg = RegisterValue::new(From::from(
-                                EndpointConfig::EPTYPE::Control +
-                                EndpointConfig::EPDIR::Out +
-                                EndpointConfig::EPSIZE::Bytes8 +
-                                EndpointConfig::EPBK::Single));
+            EndpointConfig::EPTYPE::Control + EndpointConfig::EPDIR::Out
+                + EndpointConfig::EPSIZE::Bytes8 + EndpointConfig::EPBK::Single,
+        ));
 
         self._endpoint_enable(endpoint, endpoint_cfg)
     }
 
     fn endpoint_bulk_in_enable(&self, endpoint: usize) {
         let endpoint_cfg = RegisterValue::new(From::from(
-                                EndpointConfig::EPTYPE::Bulk +
-                                EndpointConfig::EPDIR::In +
-                                EndpointConfig::EPSIZE::Bytes8 +
-                                EndpointConfig::EPBK::Single));
+            EndpointConfig::EPTYPE::Bulk + EndpointConfig::EPDIR::In
+                + EndpointConfig::EPSIZE::Bytes8 + EndpointConfig::EPBK::Single,
+        ));
 
         self._endpoint_enable(endpoint, endpoint_cfg)
     }
 
     fn endpoint_bulk_out_enable(&self, endpoint: usize) {
         let endpoint_cfg = RegisterValue::new(From::from(
-                                EndpointConfig::EPTYPE::Bulk +
-                                EndpointConfig::EPDIR::Out +
-                                EndpointConfig::EPSIZE::Bytes8 +
-                                EndpointConfig::EPBK::Single));
+            EndpointConfig::EPTYPE::Bulk + EndpointConfig::EPDIR::Out
+                + EndpointConfig::EPSIZE::Bytes8 + EndpointConfig::EPBK::Single,
+        ));
 
         self._endpoint_enable(endpoint, endpoint_cfg)
     }
