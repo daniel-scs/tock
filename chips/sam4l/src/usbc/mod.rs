@@ -1433,6 +1433,28 @@ impl<'a> UsbController for Usbc<'a> {
 
         self._endpoint_enable(endpoint, endpoint_cfg)
     }
+
+    fn endpoint_bulk_resume(&self, endpoint: usize) {
+        self.map_state(|state| { match *state {
+            State::Active(Mode::Device { ref mut state, .. }) => {
+                let endpoint_state = &mut state.endpoint_states[endpoint];
+                match *endpoint_state {
+                    EndpointState::BulkIn(BulkInState::Delay) => {
+                        // Return to Init state
+                        endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
+                        *endpoint_state = EndpointState::BulkIn(BulkInState::Init);
+                    }
+                    EndpointState::BulkOut(BulkOutState::Delay) => {
+                        // Return to Init state
+                        endpoint_enable_interrupts(endpoint, EndpointControl::RXOUTE::SET);
+                        *endpoint_state = EndpointState::BulkOut(BulkOutState::Init);
+                    }
+                    _ => debug!("Ignoring superfluous resume"),
+                }
+            }
+            _ => debug!("Ignoring inappropriate resume"),
+        }});
+    }
 }
 
 /// Static state to manage the USBC
