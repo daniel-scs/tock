@@ -46,6 +46,9 @@ pub struct Client<'a, C: 'a> {
     // IN endpoint
     echo_buf: [Cell<u8>; 8], // Must be no larger than endpoint packet buffer
     echo_len: Cell<usize>,
+
+    delayed_in: Cell<bool>,
+    delayed_out: Cell<bool>,
 }
 
 #[derive(Copy, Clone)]
@@ -78,6 +81,8 @@ impl<'a, C: UsbController> Client<'a, C> {
             descriptor_storage: Default::default(),
             echo_buf: Default::default(),
             echo_len: Cell::new(0),
+            delayed_in: Cell::new(false),
+            delayed_out: Cell::new(false),
         }
     }
 
@@ -90,14 +95,18 @@ impl<'a, C: UsbController> Client<'a, C> {
         debug!("alert_full: resume 1");
         // In case we reported Delay before, alert the controller
         // that we now have data to send on the Bulk IN endpoint 1
-        self.controller.endpoint_bulk_resume(1);
+        if self.delayed_in.take() {
+            self.controller.endpoint_bulk_resume(1);
+        }
     }
 
     fn alert_empty(&self) {
         debug!("alert_empty: resume 2");
         // In case we reported Delay before, alert the controller
         // that we can now receive data on the Bulk OUT endpoint 2
-        self.controller.endpoint_bulk_resume(2);
+        if self.delayed_out.take() {
+            self.controller.endpoint_bulk_resume(2);
+        }
     }
 }
 
@@ -397,6 +406,7 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
         } else {
             // Nothing to send
             debug!("Delaying write IN");
+            self.delayed_in.set(true);
             BulkInResult::Delay
         }
     }
@@ -413,6 +423,7 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
             // The packet won't fit in our little buffer.  We'll have
             // to wait until it is drained
             debug!("Delaying read OUT");
+            self.delayed_out.set(true);
             BulkOutResult::Delay
         } else if new_len > 0 {
             // Copy the packet into our echo buffer
@@ -422,10 +433,8 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
             }
             self.echo_len.set(total_len);
 
-            if current_len == 0 {
-                // We can start sending again
-                self.alert_full();
-            }
+            // We can start sending again
+            self.alert_full();
 
             debug!("Got {} OUT", new_len);
             BulkOutResult::Ok
