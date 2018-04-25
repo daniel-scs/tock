@@ -87,12 +87,14 @@ impl<'a, C: UsbController> Client<'a, C> {
     }
 
     fn alert_full(&self) {
+        debug!("alert_full: resume 1");
         // In case we reported Delay before, alert the controller
         // that we now have data to send on the Bulk IN endpoint 1
         self.controller.endpoint_bulk_resume(1);
     }
 
     fn alert_empty(&self) {
+        debug!("alert_empty: resume 2");
         // In case we reported Delay before, alert the controller
         // that we can now receive data on the Bulk OUT endpoint 2
         self.controller.endpoint_bulk_resume(2);
@@ -390,10 +392,11 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
             // We can receive more now
             self.alert_empty();
 
-            // debug!("Sent {} bulk bytes", packet_bytes);
+            debug!("Sent {} bytes IN", packet_bytes);
             BulkInResult::Packet(packet_bytes)
         } else {
             // Nothing to send
+            debug!("Delaying write IN");
             BulkInResult::Delay
         }
     }
@@ -409,6 +412,7 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
         if total_len > self.echo_buf.len() {
             // The packet won't fit in our little buffer.  We'll have
             // to wait until it is drained
+            debug!("Delaying read OUT");
             BulkOutResult::Delay
         } else if new_len > 0 {
             // Copy the packet into our echo buffer
@@ -423,6 +427,7 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
                 self.alert_full();
             }
 
+            debug!("Got {} OUT", new_len);
             BulkOutResult::Ok
         } else {
             debug!("Ignoring zero-length OUT packet");
