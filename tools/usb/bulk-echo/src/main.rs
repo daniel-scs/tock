@@ -18,8 +18,8 @@ extern crate libusb;
 
 use libusb::*;
 use std::time::Duration;
-// use std::io::prelude::*;
-use std::io;
+use std::io::stdin;
+use std::io::prelude::*;
 use std::thread;
 
 const VENDOR_ID: u16 = 0x6667;
@@ -27,7 +27,6 @@ const PRODUCT_ID: u16 = 0xabcd;
 
 fn main() {
     let context = Context::new().expect("Creating context");
-
     let device_list = context.devices().expect("Getting device list");
     let mut dev = None;
     for d in device_list.iter() {
@@ -37,46 +36,57 @@ fn main() {
             dev = Some(d);
         }
     }
-
     let mut dh = dev.expect("Matching device not found")
         .open()
         .expect("Opening device");
-
     dh.set_active_configuration(0)
         .expect("Setting active configuration");
-
     dh.claim_interface(0).expect("Claiming interface");
 
-    thread::spawn(|| {
-        reader(dh).expect("reader");
-    });
+    // Unfortunately libusb doesn't provide an asynchronous interface,
+    // so we'll make do here with blocking calls with short timeouts.
+    // (Note that an async interface *is* available for the underlying
+    // libusb C library.)
+
+    loop {
+    fn reader(dh: libusb::DeviceHandle) -> Result<()> {
+        let endpoint = 1;
+        let address = endpoint | 1 << 7; // IN endpoint
+        let timeout = Duration::from_secs(5);
+        let mut buf = &mut [0; 8];
+
+        loop {
+            match dh.read_bulk(address, buf, timeout) {
+                Ok(n) => println!("Bulk read  {} bytes: {:?}", n, &buf[..n]),
+                Err(Error::Timeout) => continue,
+                _ => panic!("read_bulk"),
+            }
+        }
+    }
+
+    println!("Done");
+}
+
+fn try_write(dh: libusb::DeviceHandle) -> Result<()> {
+    let endpoint = 2;
+    let address = endpoint | 0 << 7; // OUT endpoint
+    let timeout = Duration::from_secs(5);
 
     loop {
         let mut input = String::new();
-        io::stdin().read_line(&mut input).expect("read stdin");
+        stdin().read_line(&mut input).expect("read stdin");
         if input.len() == 0 {
             break;
         }
-
-        {
-            let endpoint = 2;
-            let address = endpoint | 0 << 7; // OUT endpoint
-            let timeout = Duration::from_secs(5);
-            let buf = input.as_ref();
-            let n = dh.write_bulk(address, input.as_ref(), timeout).expect("write_bulk");
-            println!("Bulk wrote {} bytes: {:?}", n, buf);
+        match dh.write_bulk(address, input.as_ref(), timeout) {
+            Ok(n) => println!("Bulk wrote {} bytes", n),
+            Err(Error::Timeout) => continue,
+            _ => panic!("write_bulk"),
         }
     }
+
+    println!("Input closed");
+    Ok(())
 }
 
-fn reader(dh: &libusb::DeviceHandle) -> io::Result<()> {
-    let endpoint = 1;
-    let address = endpoint | 1 << 7; // IN endpoint
-    let timeout = Duration::from_secs(5);
-    let mut buf = &mut [0; 8];
 
-    loop {
-        let n = dh.read_bulk(address, buf, timeout).expect("read_bulk");
-        println!("Bulk read  {} bytes: {:?}", n, &buf[..n]);
-    }
-}
