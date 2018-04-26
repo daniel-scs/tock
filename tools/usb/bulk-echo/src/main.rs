@@ -18,10 +18,17 @@ extern crate libusb;
 
 use libusb::*;
 use std::time::Duration;
-use std::io::{stdin, Read};
+use std::io::{stdin, stderr, Read, Write};
 
 const VENDOR_ID: u16 = 0x6667;
 const PRODUCT_ID: u16 = 0xabcd;
+
+macro_rules! debug {
+    [ $( $arg:expr ),+ ] => {{
+        write!(stderr(), $( $arg ),+).expect("write");
+        write!(stderr(), "\n").expect("write");
+    }};
+}
 
 fn main() {
     let context = Context::new().expect("Creating context");
@@ -37,6 +44,7 @@ fn main() {
     let mut dh = dev.expect("Matching device not found")
         .open()
         .expect("Opening device");
+    // dh.reset().expect("Reset");
     dh.set_active_configuration(0)
         .expect("Setting active configuration");
     dh.claim_interface(0).expect("Claiming interface");
@@ -50,7 +58,7 @@ fn main() {
         {
             // Get some input from stdin
 
-            let mut buf = &mut [0; 20];
+            let mut buf = &mut [0; 3];
             let n = stdin().read(buf).expect("read");
             if n == 0 {
                 // End of input
@@ -63,8 +71,11 @@ fn main() {
             let address = endpoint | 0 << 7; // OUT endpoint
             let timeout = Duration::from_secs(1);
             match dh.write_bulk(address, buf, timeout) {
-                Ok(n) => println!("Bulk wrote {} bytes", n),
-                Err(Error::Timeout) => {},
+                Ok(n) => debug!("Bulk wrote {} bytes", n),
+                Err(Error::Timeout) => {
+                    debug!("write timeout");
+                    continue;
+                }
                 _ => panic!("write_bulk"),
             }
         }
@@ -77,8 +88,11 @@ fn main() {
             let mut buf = &mut [0; 8];
 
             match dh.read_bulk(address, buf, timeout) {
-                Ok(n) => println!("Bulk read  {} bytes: {:?}", n, &buf[..n]),
-                Err(Error::Timeout) => continue,
+                Ok(n) => debug!("Bulk read  {} bytes: {:?}", n, &buf[..n]),
+                Err(Error::Timeout) => {
+                    debug!("read timeout");
+                    continue;
+                }
                 _ => panic!("read_bulk"),
             }
         }
