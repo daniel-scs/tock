@@ -17,10 +17,10 @@
 extern crate libusb;
 
 use libusb::*;
-// use std::thread::sleep;
 use std::time::Duration;
-use std::io::prelude::*;
-use std::io::{stdin};
+// use std::io::prelude::*;
+use std::io;
+use std::thread;
 
 const VENDOR_ID: u16 = 0x6667;
 const PRODUCT_ID: u16 = 0xabcd;
@@ -47,27 +47,36 @@ fn main() {
 
     dh.claim_interface(0).expect("Claiming interface");
 
-    let mut buf = [0; 8];
+    thread::spawn(|| {
+        reader(dh).expect("reader");
+    });
 
     loop {
         let mut input = String::new();
-        stdin().read_line(&mut input).expect("read stdin");
+        io::stdin().read_line(&mut input).expect("read stdin");
+        if input.len() == 0 {
+            break;
+        }
 
         {
             let endpoint = 2;
             let address = endpoint | 0 << 7; // OUT endpoint
-            let timeout = Duration::from_secs(3);
+            let timeout = Duration::from_secs(5);
+            let buf = input.as_ref();
             let n = dh.write_bulk(address, input.as_ref(), timeout).expect("write_bulk");
-            println!("Bulk wrote {} bytes: {:?}", n, &buf[..n]);
+            println!("Bulk wrote {} bytes: {:?}", n, buf);
         }
-        {
-            let endpoint = 1;
-            let address = endpoint | 1 << 7; // IN endpoint
-            let mut buf = &mut [0; 8];
-            let timeout = Duration::from_secs(3);
+    }
+}
 
-            let n = dh.read_bulk(address, buf, timeout).expect("read_bulk");
-            println!("Bulk read  {} bytes: {:?}", n, &buf[..n]);
-        }
+fn reader(dh: &libusb::DeviceHandle) -> io::Result<()> {
+    let endpoint = 1;
+    let address = endpoint | 1 << 7; // IN endpoint
+    let timeout = Duration::from_secs(5);
+    let mut buf = &mut [0; 8];
+
+    loop {
+        let n = dh.read_bulk(address, buf, timeout).expect("read_bulk");
+        println!("Bulk read  {} bytes: {:?}", n, &buf[..n]);
     }
 }
