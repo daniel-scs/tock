@@ -18,9 +18,7 @@ extern crate libusb;
 
 use libusb::*;
 use std::time::Duration;
-use std::io::stdin;
-use std::io::prelude::*;
-use std::thread;
+use std::io::{stdin, Read};
 
 const VENDOR_ID: u16 = 0x6667;
 const PRODUCT_ID: u16 = 0xabcd;
@@ -49,13 +47,35 @@ fn main() {
     // libusb C library.)
 
     loop {
-    fn reader(dh: libusb::DeviceHandle) -> Result<()> {
-        let endpoint = 1;
-        let address = endpoint | 1 << 7; // IN endpoint
-        let timeout = Duration::from_secs(5);
-        let mut buf = &mut [0; 8];
+        {
+            // Get some input from stdin
 
-        loop {
+            let mut buf = &mut [0; 20];
+            let n = stdin().read(buf).expect("read");
+            if n == 0 {
+                // End of input
+                break;
+            }
+
+            // Write it out to the device
+
+            let endpoint = 2;
+            let address = endpoint | 0 << 7; // OUT endpoint
+            let timeout = Duration::from_secs(1);
+            match dh.write_bulk(address, buf, timeout) {
+                Ok(n) => println!("Bulk wrote {} bytes", n),
+                Err(Error::Timeout) => {},
+                _ => panic!("write_bulk"),
+            }
+        }
+        {
+            // Read some data back from the device
+
+            let endpoint = 1;
+            let address = endpoint | 1 << 7; // IN endpoint
+            let timeout = Duration::from_secs(1);
+            let mut buf = &mut [0; 8];
+
             match dh.read_bulk(address, buf, timeout) {
                 Ok(n) => println!("Bulk read  {} bytes: {:?}", n, &buf[..n]),
                 Err(Error::Timeout) => continue,
@@ -66,27 +86,3 @@ fn main() {
 
     println!("Done");
 }
-
-fn try_write(dh: libusb::DeviceHandle) -> Result<()> {
-    let endpoint = 2;
-    let address = endpoint | 0 << 7; // OUT endpoint
-    let timeout = Duration::from_secs(5);
-
-    loop {
-        let mut input = String::new();
-        stdin().read_line(&mut input).expect("read stdin");
-        if input.len() == 0 {
-            break;
-        }
-        match dh.write_bulk(address, input.as_ref(), timeout) {
-            Ok(n) => println!("Bulk wrote {} bytes", n),
-            Err(Error::Timeout) => continue,
-            _ => panic!("write_bulk"),
-        }
-    }
-
-    println!("Input closed");
-    Ok(())
-}
-
-
