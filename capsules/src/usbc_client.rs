@@ -410,7 +410,7 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
             // We can receive more now
             self.alert_empty();
 
-            // debug!("Sent {} bytes IN", packet_bytes);
+            // debug!("{} Sent {} bytes IN", self.echo_len.get(), packet_bytes);
             BulkInResult::Packet(packet_bytes)
         } else {
             // Nothing to send
@@ -445,7 +445,7 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
             // We can start sending again
             self.alert_full();
 
-            // debug!("Got {} OUT", new_len);
+            // debug!("{} Got {} OUT", self.echo_len.get(), new_len);
             BulkOutResult::Ok
         } else {
             debug!("Ignoring zero-length OUT packet");

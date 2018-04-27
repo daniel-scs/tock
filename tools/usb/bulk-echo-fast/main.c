@@ -277,7 +277,9 @@ static size_t input_buf_avail(void) {
 }
 
 static size_t read_input(void) {
-    ssize_t r = read(0, input_buf + input_buflen, input_bufsz - input_buflen);
+    size_t to_read = input_bufsz - input_buflen;
+    fprintf(stderr, LOG_STRING("-> Input %ld bytes\n"), LOG_ARGS, to_read);
+    ssize_t r = read(0, input_buf + input_buflen, to_read);
     if (r < 0) {
         error(1, r, "read");
     }
