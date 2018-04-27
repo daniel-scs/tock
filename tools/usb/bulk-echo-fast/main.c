@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <poll.h>
 #include <error.h>
+#include <sys/time.h>
 #include "libusb.h"
 
 typedef int bool;
@@ -25,6 +26,7 @@ static size_t input_buf_avail(void);
 static size_t read_input(void);
 
 void configure_device(void);
+static struct timeval timeval_zero = { 0, 0 };
 
 static bool done = false;
 void handle_events(void);
@@ -121,7 +123,12 @@ void handle_events(void) {
     }
 
     if (nfds_active > 0) {
-        fprintf(stderr, "Other things ready\n");
+        // libusb must be ready
+
+        int r = libusb_handle_events_timeout(NULL, &timeval_zero);
+        if (r != 0) {
+            error(1, 0, "libusb_handle_events: %s", libusb_error_name(r));
+        }
     }
 }
 
