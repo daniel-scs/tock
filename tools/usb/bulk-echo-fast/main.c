@@ -9,6 +9,8 @@
  *                [this utility]                             | capsule echoes data
  *   stdout <___/                \___> Bulk OUT endpoint -->/
  *
+ * Note that a USB reset (which can be caused by reconnection) is necessary
+ * to properly initialize the state of the echo buffer on the device.
  *
  * This utility requires that the cross-platform (Windows, OSX, Linux) library
  * [libusb](http://libusb.info/) is installed on the host machine.
@@ -60,6 +62,9 @@ static bool input_closed = false;
 void submit_transfers(void);
 void handle_events(void);
 
+/* Uncomment this to generate log messages on stderr */
+/* #define LOGGING 1 */
+
 #define LOG_STRING(msg) "[ buf %4lu | device %s%s | %4lu out, %4lu in ] " msg "\n"
 
 #define LOG_ARGS \
@@ -68,8 +73,12 @@ void handle_events(void);
     reading_in ? "r" : " ", \
     bytes_out, bytes_in
 
+#ifdef LOGGING
 #define log(fmt, ...) \
     fprintf (stderr, LOG_STRING(fmt), LOG_ARGS, ##__VA_ARGS__)
+#else
+#define log(fmt, ...) 
+#endif
 
 int main(int argc, char **argv) {
     int r;
