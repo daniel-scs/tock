@@ -1,49 +1,92 @@
+/* This utility requires that the cross-platform (Windows, OSX, Linux) library
+ * [libusb](http://libusb.info/) is installed on the host machine.
+ *
+ * NOTE: This code uses libusb interfaces not available on Windows.
+ */
 #include <stdio.h>
 #include <stdint.h>
+#include <unistd.h>
+#include <poll.h>
+#include <error.h>
 #include "libusb.h"
+
+typedef int bool;
+static const bool false = 0;
+static const bool true = 1;
 
 static const uint16_t TARGET_VENDOR_ID = 0x6667;
 static const uint16_t TARGET_PRODUCT_ID = 0xabcd;
 
-static void (libusb_device **devs)
-{
-	libusb_device *dev;
-	int i = 0, j = 0;
-	uint8_t path[8]; 
+static struct pollfd fds[10];
+static const int timeout_never = -1;
+static size_t stdin_fdi;
 
-	while ((dev = devs[i++]) != NULL) {
-		struct libusb_device_descriptor desc;
-		int r = libusb_get_device_descriptor(dev, &desc);
-		if (r < 0) {
-			fprintf(stderr, "failed to get device descriptor");
-			return;
-		}
+static size_t input_buf_avail(void);
+static size_t read_input(void);
 
-                if (desc.idVendor == TARGET_VENDOR_ID &&
-                    desc.idProduct == TARGET_PRODUCT_ID) {
-		printf("%04x:%04x (bus %d, device %d)",
-			desc.idVendor, desc.idProduct,
-	}
+static bool done = false;
+
+int main(void) {
+  while (!done) {
+    nfds_t nfds = 0;
+
+    bool poll_stdin = input_buf_avail() > 0;
+    if (poll_stdin) {
+      fds[nfds].fd = 0;
+      fds[nfds].events = POLLIN;
+      fds[nfds].revents = 0;
+      stdin_fdi = nfds;
+      nfds++;
+    }
+
+    if (nfds == 0) {
+      // Nothing to wait for
+      error(1, 0, "Deadlocked");
+    }
+
+    int nfds_active = poll(fds, nfds, timeout_never);
+    if (nfds_active < 0) {
+      error(1, nfds_active, "poll");
+    }
+
+    if (poll_stdin) {
+      if (fds[stdin_fdi].revents != 0) {
+        if (read_input() == 0) {
+          done = true;
+        }
+        nfds_active--;
+      }
+    }
+
+    if (nfds_active > 0) {
+      fprintf(stderr, "Other things ready\n");
+    }
+  }
+  fprintf(stderr, "Done\n");
 }
 
-int main(void)
-{
-	libusb_device **devs;
-	int r;
-	ssize_t cnt;
-          
+/*
+ * An input buffer
+ */
 
-	r = libusb_init(NULL);
-	if (r < 0)
-		return r;
+static const size_t input_bufsz = 100;
+static size_t input_buflen = 0;
 
-	cnt = libusb_get_device_list(NULL, &devs);
-	if (cnt < 0)
-		return (int) cnt;
+static size_t input_buf_avail(void) {
+  return input_bufsz - input_buflen;
+}
 
-	print_devs(devs);
-	libusb_free_device_list(devs, 1);
+static size_t read_input(void) {
+  static char buf[input_bufsz];
 
-	libusb_exit(NULL);
-	return 0;
+  size_t to_read = input_buf_avail();
+  ssize_t r = read(0, buf + input_buflen, to_read);
+  if (r < 0) {
+    error(1, r, "read");
+  }
+  else {
+    fprintf(stderr, "Read %ld bytes\n", r);
+    input_buflen += r;
+  }
+  return r;
 }
