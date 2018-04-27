@@ -1,7 +1,8 @@
 //! This utility performs a simple test of usb functionality in Tock:
-//! It reads from stdin and writes that data to a Bulk USB endpoint on
-//! a connected device; in a separate thread, it reads that data back
-//! and sends it to stdout.
+//! It reads from stdin and writes that data to a Bulk OUT endpoint on
+//! a connected device; when the Tock `usbc_client` capsule echos the
+//! data back through a Bulk IN endpoint, this utility then dumps it
+//! back on stdout.
 //!
 //! This utility depends on the `libusb` crate, which in turn requires
 //! that the cross-platform (Windows, OSX, Linux) library
@@ -18,7 +19,7 @@ extern crate libusb;
 
 use libusb::*;
 use std::time::Duration;
-use std::io::{stdin, stderr, Read, Write};
+use std::io::{stdin, stdout, stderr, Read, Write};
 
 const VENDOR_ID: u16 = 0x6667;
 const PRODUCT_ID: u16 = 0xabcd;
@@ -58,7 +59,7 @@ fn main() {
         {
             // Get some input from stdin
 
-            let mut buf = &mut [0; 3];
+            let mut buf = &mut [0; 8];
             let n = stdin().read(buf).expect("read");
             if n == 0 {
                 // End of input
@@ -71,7 +72,7 @@ fn main() {
             let address = endpoint | 0 << 7; // OUT endpoint
             let timeout = Duration::from_secs(1);
             match dh.write_bulk(address, buf, timeout) {
-                Ok(n) => debug!("Bulk wrote {} bytes", n),
+                Ok(_n) => {} // debug!("Bulk wrote {} bytes", n),
                 Err(Error::Timeout) => {
                     debug!("write timeout");
                     continue;
@@ -88,7 +89,10 @@ fn main() {
             let mut buf = &mut [0; 8];
 
             match dh.read_bulk(address, buf, timeout) {
-                Ok(n) => debug!("Bulk read  {} bytes: {:?}", n, &buf[..n]),
+                Ok(n) => {
+                    // debug!("Bulk read  {} bytes: {:?}", n, &buf[..n]),
+                    stdout().write(&buf[..n]).expect("write");
+                }
                 Err(Error::Timeout) => {
                     debug!("read timeout");
                     continue;
