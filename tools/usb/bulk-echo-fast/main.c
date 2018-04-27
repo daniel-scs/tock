@@ -27,42 +27,47 @@ static size_t read_input(void);
 static bool done = false;
 
 int main(void) {
-  while (!done) {
-    nfds_t nfds = 0;
+    while (!done) {
+        nfds_t nfds = 0;
 
-    bool poll_stdin = input_buf_avail() > 0;
-    if (poll_stdin) {
-      fds[nfds].fd = 0;
-      fds[nfds].events = POLLIN;
-      fds[nfds].revents = 0;
-      stdin_fdi = nfds;
-      nfds++;
-    }
-
-    if (nfds == 0) {
-      // Nothing to wait for
-      error(1, 0, "Deadlocked");
-    }
-
-    int nfds_active = poll(fds, nfds, timeout_never);
-    if (nfds_active < 0) {
-      error(1, nfds_active, "poll");
-    }
-
-    if (poll_stdin) {
-      if (fds[stdin_fdi].revents != 0) {
-        if (read_input() == 0) {
-          done = true;
+        // Add stdin fd
+        bool poll_stdin = input_buf_avail() > 0;
+        if (poll_stdin) {
+            fds[nfds].fd = 0;
+            fds[nfds].events = POLLIN;
+            fds[nfds].revents = 0;
+            stdin_fdi = nfds;
+            nfds++;
         }
-        nfds_active--;
-      }
-    }
 
-    if (nfds_active > 0) {
-      fprintf(stderr, "Other things ready\n");
+        // Add libusb fds
+
+        if (nfds == 0) {
+            // Nothing to wait for
+            error(1, 0, "Deadlocked");
+        }
+
+        // Poll for ready fds
+        int nfds_active = poll(fds, nfds, timeout_never);
+        if (nfds_active < 0) {
+            error(1, nfds_active, "poll");
+        }
+
+        // Check if stdin ready
+        if (poll_stdin) {
+            if (fds[stdin_fdi].revents != 0) {
+                if (read_input() == 0) {
+                  done = true;
+                }
+                nfds_active--;
+            }
+        }
+
+        if (nfds_active > 0) {
+            fprintf(stderr, "Other things ready\n");
+        }
     }
-  }
-  fprintf(stderr, "Done\n");
+    fprintf(stderr, "Done\n");
 }
 
 /*
@@ -73,20 +78,19 @@ static const size_t input_bufsz = 100;
 static size_t input_buflen = 0;
 
 static size_t input_buf_avail(void) {
-  return input_bufsz - input_buflen;
+    return input_bufsz - input_buflen;
 }
 
 static size_t read_input(void) {
-  static char buf[input_bufsz];
+    static char buf[input_bufsz];
 
-  size_t to_read = input_buf_avail();
-  ssize_t r = read(0, buf + input_buflen, to_read);
-  if (r < 0) {
-    error(1, r, "read");
-  }
-  else {
-    fprintf(stderr, "Read %ld bytes\n", r);
-    input_buflen += r;
-  }
-  return r;
+    ssize_t r = read(0, buf + input_buflen, input_bufsz - input_buflen);
+    if (r < 0) {
+        error(1, r, "read");
+    }
+    else {
+        fprintf(stderr, "Read %ld bytes\n", r);
+        input_buflen += r;
+    }
+    return r;
 }
