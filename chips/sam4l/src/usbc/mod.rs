@@ -695,13 +695,11 @@ impl<'a> Usbc<'a> {
                         // Return to Init state
                         endpoint_enable_interrupts(endpoint, EndpointControl::TXINE::SET);
                         *endpoint_state = EndpointState::BulkIn(BulkInState::Init);
-                        debug!("Resume {}", endpoint);
                     }
                     EndpointState::BulkOut(BulkOutState::Delay) => {
                         // Return to Init state
                         endpoint_enable_interrupts(endpoint, EndpointControl::RXOUTE::SET);
                         *endpoint_state = EndpointState::BulkOut(BulkOutState::Init);
-                        debug!("Resume {}", endpoint);
                     }
                     _ => debug!("Ignoring superfluous resume"),
                 }

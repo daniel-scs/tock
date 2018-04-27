@@ -42,11 +42,10 @@ pub struct Client<'a, C: 'a> {
     // Storage for composing responses to device-descriptor requests
     descriptor_storage: [Cell<u8>; DESCRIPTOR_BUFLEN],
 
-    // A buffer for echoing bulk data from an OUT endpoint back to an
-    // IN endpoint
+    // State for a debugging feature: A buffer for echoing bulk data
+    // from an OUT endpoint back to an IN endpoint
     echo_buf: [Cell<u8>; 8], // Must be no larger than endpoint packet buffer
     echo_len: Cell<usize>,
-
     delayed_in: Cell<bool>,
     delayed_out: Cell<bool>,
 }
@@ -79,6 +78,7 @@ impl<'a, C: UsbController> Client<'a, C> {
             state: Default::default(),
             buffers: Default::default(),
             descriptor_storage: Default::default(),
+
             echo_buf: Default::default(),
             echo_len: Cell::new(0),
             delayed_in: Cell::new(false),
@@ -92,7 +92,8 @@ impl<'a, C: UsbController> Client<'a, C> {
     }
 
     fn alert_full(&self) {
-        debug!("alert_full: resume 1");
+        // debug!("alert_full: resume 1");
+
         // In case we reported Delay before, alert the controller
         // that we now have data to send on the Bulk IN endpoint 1
         if self.delayed_in.take() {
@@ -101,7 +102,8 @@ impl<'a, C: UsbController> Client<'a, C> {
     }
 
     fn alert_empty(&self) {
-        debug!("alert_empty: resume 2");
+        // debug!("alert_empty: resume 2");
+
         // In case we reported Delay before, alert the controller
         // that we can now receive data on the Bulk OUT endpoint 2
         if self.delayed_out.take() {
@@ -133,6 +135,13 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
     fn bus_reset(&self) {
         // Should the client initiate reconfiguration here?
         // For now, the hardware layer does it.
+
+        debug!("Bus reset");
+
+        // Reset the state for our pair of debugging endpoints
+        self.echo_len.set(0);
+        self.delayed_in.set(false);
+        self.delayed_out.set(false);
     }
 
     /// Handle a Control Setup transaction
@@ -401,11 +410,11 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
             // We can receive more now
             self.alert_empty();
 
-            debug!("Sent {} bytes IN", packet_bytes);
+            // debug!("Sent {} bytes IN", packet_bytes);
             BulkInResult::Packet(packet_bytes)
         } else {
             // Nothing to send
-            debug!("Delaying write IN");
+            // debug!("Delaying write IN");
             self.delayed_in.set(true);
             BulkInResult::Delay
         }
@@ -422,7 +431,7 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
         if total_len > self.echo_buf.len() {
             // The packet won't fit in our little buffer.  We'll have
             // to wait until it is drained
-            debug!("Delaying read OUT");
+            // debug!("Delaying read OUT");
             self.delayed_out.set(true);
             BulkOutResult::Delay
         } else if new_len > 0 {
@@ -436,7 +445,7 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
             // We can start sending again
             self.alert_full();
 
-            debug!("Got {} OUT", new_len);
+            // debug!("Got {} OUT", new_len);
             BulkOutResult::Ok
         } else {
             debug!("Ignoring zero-length OUT packet");

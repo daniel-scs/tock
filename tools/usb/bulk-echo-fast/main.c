@@ -39,11 +39,11 @@ unsigned char endpoint_bulk_out = 2 | 0 << 7;
 
 static libusb_device_handle *zorp;
 
-void configure_device(void);
+void open_device(void);
 
 static struct timeval timeval_zero = { 0, 0 };
 
-static bool done = false;
+static bool input_closed = false;
 void submit_transfers(void);
 void handle_events(void);
 
@@ -55,11 +55,16 @@ void handle_events(void);
     bytes_out, bytes_in
 
 int main(void) {
-    configure_device();
+    open_device();
+    libusb_set_configuration(zorp, 0);
+    libusb_claim_interface(zorp, 0);
+
+    // fprintf(stderr, LOG_STRING("Reset\n"), LOG_ARGS);
+    // libusb_reset_device(zorp);
 
     fprintf(stderr, LOG_STRING("Start\n"), LOG_ARGS);
 
-    while (!done) {
+    while (!input_closed || bytes_in < bytes_out) {
         submit_transfers();
         handle_events();
     }
@@ -68,7 +73,7 @@ int main(void) {
     return 0;
 }
 
-void configure_device(void) {
+void open_device(void) {
     libusb_device **devs;
     int r;
     ssize_t cnt;
@@ -180,7 +185,7 @@ void handle_events(void) {
     nfds_t nfds = 0;
 
     // Add stdin fd
-    bool poll_stdin = !input_buf_locked && input_buf_avail() > 0;
+    bool poll_stdin = !input_closed && !input_buf_locked && input_buf_avail() > 0;
     if (poll_stdin) {
         fds[nfds].fd = 0;
         fds[nfds].events = POLLIN;
@@ -219,7 +224,7 @@ void handle_events(void) {
     if (poll_stdin) {
         if (fds[stdin_fdi].revents != 0) {
             if (read_input() == 0) {
-              done = true;
+              input_closed = true;
             }
             nfds_active--;
         }
