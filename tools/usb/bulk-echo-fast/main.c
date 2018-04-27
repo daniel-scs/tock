@@ -5,6 +5,7 @@
  */
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 #include <unistd.h>
 #include <poll.h>
 #include <error.h>
@@ -54,8 +55,13 @@ void handle_events(void);
     reading_in ? "r" : " ", \
     bytes_out, bytes_in
 
-int main(void) {
+int main(int argc, char **argv) {
     int r;
+
+    bool do_reset = 0;
+    if (argc == 2 && !strcmp(argv[1], "-r")) {
+        do_reset = 1;
+    }
 
     r = libusb_init(NULL);
     if (r < 0)
@@ -63,20 +69,20 @@ int main(void) {
 
     open_device();
 
-    /*
-    fprintf(stderr, LOG_STRING("Reset\n"), LOG_ARGS);
-    r = libusb_reset_device(zorp);
-    switch (r) {
-        case 0:
-            break;
-        case LIBUSB_ERROR_NOT_FOUND:
-            libusb_close(zorp);
-            open_device();
-            break;
-        default:
-            error(1, 0, "reset: %s", libusb_error_name(r));
+    if (do_reset) {
+        fprintf(stderr, LOG_STRING("Reset\n"), LOG_ARGS);
+        r = libusb_reset_device(zorp);
+        switch (r) {
+            case 0:
+                break;
+            case LIBUSB_ERROR_NOT_FOUND:
+                libusb_close(zorp);
+                open_device();
+                break;
+            default:
+                error(1, 0, "reset: %s", libusb_error_name(r));
+        }
     }
-    */
 
     if ((r = libusb_set_configuration(zorp, 0)) != 0)
         error(1, 0, "set_configuration");
@@ -115,12 +121,16 @@ void open_device(void) {
             desc.idProduct == TARGET_PRODUCT_ID)
             break;
     }
+
     if (dev == NULL)
         error(1, 0, "Couldn't find target device");
 
     r = libusb_open(dev, &zorp);
     if (r != 0)
         error(1, 0, "open: %s", libusb_error_name(r));
+
+    bool unref_devices = true;
+    libusb_free_device_list(devs, unref_devices);
 }
 
 void LIBUSB_CALL write_done(struct libusb_transfer *transfer) {
