@@ -26,6 +26,8 @@ static size_t input_buf_avail(void);
 static bool input_buf_locked = false;
 static size_t read_input(void);
 
+static bool reading_in = false;
+
 static const uint16_t TARGET_VENDOR_ID = 0x6667;
 static const uint16_t TARGET_PRODUCT_ID = 0xabcd;
 
@@ -39,12 +41,14 @@ void configure_device(void);
 static struct timeval timeval_zero = { 0, 0 };
 
 static bool done = false;
+void submit_transfers(void);
 void handle_events(void);
 
 int main(void) {
     configure_device();
 
     while (!done) {
+        submit_transfers();
         handle_events();
     }
 
@@ -101,8 +105,24 @@ void LIBUSB_CALL write_done(struct libusb_transfer *transfer) {
     libusb_free_transfer(transfer);
 }
 
-void handle_events(void) {
+static const size_t return_buf_sz = 8;
+static unsigned char return_buf[return_buf_sz];
 
+void LIBUSB_CALL read_done(struct libusb_transfer *transfer) {
+    switch (transfer->status) {
+        case LIBUSB_TRANSFER_COMPLETED:
+            fprintf(stderr, "Read %d bytes from device\n", transfer->actual_length);
+            fwrite(return_buf, transfer->actual_length, 1, stdout);
+            reading_in = false;
+            break;
+        default:
+            error(1, 0, "bad transfer status: %d", transfer->status);
+    }
+
+    libusb_free_transfer(transfer);
+}
+
+void submit_transfers(void) {
     if (input_buflen > 0) {
         // Write input buf to device
 
@@ -117,6 +137,23 @@ void handle_events(void) {
         if (libusb_submit_transfer(transfer))
             error(1, 0, "submit");
     }
+
+    if (!reading_in) {
+        // Read data back from device
+
+        int iso_packets = 0;
+        struct libusb_transfer* transfer = libusb_alloc_transfer(iso_packets);
+        libusb_fill_bulk_transfer(transfer, zorp, endpoint_bulk_in,
+                                  return_buf, return_buf_sz, read_done, NULL, 0);
+
+        if (libusb_submit_transfer(transfer))
+            error(1, 0, "submit");
+
+        reading_in = true;
+    }
+}
+
+void handle_events(void) {
 
     nfds_t nfds = 0;
 
@@ -144,7 +181,6 @@ void handle_events(void) {
         nfds++;
     }
     libusb_free_pollfds(all_usb_fds);
-    fprintf(stderr, "\t(Added %lu USB pollfds)\n", nfds - 1);
 
     if (nfds == 0) {
         // Nothing to wait for
