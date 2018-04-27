@@ -24,50 +24,105 @@ static size_t stdin_fdi;
 static size_t input_buf_avail(void);
 static size_t read_input(void);
 
+void configure_device(void);
+
 static bool done = false;
+void handle_events(void);
 
 int main(void) {
+    configure_device();
+
     while (!done) {
-        nfds_t nfds = 0;
+        handle_events();
+    }
 
-        // Add stdin fd
-        bool poll_stdin = input_buf_avail() > 0;
-        if (poll_stdin) {
-            fds[nfds].fd = 0;
-            fds[nfds].events = POLLIN;
-            fds[nfds].revents = 0;
-            stdin_fdi = nfds;
-            nfds++;
-        }
+    fprintf(stderr, "Done\n");
+    return 0;
+}
 
-        // Add libusb fds
+void configure_device(void) {
+    libusb_device **devs;
+    int r;
+    ssize_t cnt;
 
-        if (nfds == 0) {
-            // Nothing to wait for
-            error(1, 0, "Deadlocked");
-        }
+    r = libusb_init(NULL);
+    if (r < 0)
+        error(1, r, "libusb_init");
 
-        // Poll for ready fds
-        int nfds_active = poll(fds, nfds, timeout_never);
-        if (nfds_active < 0) {
-            error(1, nfds_active, "poll");
-        }
+    cnt = libusb_get_device_list(NULL, &devs);
+    if (cnt < 0)
+        error(1, (int) cnt, "libusb_get_device_list");
 
-        // Check if stdin ready
-        if (poll_stdin) {
-            if (fds[stdin_fdi].revents != 0) {
-                if (read_input() == 0) {
-                  done = true;
-                }
-                nfds_active--;
+    libusb_device *dev;
+    int i = 0;
+    while ((dev = devs[i++]) != NULL) {
+        struct libusb_device_descriptor desc;
+        int r = libusb_get_device_descriptor(dev, &desc);
+        if (r < 0)
+            error(1, r, "failed to get device descriptor");
+
+        if (desc.idVendor == TARGET_VENDOR_ID &&
+            desc.idProduct == TARGET_PRODUCT_ID)
+            break;
+    }
+    if (dev == NULL)
+        error(1, 0, "Couldn't find target device");
+}
+
+void handle_events(void) {
+
+    nfds_t nfds = 0;
+
+    // Add stdin fd
+    bool poll_stdin = input_buf_avail() > 0;
+    if (poll_stdin) {
+        fds[nfds].fd = 0;
+        fds[nfds].events = POLLIN;
+        fds[nfds].revents = 0;
+        stdin_fdi = nfds;
+        nfds++;
+    }
+
+    // Add libusb fds
+    const struct libusb_pollfd **all_usb_fds = libusb_get_pollfds(NULL);
+    if (all_usb_fds == NULL) {
+        error(1, 0, "libusb_get_pullfds");
+    }
+    for (const struct libusb_pollfd **usb_fds = all_usb_fds; *usb_fds != NULL; usb_fds++) {
+        const struct libusb_pollfd *pollfd = *usb_fds;
+
+        fds[nfds].fd = pollfd->fd;
+        fds[nfds].events = pollfd->events;
+        fds[nfds].revents = 0;
+        nfds++;
+    }
+    libusb_free_pollfds(all_usb_fds);
+    fprintf(stderr, "Added %lu USB pollfds\n", nfds - 1);
+
+    if (nfds == 0) {
+        // Nothing to wait for
+        error(1, 0, "Deadlocked");
+    }
+
+    // Poll for ready fds
+    int nfds_active = poll(fds, nfds, timeout_never);
+    if (nfds_active < 0) {
+        error(1, nfds_active, "poll");
+    }
+
+    // Check if stdin ready
+    if (poll_stdin) {
+        if (fds[stdin_fdi].revents != 0) {
+            if (read_input() == 0) {
+              done = true;
             }
-        }
-
-        if (nfds_active > 0) {
-            fprintf(stderr, "Other things ready\n");
+            nfds_active--;
         }
     }
-    fprintf(stderr, "Done\n");
+
+    if (nfds_active > 0) {
+        fprintf(stderr, "Other things ready\n");
+    }
 }
 
 /*
