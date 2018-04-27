@@ -15,6 +15,9 @@ typedef int bool;
 static const bool false = 0;
 static const bool true = 1;
 
+static size_t bytes_out = 0;
+static size_t bytes_in = 0;
+
 static struct pollfd fds[10];
 static const int timeout_never = -1;
 static size_t stdin_fdi;
@@ -44,15 +47,24 @@ static bool done = false;
 void submit_transfers(void);
 void handle_events(void);
 
+#define LOG_STRING(msg) "[ buf %4lu | device %s%s | %4lu out, %4lu in ] " msg
+#define LOG_ARGS \
+    input_buflen, \
+    input_buf_locked ? "w" : " ", \
+    reading_in ? "r" : " ", \
+    bytes_out, bytes_in
+
 int main(void) {
     configure_device();
+
+    fprintf(stderr, LOG_STRING("Start\n"), LOG_ARGS);
 
     while (!done) {
         submit_transfers();
         handle_events();
     }
 
-    fprintf(stderr, "Done\n");
+    fprintf(stderr, LOG_STRING("Done\n"), LOG_ARGS);
     return 0;
 }
 
@@ -96,7 +108,9 @@ void LIBUSB_CALL write_done(struct libusb_transfer *transfer) {
             }
             input_buflen = 0;
             input_buf_locked = false;
-            fprintf(stderr, "Wrote %d bytes to device\n", transfer->actual_length);
+            bytes_out += transfer->actual_length;
+            fprintf(stderr, LOG_STRING("Wrote %d bytes to device\n"),
+                    LOG_ARGS, transfer->actual_length);
             break;
         default:
             error(1, 0, "bad transfer status: %d", transfer->status);
@@ -105,15 +119,17 @@ void LIBUSB_CALL write_done(struct libusb_transfer *transfer) {
     libusb_free_transfer(transfer);
 }
 
-static const size_t return_buf_sz = 8;
+static const size_t return_buf_sz = 64;
 static unsigned char return_buf[return_buf_sz];
 
 void LIBUSB_CALL read_done(struct libusb_transfer *transfer) {
     switch (transfer->status) {
         case LIBUSB_TRANSFER_COMPLETED:
-            fprintf(stderr, "Read %d bytes from device\n", transfer->actual_length);
             fwrite(return_buf, transfer->actual_length, 1, stdout);
+            bytes_in += transfer->actual_length;
             reading_in = false;
+            fprintf(stderr, LOG_STRING("Read %d bytes from device\n"),
+                    LOG_ARGS, transfer->actual_length);
             break;
         default:
             error(1, 0, "bad transfer status: %d", transfer->status);
@@ -123,7 +139,7 @@ void LIBUSB_CALL read_done(struct libusb_transfer *transfer) {
 }
 
 void submit_transfers(void) {
-    if (input_buflen > 0) {
+    if (!input_buf_locked && input_buflen > 0) {
         // Write input buf to device
 
         // Don't fiddle with input buffer while libusb is trying to send it
@@ -136,6 +152,9 @@ void submit_transfers(void) {
 
         if (libusb_submit_transfer(transfer))
             error(1, 0, "submit");
+
+        fprintf(stderr, LOG_STRING("Write %d bytes to device\n"),
+                LOG_ARGS, transfer->length);
     }
 
     if (!reading_in) {
@@ -148,8 +167,9 @@ void submit_transfers(void) {
 
         if (libusb_submit_transfer(transfer))
             error(1, 0, "submit");
-
         reading_in = true;
+
+        fprintf(stderr, LOG_STRING("Read from device\n"), LOG_ARGS);
     }
 }
 
@@ -227,8 +247,10 @@ static size_t read_input(void) {
         error(1, r, "read");
     }
     else {
-        fprintf(stderr, "Read %ld bytes\n", r);
         input_buflen += r;
+
+        fprintf(stderr, LOG_STRING("Input %ld bytes\n"),
+                LOG_ARGS, r);
     }
     return r;
 }
