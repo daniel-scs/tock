@@ -1,3 +1,3 @@
 #!/bin/sh
 
-exec ./a.out </dev/zero >/dev/null
+exec ./a.out </dev/urandom >/dev/null

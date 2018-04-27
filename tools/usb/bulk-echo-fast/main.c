@@ -1,7 +1,19 @@
-/* This utility requires that the cross-platform (Windows, OSX, Linux) library
+/*
+ * This testing utility sends its stdin to a Bulk OUT endpoint
+ * on an attached USB device.  If that device is running Tock with
+ * the usbc_client capsule, it will echo all data back through a
+ * Bulk IN endpoint, and this utility will then send it to stdout.
+ *
+ *   stdin  >___                  ___< Bulk IN endpoint  <--\
+ *              \                /                           | Tock usbc_client
+ *                [this utility]                             | capsule echoes data
+ *   stdout <___/                \___> Bulk OUT endpoint -->/
+ *
+ *
+ * This utility requires that the cross-platform (Windows, OSX, Linux) library
  * [libusb](http://libusb.info/) is installed on the host machine.
  *
- * NOTE: This code uses libusb interfaces not available on Windows.
+ * NOTE: This code uses libusb interfaces (get_pollfds) not available on Windows.
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -48,12 +60,16 @@ static bool input_closed = false;
 void submit_transfers(void);
 void handle_events(void);
 
-#define LOG_STRING(msg) "[ buf %4lu | device %s%s | %4lu out, %4lu in ] " msg
+#define LOG_STRING(msg) "[ buf %4lu | device %s%s | %4lu out, %4lu in ] " msg "\n"
+
 #define LOG_ARGS \
     input_buflen, \
     input_buf_locked ? "w" : " ", \
     reading_in ? "r" : " ", \
     bytes_out, bytes_in
+
+#define log(fmt, ...) \
+    fprintf (stderr, LOG_STRING(fmt), LOG_ARGS, ##__VA_ARGS__)
 
 int main(int argc, char **argv) {
     int r;
@@ -70,7 +86,7 @@ int main(int argc, char **argv) {
     open_device();
 
     if (do_reset) {
-        fprintf(stderr, LOG_STRING("Reset\n"), LOG_ARGS);
+        log("Reset");
         r = libusb_reset_device(zorp);
         switch (r) {
             case 0:
@@ -89,14 +105,14 @@ int main(int argc, char **argv) {
     if ((r = libusb_claim_interface(zorp, 0)) != 0)
         error(1, 0, "claim_interface");
 
-    fprintf(stderr, LOG_STRING("Start\n"), LOG_ARGS);
+    log("Start");
 
     while (!input_closed || bytes_in < bytes_out) {
         submit_transfers();
         handle_events();
     }
 
-    fprintf(stderr, LOG_STRING("Done\n"), LOG_ARGS);
+    log("Done");
     return 0;
 }
 
@@ -139,8 +155,7 @@ void LIBUSB_CALL write_done(struct libusb_transfer *transfer) {
             if (transfer->actual_length != transfer->length) {
                 error(1, 0, "short write");
             }
-            fprintf(stderr, LOG_STRING("Wrote %d bytes to device\n"),
-                    LOG_ARGS, transfer->actual_length);
+            log("Wrote %d bytes to device", transfer->actual_length);
 
             input_buflen = 0;
             input_buf_locked = false;
@@ -159,8 +174,7 @@ static unsigned char return_buf[return_buf_sz];
 void LIBUSB_CALL read_done(struct libusb_transfer *transfer) {
     switch (transfer->status) {
         case LIBUSB_TRANSFER_COMPLETED:
-            fprintf(stderr, LOG_STRING("Read %d bytes from device\n"),
-                    LOG_ARGS, transfer->actual_length);
+            log("Read %d bytes from device", transfer->actual_length);
 
             fwrite(return_buf, transfer->actual_length, 1, stdout);
             bytes_in += transfer->actual_length;
@@ -182,8 +196,7 @@ void submit_transfers(void) {
         libusb_fill_bulk_transfer(transfer, zorp, endpoint_bulk_out,
                                   input_buf, input_buflen, write_done, NULL, 0);
 
-        fprintf(stderr, LOG_STRING("-> Write %d bytes to device\n"),
-                LOG_ARGS, transfer->length);
+        log("-> Write %d bytes to device", transfer->length);
 
         // Don't fiddle with input buffer while libusb is trying to send it
         input_buf_locked = true;
@@ -200,7 +213,7 @@ void submit_transfers(void) {
         libusb_fill_bulk_transfer(transfer, zorp, endpoint_bulk_in,
                                   return_buf, return_buf_sz, read_done, NULL, 0);
 
-        fprintf(stderr, LOG_STRING("-> Read from device\n"), LOG_ARGS);
+        log("-> Read from device");
 
         if (libusb_submit_transfer(transfer))
             error(1, 0, "submit");
@@ -278,13 +291,13 @@ static size_t input_buf_avail(void) {
 
 static size_t read_input(void) {
     size_t to_read = input_bufsz - input_buflen;
-    fprintf(stderr, LOG_STRING("-> Input %ld bytes\n"), LOG_ARGS, to_read);
+    log("-> Input up to %ld bytes", to_read);
     ssize_t r = read(0, input_buf + input_buflen, to_read);
     if (r < 0) {
         error(1, r, "read");
     }
     else {
-        fprintf(stderr, LOG_STRING("Input %ld bytes\n"), LOG_ARGS, r);
+        log("Input %ld bytes", r);
 
         input_buflen += r;
     }
