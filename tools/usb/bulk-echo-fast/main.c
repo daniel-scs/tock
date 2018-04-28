@@ -1,21 +1,36 @@
 /*
- * This testing utility sends its stdin to a Bulk OUT endpoint
- * on an attached USB device.  If that device is running Tock with
- * the usbc_client capsule, it will echo all data back through a
- * Bulk IN endpoint, and this utility will then send it to stdout.
+ * This testing utility is designed to communicate with a device
+ * running Tock.  In particular, it interacts with the usbc_client
+ * capsule.  The USB controller and the client capsule must be enabled
+ * from userspace; the application in `userland/examples/tests/usb/`
+ * will do this.
+ *
+ * This utility sends its stdin to a Bulk OUT endpoint on the attached
+ * USB device, which then echos all data back to the PC via a
+ * Bulk IN endpoint, and this utility will then send it to stdout:
  *
  *   stdin  >___                  ___< Bulk IN endpoint  <--\
  *              \                /                           | Tock usbc_client
  *                [this utility]                             | capsule echoes data
  *   stdout <___/                \___> Bulk OUT endpoint -->/
  *
- * Note that a USB reset (which can be caused by reconnection) is necessary
- * to properly initialize the state of the echo buffer on the device.
+ * Thus, a useful test of the USB software on Tock is to pipe a file of data
+ * through the path show above, and confirm that the output is the same as the input.
+ * The `test.sh` script in this directory does that.
+ *
+ * Note that a USB bus reset (which you can cause by reconnection) may be necessary
+ * to properly initialize the state of the echo buffer on the device before
+ * running this utility.  Passing "-r" as this first argument to this utility
+ * will cause it to perform a bus reset via libusb, but for some reason this
+ * then causes the subsequent libusb_open() call to fail.
  *
  * This utility requires that the cross-platform (Windows, OSX, Linux) library
- * [libusb](http://libusb.info/) is installed on the host machine.
+ * [libusb](http://libusb.info/) is installed on the host machine.  (Tested
+ * with libusb 1.0.22.)
  *
  * NOTE: This code uses libusb interfaces (get_pollfds) not available on Windows.
+ * A less-performant but cross-platform variant of this utility is available in
+ * tools/usb/bulk-echo.
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -62,18 +77,13 @@ static bool input_closed = false;
 void submit_transfers(void);
 void handle_events(void);
 
-/* Uncomment this to generate log messages on stderr */
-/* #define LOGGING 1 */
-
+#ifdef LOGGING
 #define LOG_STRING(msg) "[ buf %4lu | device %s%s | %4lu out, %4lu in ] " msg "\n"
-
 #define LOG_ARGS \
     input_buflen, \
     input_buf_locked ? "w" : " ", \
     reading_in ? "r" : " ", \
     bytes_out, bytes_in
-
-#ifdef LOGGING
 #define log(fmt, ...) \
     fprintf (stderr, LOG_STRING(fmt), LOG_ARGS, ##__VA_ARGS__)
 #else
@@ -231,7 +241,6 @@ void submit_transfers(void) {
 }
 
 void handle_events(void) {
-
     nfds_t nfds = 0;
 
     // Add stdin fd
@@ -251,7 +260,6 @@ void handle_events(void) {
     }
     for (const struct libusb_pollfd **usb_fds = all_usb_fds; *usb_fds != NULL; usb_fds++) {
         const struct libusb_pollfd *pollfd = *usb_fds;
-
         fds[nfds].fd = pollfd->fd;
         fds[nfds].events = pollfd->events;
         fds[nfds].revents = 0;
@@ -290,9 +298,7 @@ void handle_events(void) {
     }
 }
 
-/*
- * An input buffer
- */
+// Read input from stdin
 
 static size_t input_buf_avail(void) {
     return input_bufsz - input_buflen;
