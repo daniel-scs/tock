@@ -48,11 +48,13 @@ static const bool true = 1;
 static size_t bytes_out = 0;
 static size_t bytes_in = 0;
 
-static struct pollfd fds[10];
+static const size_t max_poll_fds = 10;
+static struct pollfd fds[max_poll_fds];
 static const int timeout_never = -1;
 static size_t stdin_fdi;
 
-static const size_t input_bufsz = 100;
+// Choose odd buffer size here to stimulate bugs
+static const size_t input_bufsz = 103;
 static unsigned char input_buf[input_bufsz];
 static size_t input_buflen = 0;
 static size_t input_buf_avail(void);
@@ -181,13 +183,14 @@ void LIBUSB_CALL write_done(struct libusb_transfer *transfer) {
             bytes_out += transfer->actual_length;
             break;
         default:
-            error(1, 0, "bad transfer status: %d", transfer->status);
+            error(1, 0, "bad transfer status: %s", libusb_error_name(transfer->status));
     }
 
     libusb_free_transfer(transfer);
 }
 
-static const size_t return_buf_sz = 64;
+// It seems non-multiples-of-8 cause trouble here ... not sure why
+static const size_t return_buf_sz = 80;
 static unsigned char return_buf[return_buf_sz];
 
 void LIBUSB_CALL read_done(struct libusb_transfer *transfer) {
@@ -200,7 +203,7 @@ void LIBUSB_CALL read_done(struct libusb_transfer *transfer) {
             reading_in = false;
             break;
         default:
-            error(1, 0, "bad transfer status: %d", transfer->status);
+            error(1, 0, "bad transfer status: %s", libusb_error_name(transfer->status));
     }
 
     libusb_free_transfer(transfer);
@@ -246,6 +249,9 @@ void handle_events(void) {
     // Add stdin fd
     bool poll_stdin = !input_closed && !input_buf_locked && input_buf_avail() > 0;
     if (poll_stdin) {
+        if (nfds + 1 > max_poll_fds) {
+          error(1, 0, "too many fds");
+        }
         fds[nfds].fd = 0;
         fds[nfds].events = POLLIN;
         fds[nfds].revents = 0;
@@ -260,6 +266,9 @@ void handle_events(void) {
     }
     for (const struct libusb_pollfd **usb_fds = all_usb_fds; *usb_fds != NULL; usb_fds++) {
         const struct libusb_pollfd *pollfd = *usb_fds;
+        if (nfds + 1 > max_poll_fds) {
+          error(1, 0, "too many fds");
+        }
         fds[nfds].fd = pollfd->fd;
         fds[nfds].events = pollfd->events;
         fds[nfds].revents = 0;

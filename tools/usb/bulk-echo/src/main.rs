@@ -1,34 +1,55 @@
-//! This utility performs a simple test of usb functionality in Tock:
-//! It reads from stdin and writes that data to a Bulk OUT endpoint on
-//! a connected device; when the Tock `usbc_client` capsule echos the
-//! data back through a Bulk IN endpoint, this utility then dumps it
-//! back on stdout.
+//! This testing utility is designed to communicate with a device
+//! running Tock.  In particular, it interacts with the usbc_client
+//! capsule.  The USB controller and the client capsule must be enabled
+//! from userspace; the application in `userland/examples/tests/usb/`
+//! will do this.
+//!
+//! NOTE: A more flexible and performant variant of this utility can be
+//! found in `tools/usb/bulk-echo-fast/`, but does not run on all platforms.
+//! (Notably, not on Windows).  That utility is preferred if you can run it.
+//!
+//! This utility sends its stdin to a Bulk OUT endpoint on the attached
+//! USB device, which then echos all data back to the PC via a
+//! Bulk IN endpoint, and this utility will then send it to stdout:
+//!
+//!   stdin  >___                  ___< Bulk IN endpoint  <--\
+//!              \                /                           | Tock usbc_client
+//!                [this utility]                             | capsule echoes data
+//!   stdout <___/                \___> Bulk OUT endpoint -->/
+//!
+//! Thus, a useful test of the USB software on Tock is to pipe a file of data
+//! through the path show above, and confirm that the output is the same as the input.
+//! The `test.sh` script in this directory does that.
+//!
+//! Note that a USB bus reset (which you can cause by reconnection) may be necessary
+//! to properly initialize the state of the echo buffer on the device before
+//! running this utility.
 //!
 //! This utility depends on the `libusb` crate, which in turn requires
 //! that the cross-platform (Windows, OSX, Linux) library
 //! [libusb](http://libusb.info/) is installed on the host machine.
-//!
-//! To run the test, load the app in `examples/tests/usb` onto a device
-//! running Tock; this app will enable the device's USB controller and
-//! instruct it to respond to requests.
-//!
-//! Then, connect the device to a host machine's USB port and run this
-//! program with something on stdin.
 
 extern crate libusb;
 
 use libusb::*;
 use std::time::Duration;
+#[allow(unused_imports)]
 use std::io::{stdin, stdout, stderr, Read, Write};
 
 const VENDOR_ID: u16 = 0x6667;
 const PRODUCT_ID: u16 = 0xabcd;
 
 macro_rules! debug {
-    [ $( $arg:expr ),+ ] => {{
-        write!(stderr(), $( $arg ),+).expect("write");
-        write!(stderr(), "\n").expect("write");
-    }};
+    [ $( $arg:expr ),+ ] => {
+        {}
+
+        /*
+        {
+            write!(stderr(), $( $arg ),+).expect("write");
+            write!(stderr(), "\n").expect("write");
+        }
+        */
+    };
 }
 
 fn main() {
@@ -55,52 +76,69 @@ fn main() {
     // (Note that an async interface *is* available for the underlying
     // libusb C library.)
 
-    loop {
-        {
-            // Get some input from stdin
-
-            let mut buf = &mut [0; 8];
-            let n = stdin().read(buf).expect("read");
+    let mut input_buf = &mut [0; 8];
+    let mut input_buflen = 0;
+    let mut out_bytes = 0;
+    let mut in_bytes = 0;
+    let mut stdin_closed = false;
+    while !stdin_closed || in_bytes < out_bytes {
+        if input_buflen == 0 {
+            // Fill the buffer from stdin
+            let n = stdin().read(input_buf).expect("read");
             if n == 0 {
-                // End of input
-                break;
+                stdin_closed = true;
+                debug!("[ {} out, {} in] End of input ... waiting to drain device",
+                       out_bytes, in_bytes);
             }
+            else {
+                input_buflen = n;
+            }
+        }
 
+        if input_buflen > 0 {
             // Write it out to the device
-
             let endpoint = 2;
             let address = endpoint | 0 << 7; // OUT endpoint
             let timeout = Duration::from_secs(1);
-            match dh.write_bulk(address, buf, timeout) {
-                Ok(_n) => {} // debug!("Bulk wrote {} bytes", n),
+            match dh.write_bulk(address, &input_buf[0..input_buflen], timeout) {
+                Ok(n) => {
+                    if n != input_buflen {
+                        panic!("short write");
+                    }
+                    debug!("[ {} out, {} in] Bulk wrote {} bytes: {:?}",
+                           out_bytes, in_bytes, n, &input_buf[..n]);
+                    out_bytes += n;
+                    input_buflen = 0;
+                }
                 Err(Error::Timeout) => {
                     debug!("write timeout");
-                    continue;
                 }
                 _ => panic!("write_bulk"),
             }
         }
-        {
-            // Read some data back from the device
 
+        if in_bytes < out_bytes {
+            // Read some data back from the device
             let endpoint = 1;
             let address = endpoint | 1 << 7; // IN endpoint
-            let timeout = Duration::from_secs(1);
+            let timeout = Duration::from_secs(3);
             let mut buf = &mut [0; 8];
-
             match dh.read_bulk(address, buf, timeout) {
                 Ok(n) => {
-                    // debug!("Bulk read  {} bytes: {:?}", n, &buf[..n]),
-                    stdout().write(&buf[..n]).expect("write");
+                    debug!("[ {} out, {} in] Bulk read  {} bytes: {:?}",
+                           out_bytes, in_bytes, n, &buf[..n]);
+                    in_bytes += n;
+
+                    // Send it to stdout
+                    stdout().write_all(&buf[..n]).expect("write");
                 }
                 Err(Error::Timeout) => {
                     debug!("read timeout");
-                    continue;
                 }
                 _ => panic!("read_bulk"),
             }
         }
     }
 
-    println!("Done");
+    debug!("[ {} out, {} in] Done", out_bytes, in_bytes);
 }
