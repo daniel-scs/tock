@@ -1,6 +1,15 @@
 //! A bare-bones client of the USB hardware interface
 //!
+//! This client is intended to facilitate debugging and to serve
+//! as a template for other clients.
+//!
 //! It responds to standard device requests and can be enumerated.
+//!
+//! It exchanges some debugging data when vendor-specific requests
+//! are made to the default control endpoint.
+//!
+//! All data it receives on Bulk IN endpoint 1, it echoes to Bulk
+//! OUT endpoint2.
 
 use core::cell::Cell;
 use core::cmp::min;
@@ -439,6 +448,7 @@ impl<'a, C: UsbController> hil::usb::Client for Client<'a, C> {
 
             BulkOutResult::Ok
         } else {
+            // This is okay, but perhaps useful to log
             debug!("Ignoring zero-length OUT packet");
             BulkOutResult::Ok
         }

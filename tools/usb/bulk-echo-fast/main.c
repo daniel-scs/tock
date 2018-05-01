@@ -209,6 +209,9 @@ void LIBUSB_CALL read_done(struct libusb_transfer *transfer) {
             bytes_in += transfer->actual_length;
             transferring_in = false;
             break;
+        case LIBUSB_TRANSFER_OVERFLOW:
+            error(1, 0, "transfer_overflow: %d requested, %d received",
+                  transfer->length, transfer->actual_length);
         default:
             error(1, 0, "bad transfer-in status: %s", libusb_error_name(transfer->status));
     }
