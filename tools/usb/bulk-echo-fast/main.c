@@ -32,6 +32,7 @@
  * A less-performant but cross-platform variant of this utility is available in
  * tools/usb/bulk-echo.
  */
+
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -52,16 +53,26 @@ static const size_t max_poll_fds = 10;
 static struct pollfd fds[max_poll_fds];
 static const int timeout_never = -1;
 static size_t stdin_fdi;
+static size_t stdout_fdi;
 
-// Choose odd buffer size here to stimulate bugs
+// A buffer to collect stdin for transferring to device
+// (Choose odd buffer size here to stimulate bugs.)
 static const size_t input_bufsz = 103;
 static unsigned char input_buf[input_bufsz];
 static size_t input_buflen = 0;
 static size_t input_buf_avail(void);
-static bool input_buf_locked = false;
+static bool transferring_out = false;
 static size_t read_input(void);
 
-static bool reading_in = false;
+// A buffer to collect data transferred from device,
+// for sending to stdout
+// (It seems non-multiples-of-8 cause trouble here ... not sure why)
+static const size_t return_buf_sz = 80;
+static unsigned char return_buf[return_buf_sz];
+static size_t return_buf_len = 0;
+static size_t return_buf_written = 0;
+static bool transferring_in = false;
+static void write_output(void);
 
 static const uint16_t TARGET_VENDOR_ID = 0x6667;
 static const uint16_t TARGET_PRODUCT_ID = 0xabcd;
@@ -83,8 +94,8 @@ void handle_events(void);
 #define LOG_STRING(msg) "[ buf %4lu | device %s%s | %4lu out, %4lu in ] " msg "\n"
 #define LOG_ARGS \
     input_buflen, \
-    input_buf_locked ? "w" : " ", \
-    reading_in ? "r" : " ", \
+    transferring_out ? "o" : " ", \
+    transferring_in ? "i" : " ", \
     bytes_out, bytes_in
 #define log(fmt, ...) \
     fprintf (stderr, LOG_STRING(fmt), LOG_ARGS, ##__VA_ARGS__)
@@ -174,44 +185,40 @@ void LIBUSB_CALL write_done(struct libusb_transfer *transfer) {
     switch (transfer->status) {
         case LIBUSB_TRANSFER_COMPLETED:
             if (transfer->actual_length != transfer->length) {
-                error(1, 0, "short write");
+                error(1, 0, "short write: library is supposed to send everything?");
             }
             log("Wrote %d bytes to device", transfer->actual_length);
 
             input_buflen = 0;
-            input_buf_locked = false;
+            transferring_out = false;
             bytes_out += transfer->actual_length;
             break;
         default:
-            error(1, 0, "bad transfer status: %s", libusb_error_name(transfer->status));
+            error(1, 0, "bad transfer-out status: %s", libusb_error_name(transfer->status));
     }
 
     libusb_free_transfer(transfer);
 }
-
-// It seems non-multiples-of-8 cause trouble here ... not sure why
-static const size_t return_buf_sz = 80;
-static unsigned char return_buf[return_buf_sz];
 
 void LIBUSB_CALL read_done(struct libusb_transfer *transfer) {
     switch (transfer->status) {
         case LIBUSB_TRANSFER_COMPLETED:
             log("Read %d bytes from device", transfer->actual_length);
 
-            fwrite(return_buf, transfer->actual_length, 1, stdout);
+            return_buf_len += transfer->actual_length;
             bytes_in += transfer->actual_length;
-            reading_in = false;
+            transferring_in = false;
             break;
         default:
-            error(1, 0, "bad transfer status: %s", libusb_error_name(transfer->status));
+            error(1, 0, "bad transfer-in status: %s", libusb_error_name(transfer->status));
     }
 
     libusb_free_transfer(transfer);
 }
 
 void submit_transfers(void) {
-    if (!input_buf_locked && input_buflen > 0) {
-        // Write input buf to device
+    if (!transferring_out && input_buflen > 0) {
+        // Transfer input buf OUT to device
 
         int iso_packets = 0;
         struct libusb_transfer* transfer = libusb_alloc_transfer(iso_packets);
@@ -221,33 +228,47 @@ void submit_transfers(void) {
         log("-> Write %d bytes to device", transfer->length);
 
         // Don't fiddle with input buffer while libusb is trying to send it
-        input_buf_locked = true;
+        transferring_out = true;
 
         if (libusb_submit_transfer(transfer))
             error(1, 0, "submit");
     }
 
-    if (!reading_in) {
-        // Read data back from device
+    size_t return_buf_avail = return_buf_sz - return_buf_len;
+    size_t return_buf_request = (return_buf_avail / 8) * 8;
+    if (!transferring_in && return_buf_request > 0) {
+        // Transfer data back IN from device
+
+        log("-> Transfer in: requesting %ld bytes", return_buf_request);
 
         int iso_packets = 0;
         struct libusb_transfer* transfer = libusb_alloc_transfer(iso_packets);
         libusb_fill_bulk_transfer(transfer, zorp, endpoint_bulk_in,
-                                  return_buf, return_buf_sz, read_done, NULL, 0);
-
-        log("-> Read from device");
+                                  return_buf + return_buf_len, return_buf_request,
+                                  read_done, NULL, 0);
 
         if (libusb_submit_transfer(transfer))
             error(1, 0, "submit");
-        reading_in = true;
+        transferring_in = true;
     }
 }
 
 void handle_events(void) {
     nfds_t nfds = 0;
 
+    // Add stdout fd
+    bool poll_stdout = return_buf_len - return_buf_written > 0;
+    if (nfds + 1 > max_poll_fds) {
+      error(1, 0, "too many fds");
+    }
+    fds[nfds].fd = 1;
+    fds[nfds].events = POLLOUT;
+    fds[nfds].revents = 0;
+    stdout_fdi = nfds;
+    nfds++;
+
     // Add stdin fd
-    bool poll_stdin = !input_closed && !input_buf_locked && input_buf_avail() > 0;
+    bool poll_stdin = !input_closed && input_buf_avail() > 0 && !transferring_out;
     if (poll_stdin) {
         if (nfds + 1 > max_poll_fds) {
           error(1, 0, "too many fds");
@@ -287,6 +308,14 @@ void handle_events(void) {
         error(1, nfds_active, "poll");
     }
 
+    // Check if stdout ready
+    if (poll_stdout) {
+        if (fds[stdout_fdi].revents != 0) {
+            write_output();
+            nfds_active--;
+        }
+    }
+
     // Check if stdin ready
     if (poll_stdin) {
         if (fds[stdin_fdi].revents != 0) {
@@ -322,8 +351,28 @@ static size_t read_input(void) {
     }
     else {
         log("Input %ld bytes", r);
-
         input_buflen += r;
     }
     return r;
 }
+
+// Write output to stdout
+
+static void write_output(void) {
+    size_t to_write = return_buf_len - return_buf_written;
+    ssize_t r = write(1, return_buf + return_buf_written, to_write);
+    if (r < 0) {
+        error(1, r, "write");
+    }
+    else {
+        log("Output %ld bytes", r);
+        return_buf_written += r;
+        if (return_buf_written == return_buf_sz) {
+            // We've written to the end of the buffer;
+            // start again at the front
+            return_buf_len = 0;
+            return_buf_written = 0;
+        }
+    }
+}
+
