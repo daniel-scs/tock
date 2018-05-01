@@ -32,9 +32,9 @@
 extern crate libusb;
 
 use libusb::*;
-use std::time::Duration;
 #[allow(unused_imports)]
-use std::io::{stdin, stdout, stderr, Read, Write};
+use std::io::{stderr, stdin, stdout, Read, Write};
+use std::time::Duration;
 
 const VENDOR_ID: u16 = 0x6667;
 const PRODUCT_ID: u16 = 0xabcd;
@@ -87,10 +87,11 @@ fn main() {
             let n = stdin().read(input_buf).expect("read");
             if n == 0 {
                 stdin_closed = true;
-                debug!("[ {} out, {} in] End of input ... waiting to drain device",
-                       out_bytes, in_bytes);
-            }
-            else {
+                debug!(
+                    "[ {} out, {} in] End of input ... waiting to drain device",
+                    out_bytes, in_bytes
+                );
+            } else {
                 input_buflen = n;
             }
         }
@@ -105,8 +106,13 @@ fn main() {
                     if n != input_buflen {
                         panic!("short write");
                     }
-                    debug!("[ {} out, {} in] Bulk wrote {} bytes: {:?}",
-                           out_bytes, in_bytes, n, &input_buf[..n]);
+                    debug!(
+                        "[ {} out, {} in] Bulk wrote {} bytes: {:?}",
+                        out_bytes,
+                        in_bytes,
+                        n,
+                        &input_buf[..n]
+                    );
                     out_bytes += n;
                     input_buflen = 0;
                 }
@@ -125,8 +131,13 @@ fn main() {
             let mut buf = &mut [0; 8];
             match dh.read_bulk(address, buf, timeout) {
                 Ok(n) => {
-                    debug!("[ {} out, {} in] Bulk read  {} bytes: {:?}",
-                           out_bytes, in_bytes, n, &buf[..n]);
+                    debug!(
+                        "[ {} out, {} in] Bulk read  {} bytes: {:?}",
+                        out_bytes,
+                        in_bytes,
+                        n,
+                        &buf[..n]
+                    );
                     in_bytes += n;
 
                     // Send it to stdout

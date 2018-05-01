@@ -430,14 +430,16 @@ impl<'a> Usbc<'a> {
                 new_endpoint(),
                 new_endpoint(),
             ],
-            requests: [Cell::new(Requests::new()),
-                       Cell::new(Requests::new()),
-                       Cell::new(Requests::new()),
-                       Cell::new(Requests::new()),
-                       Cell::new(Requests::new()),
-                       Cell::new(Requests::new()),
-                       Cell::new(Requests::new()),
-                       Cell::new(Requests::new())],
+            requests: [
+                Cell::new(Requests::new()),
+                Cell::new(Requests::new()),
+                Cell::new(Requests::new()),
+                Cell::new(Requests::new()),
+                Cell::new(Requests::new()),
+                Cell::new(Requests::new()),
+                Cell::new(Requests::new()),
+                Cell::new(Requests::new()),
+            ],
         }
     }
 
@@ -687,7 +689,7 @@ impl<'a> Usbc<'a> {
     }
 
     fn _endpoint_resume(&self, endpoint: usize) {
-        self.map_state(|state| { match *state {
+        self.map_state(|state| match *state {
             State::Active(Mode::Device { ref mut state, .. }) => {
                 let endpoint_state = &mut state.endpoint_states[endpoint];
                 match *endpoint_state {
@@ -705,7 +707,7 @@ impl<'a> Usbc<'a> {
                 }
             }
             _ => debug!("Ignoring inappropriate resume"),
-        }});
+        });
     }
 
     fn handle_requests(&self) {
@@ -1332,12 +1334,10 @@ impl<'a> Usbc<'a> {
                     }
                 }
             }
-            BulkInState::Delay =>
-                internal_err!("*** In::Delay: UDINT={:?}, UECON{}={:?}, UESTA{}={:?}",
-                              UdintFlags(usbc_regs().udint.get()),
-                              endpoint, UeconFlags(usbc_regs().uecon[endpoint].get()),
-                              endpoint, UestaFlags(status.get())),
-                              
+            BulkInState::Delay => {
+                // Endpoint interrupts should be handled already or disabled
+                internal_err!("Not reached");
+            }
         }
     }
 
